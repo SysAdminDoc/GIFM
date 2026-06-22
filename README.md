@@ -8,12 +8,13 @@ GIFM v0.1.0 is a local GIF maker and compressor for Discord-ready animated GIFs.
 
 ## Features
 
-- Discord 10 MB, Nitro 50 MB, and custom target presets.
+- Discord Free 10 MB, Nitro Basic 50 MB, Full Nitro 500 MB, Emoji 256 KB, icon/avatar, and custom target presets.
 - Video-to-GIF conversion from common video files.
 - Existing GIF recompression through the same palette workflow.
 - Trim controls for start time and duration.
 - Auto-fit loop for width, frame rate, color count, and optional duration trimming.
 - Local preview, queued/running progress, cancellable jobs, FFmpeg log, exact output byte count, and download/open-output actions.
+- Output suitability copy that says whether the GIF fits the selected Discord target and which compression lever to try next when it does not.
 
 ## Run Locally
 

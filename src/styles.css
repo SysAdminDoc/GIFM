@@ -114,6 +114,7 @@ button:disabled {
 .brand p,
 .panel-heading p,
 .drop-zone p,
+.profile-note,
 .muted-text,
 .notice {
   color: var(--muted);
@@ -257,6 +258,12 @@ button:disabled {
 .rule {
   height: 1px;
   background: var(--border);
+}
+
+.profile-note {
+  margin: -6px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .toggle-field {

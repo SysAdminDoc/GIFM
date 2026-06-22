@@ -31,7 +31,7 @@ import {
 
 const VERSION = '0.1.0';
 
-type TargetPreset = '10' | '50' | 'custom';
+type TargetPreset = 'free' | 'nitro-basic' | 'nitro' | 'emoji' | 'avatar' | 'custom';
 type DitherMode = 'sierra2_4a' | 'bayer' | 'floyd_steinberg' | 'none';
 type PaletteMode = 'diff' | 'full' | 'single';
 
@@ -89,7 +89,7 @@ type ApiErrorPayload = {
 };
 
 const DEFAULT_SETTINGS: Settings = {
-  targetPreset: '10',
+  targetPreset: 'free',
   targetMb: 10,
   width: 480,
   fps: 15,
@@ -101,6 +101,20 @@ const DEFAULT_SETTINGS: Settings = {
   autoFit: true,
   allowTrim: false
 };
+
+const TARGET_PROFILES: Array<{
+  id: TargetPreset;
+  label: string;
+  targetMb: number;
+  description: string;
+}> = [
+  { id: 'free', label: 'Free 10 MB', targetMb: 10, description: 'Standard account file uploads.' },
+  { id: 'nitro-basic', label: 'Basic 50 MB', targetMb: 50, description: 'Nitro Basic file sharing limit.' },
+  { id: 'nitro', label: 'Nitro 500 MB', targetMb: 500, description: 'Full Nitro file sharing limit.' },
+  { id: 'emoji', label: 'Emoji 256 KB', targetMb: 256 / 1024, description: 'Custom animated emoji upload ceiling.' },
+  { id: 'avatar', label: 'Icon/avatar 10 MB', targetMb: 10, description: 'Square GIF guidance for avatars and server icons.' },
+  { id: 'custom', label: 'Custom', targetMb: 10, description: 'Use a specific byte target.' }
+];
 
 class ErrorBoundary extends Component<PropsWithChildren, { error?: Error }> {
   state: { error?: Error } = {};
@@ -378,12 +392,15 @@ function SettingsPanel({
   };
 
   const setPreset = (preset: TargetPreset) => {
+    const profile = profileFor(preset);
     setSettings((current) => ({
       ...current,
       targetPreset: preset,
-      targetMb: preset === '10' ? 10 : preset === '50' ? 50 : current.targetMb
+      targetMb: preset === 'custom' ? current.targetMb : profile.targetMb
     }));
   };
+
+  const activeProfile = profileFor(settings.targetPreset);
 
   return (
     <aside className="settings-panel" aria-label="Compression settings">
@@ -396,40 +413,30 @@ function SettingsPanel({
       </div>
 
       <div className="preset-grid" role="group" aria-label="Target size preset">
-        <button
-          type="button"
-          className={settings.targetPreset === '10' ? 'selected' : ''}
-          onClick={() => setPreset('10')}
-        >
-          Discord 10 MB
-        </button>
-        <button
-          type="button"
-          className={settings.targetPreset === '50' ? 'selected' : ''}
-          onClick={() => setPreset('50')}
-        >
-          Nitro 50 MB
-        </button>
-        <button
-          type="button"
-          className={settings.targetPreset === 'custom' ? 'selected' : ''}
-          onClick={() => setPreset('custom')}
-        >
-          Custom
-        </button>
+        {TARGET_PROFILES.map((profile) => (
+          <button
+            key={profile.id}
+            type="button"
+            className={settings.targetPreset === profile.id ? 'selected' : ''}
+            onClick={() => setPreset(profile.id)}
+          >
+            {profile.label}
+          </button>
+        ))}
       </div>
 
       <NumberField
         label="Target"
         value={settings.targetMb}
-        min={1}
+        min={0.05}
         max={500}
-        step={0.5}
+        step={settings.targetMb < 1 ? 0.05 : 0.5}
         suffix="MB"
         onChange={(value) => {
           setSettings((current) => ({ ...current, targetMb: value, targetPreset: 'custom' }));
         }}
       />
+      <p className="profile-note">{activeProfile.description}</p>
 
       <div className="rule" />
 
@@ -588,6 +595,7 @@ function PreviewPanel({
                 {formatBytes(job.outputBytes ?? 0)} / {formatBytes(job.targetBytes)}
               </span>
             </div>
+            <p className="muted-text">{outputSuitability(job)}</p>
             <div className="download-grid">
               <a className="primary-button" href={job.downloadUrl} download>
                 <Download aria-hidden="true" />
@@ -690,6 +698,29 @@ function formatRatio(ratio: number) {
   if (!Number.isFinite(ratio) || ratio <= 0) return '-';
   if (ratio < 0.1) return '<0.1x';
   return `${ratio.toFixed(1)}x`;
+}
+
+function profileFor(preset: TargetPreset) {
+  return TARGET_PROFILES.find((profile) => profile.id === preset) ?? TARGET_PROFILES[0];
+}
+
+function outputSuitability(job: Job) {
+  const profile = profileFor(job.settings.targetPreset);
+  if ((job.outputBytes ?? 0) <= job.targetBytes) {
+    return `Fits ${profile.label}. ${profile.description}`;
+  }
+
+  return `Over ${profile.label}. Try ${nextCompressionLever(job)}.`;
+}
+
+function nextCompressionLever(job: Job) {
+  const settings = job.settings;
+  if (settings.width > 360) return 'lower width first';
+  if (settings.fps > 10) return 'lower FPS';
+  if (settings.colors > 64) return 'fewer palette colors';
+  if (!settings.allowTrim && settings.durationSec > 2) return 'enabling duration trim';
+  if (settings.durationSec > 1) return 'a shorter clip';
+  return 'a smaller target profile or simpler source motion';
 }
 
 async function readApiError(response: Response, fallback: string) {

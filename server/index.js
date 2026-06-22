@@ -29,6 +29,14 @@ const jobs = new Map();
 const jobQueue = [];
 let runningJobs = 0;
 const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
+const targetProfiles = {
+  free: 10,
+  'nitro-basic': 50,
+  nitro: 500,
+  emoji: 256 / 1024,
+  avatar: 10,
+  custom: 10
+};
 
 await Promise.all([uploadDir, outputDir, workDir].map((dir) => fs.mkdir(dir, { recursive: true })));
 assertLocalBinding();
@@ -733,8 +741,9 @@ function parseSettings(raw) {
     throw new ApiError(400, 'INVALID_SETTINGS', 'Settings must be valid JSON.');
   }
 
-  const preset = ['10', '50', 'custom'].includes(parsed.targetPreset) ? parsed.targetPreset : '10';
-  const targetMb = clamp(Number(parsed.targetMb ?? (preset === '50' ? 50 : 10)), 1, 500);
+  const preset = normalizeTargetPreset(parsed.targetPreset);
+  const profileTargetMb = targetProfiles[preset] ?? targetProfiles.free;
+  const targetMb = preset === 'custom' ? clamp(Number(parsed.targetMb ?? profileTargetMb), 0.05, 500) : profileTargetMb;
 
   return {
     targetPreset: preset,
@@ -749,6 +758,12 @@ function parseSettings(raw) {
     autoFit: Boolean(parsed.autoFit ?? true),
     allowTrim: Boolean(parsed.allowTrim ?? false)
   };
+}
+
+function normalizeTargetPreset(value) {
+  if (value === '10') return 'free';
+  if (value === '50') return 'nitro-basic';
+  return Object.hasOwn(targetProfiles, value) ? value : 'free';
 }
 
 function nextAttempt({ width, fps, colors, durationSec, outputBytes, targetBytes, allowTrim }) {

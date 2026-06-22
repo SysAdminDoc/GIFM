@@ -4,6 +4,7 @@
 
 - Added upload validation, typed API errors, local-only host guardrails, disk retention limits, and failed-job cleanup.
 - Added a cancellable job queue with configurable concurrency and queue positions.
+- Added expanded Discord target profiles and output suitability guidance.
 - Expanded the smoke test to cover malformed multipart uploads, upload size limits, unsupported content, no-video media, and the successful GIF path.
 - Expanded the smoke test to cover queued and running job cancellation.
 
