@@ -108,6 +108,15 @@ type RecentOutput = {
   completedAt: string;
 };
 
+type BatchJob = {
+  localId: string;
+  inputName: string;
+  inputSize: number;
+  job?: Job;
+  status: 'pending' | 'submitted' | 'failed';
+  error?: string;
+};
+
 type ApiErrorPayload = {
   error?: string | {
     code?: string;
@@ -190,6 +199,8 @@ function GifmApp() {
   const [savedPresets, setSavedPresets] = useState<SavedPreset[]>(() => loadPresets());
   const [recentOutputs, setRecentOutputs] = useState<RecentOutput[]>(() => loadRecentOutputs());
   const [file, setFile] = useState<File | null>(null);
+  const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const [batchJobs, setBatchJobs] = useState<BatchJob[]>([]);
   const [objectUrl, setObjectUrl] = useState<string>('');
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
@@ -281,10 +292,46 @@ function GifmApp() {
   }, [job]);
 
   useEffect(() => {
+    const activeJobs = batchJobs
+      .map((item) => item.job)
+      .filter((item): item is Job => item ? !isTerminalJob(item) : false);
+    if (!activeJobs.length) return undefined;
+
+    const interval = window.setInterval(async () => {
+      const updates = await Promise.all(activeJobs.map((item) => fetchJob(item.id).catch(() => null)));
+      setBatchJobs((current) => current.map((item) => {
+        const nextJob = updates.find((update) => update?.id === item.job?.id);
+        return nextJob ? { ...item, job: nextJob } : item;
+      }));
+      const currentJobUpdate = updates.find((update): update is Job => Boolean(update && update.id === job?.id));
+      if (currentJobUpdate) setJob(currentJobUpdate);
+    }, 800);
+
+    return () => window.clearInterval(interval);
+  }, [batchJobs, job?.id]);
+
+  useEffect(() => {
     if (job?.status !== 'complete' || !job.downloadUrl || !job.outputBytes) return;
     const recent = recentFromJob(job);
     setRecentOutputs((current) => [recent, ...current.filter((item) => item.id !== recent.id)].slice(0, MAX_RECENT_OUTPUTS));
   }, [job?.id, job?.status, job?.downloadUrl, job?.outputBytes]);
+
+  useEffect(() => {
+    const completed = batchJobs
+      .map((item) => item.job)
+      .filter((item): item is Job => Boolean(item?.downloadUrl && item.outputBytes && item.status === 'complete'));
+    if (!completed.length) return;
+
+    setRecentOutputs((current) => {
+      let next = current;
+      for (const completedJob of completed) {
+        if (next.some((item) => item.id === completedJob.id)) continue;
+        const recent = recentFromJob(completedJob);
+        next = [recent, ...next].slice(0, MAX_RECENT_OUTPUTS);
+      }
+      return next;
+    });
+  }, [batchJobs]);
 
   const targetBytes = useMemo(() => settings.targetMb * 1024 * 1024, [settings.targetMb]);
   const originalRatio = useMemo(() => {
@@ -293,24 +340,28 @@ function GifmApp() {
   }, [file, targetBytes]);
 
   const outputFit = job?.outputBytes ? job.outputBytes <= job.targetBytes : false;
-  const canStart = Boolean(file) && !busy && job?.status !== 'running' && job?.status !== 'queued';
+  const canStart = batchFiles.length > 0 && !busy && job?.status !== 'running' && job?.status !== 'queued';
   const canCancel = job?.status === 'queued' || job?.status === 'running';
 
-  const chooseFile = useCallback((nextFile?: File) => {
+  const chooseFiles = useCallback((nextFiles?: FileList | File[]) => {
+    const files = Array.from(nextFiles ?? []);
+    const nextFile = files[0];
     if (!nextFile) return;
     setFile(nextFile);
+    setBatchFiles(files);
+    setBatchJobs([]);
     setJob(null);
-    setNotice(`${nextFile.name} loaded`);
+    setNotice(files.length > 1 ? `${files.length} files loaded` : `${nextFile.name} loaded`);
   }, []);
 
   const onFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    chooseFile(event.currentTarget.files?.[0]);
+    chooseFiles(event.currentTarget.files ?? undefined);
   };
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragActive(false);
-    chooseFile(event.dataTransfer.files?.[0]);
+    chooseFiles(event.dataTransfer.files);
   };
 
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -320,27 +371,47 @@ function GifmApp() {
 
   const startEncoding = async (event: FormEvent) => {
     event.preventDefault();
-    if (!file) return;
+    if (!batchFiles.length) return;
 
     setBusy(true);
-    setNotice('Encoding started');
+    setNotice(batchFiles.length > 1 ? `Submitting ${batchFiles.length} jobs` : 'Encoding started');
+    const queuedItems = batchFiles.map((item) => ({
+      localId: crypto.randomUUID(),
+      inputName: item.name,
+      inputSize: item.size,
+      status: 'pending' as const
+    }));
+    setBatchJobs(queuedItems);
 
     try {
-      const body = new FormData();
-      body.set('media', file);
-      body.set('settings', JSON.stringify(settings));
+      let firstJob: Job | null = null;
+      for (let index = 0; index < batchFiles.length; index += 1) {
+        const nextFile = batchFiles[index];
+        const localId = queuedItems[index].localId;
+        const body = new FormData();
+        body.set('media', nextFile);
+        body.set('settings', JSON.stringify(settings));
 
-      const response = await fetch('/api/jobs', {
-        method: 'POST',
-        body
-      });
+        const response = await fetch('/api/jobs', {
+          method: 'POST',
+          body
+        });
 
-      if (!response.ok) {
-        throw new Error(await readApiError(response, `Encoding failed to start (${response.status})`));
+        if (!response.ok) {
+          const message = await readApiError(response, `Encoding failed to start (${response.status})`);
+          setBatchJobs((current) => current.map((item) => item.localId === localId ? { ...item, status: 'failed', error: message } : item));
+          continue;
+        }
+
+        const nextJob = (await response.json()) as Job;
+        setBatchJobs((current) => current.map((item) => item.localId === localId ? { ...item, status: 'submitted', job: nextJob } : item));
+        if (!firstJob) {
+          firstJob = nextJob;
+          setJob(nextJob);
+        }
       }
 
-      const nextJob = (await response.json()) as Job;
-      setJob(nextJob);
+      setNotice(firstJob ? 'Jobs submitted' : 'No jobs were submitted');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Encoding failed to start');
     } finally {
@@ -365,6 +436,19 @@ function GifmApp() {
 
     const nextJob = (await response.json()) as Job;
     setJob(nextJob);
+    setNotice('Job cancelled');
+  };
+
+  const cancelBatchJob = async (id: string) => {
+    const response = await fetch(`/api/jobs/${id}/cancel`, { method: 'POST' });
+    if (!response.ok) {
+      setNotice(await readApiError(response, 'Cancel failed'));
+      return;
+    }
+
+    const nextJob = (await response.json()) as Job;
+    setBatchJobs((current) => current.map((item) => item.job?.id === nextJob.id ? { ...item, job: nextJob } : item));
+    if (job?.id === nextJob.id) setJob(nextJob);
     setNotice('Job cancelled');
   };
 
@@ -410,7 +494,7 @@ function GifmApp() {
         </div>
         <div className="topbar-status" aria-live="polite">
           <Gauge aria-hidden="true" />
-          <span>{file ? `${formatBytes(file.size)} source` : 'Ready for video or GIF'}</span>
+          <span>{batchFiles.length > 1 ? `${batchFiles.length} files selected` : file ? `${formatBytes(file.size)} source` : 'Ready for video or GIF'}</span>
         </div>
       </header>
 
@@ -434,6 +518,7 @@ function GifmApp() {
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               accept="video/*,.gif,image/gif"
               onChange={onFileChange}
               aria-label="Choose video or GIF file"
@@ -487,6 +572,8 @@ function GifmApp() {
               disabled={!file}
               onClick={() => {
                 setFile(null);
+                setBatchFiles([]);
+                setBatchJobs([]);
                 setJob(null);
                 setNotice('Selection cleared');
               }}
@@ -500,6 +587,7 @@ function GifmApp() {
           </div>
 
           <ProgressPanel job={job} />
+          <BatchQueue jobs={batchJobs} onSelectJob={setJob} onRevealJob={revealRecentOutput} onCancelJob={cancelBatchJob} />
           <LogPanel job={job} />
         </section>
 
@@ -579,7 +667,7 @@ function SettingsPanel({
         value={settings.targetMb}
         min={0.05}
         max={500}
-        step={settings.targetMb < 1 ? 0.05 : 0.5}
+        step={0.01}
         suffix="MB"
         onChange={(value) => {
           setSettings((current) => ({ ...current, targetMb: value, targetPreset: 'custom' }));
@@ -738,6 +826,60 @@ function ToggleField({
         <small>{description}</small>
       </span>
     </label>
+  );
+}
+
+function BatchQueue({
+  jobs,
+  onSelectJob,
+  onRevealJob,
+  onCancelJob
+}: {
+  jobs: BatchJob[];
+  onSelectJob: (job: Job) => void;
+  onRevealJob: (id: string) => void;
+  onCancelJob: (id: string) => void;
+}) {
+  if (!jobs.length) return null;
+
+  return (
+    <section className="batch-panel" aria-label="Batch queue">
+      <div className="output-title">
+        <h3>Batch queue</h3>
+      </div>
+      <div className="batch-list">
+        {jobs.map((item) => {
+          const itemJob = item.job;
+          const canCancelItem = itemJob?.status === 'queued' || itemJob?.status === 'running';
+          return (
+            <div key={item.localId} className="batch-row">
+              <button type="button" className="batch-main" disabled={!itemJob} onClick={() => itemJob && onSelectJob(itemJob)}>
+                <strong>{item.inputName}</strong>
+                <span>{batchStatus(item)}</span>
+              </button>
+              <span>{itemJob?.attempts.length ?? 0} attempts</span>
+              <span>{itemJob?.outputBytes ? `${formatBytes(itemJob.outputBytes)} / ${formatBytes(itemJob.targetBytes)}` : formatBytes(item.inputSize)}</span>
+              <div>
+                {itemJob?.status === 'complete' && itemJob.downloadUrl ? (
+                  <>
+                    <a className="secondary-button" href={itemJob.downloadUrl} download>
+                      Download
+                    </a>
+                    <button type="button" className="secondary-button" onClick={() => onRevealJob(itemJob.id)}>
+                      Open
+                    </button>
+                  </>
+                ) : canCancelItem ? (
+                  <button type="button" className="secondary-button" onClick={() => onCancelJob(itemJob.id)}>
+                    Cancel
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1053,6 +1195,24 @@ async function readApiError(response: Response, fallback: string) {
   const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
   if (typeof payload?.error === 'string') return payload.error;
   return payload?.error?.message ?? fallback;
+}
+
+async function fetchJob(id: string) {
+  const response = await fetch(`/api/jobs/${id}`);
+  if (!response.ok) {
+    throw new Error(await readApiError(response, `Status check failed (${response.status})`));
+  }
+  return response.json() as Promise<Job>;
+}
+
+function batchStatus(item: BatchJob) {
+  if (item.error) return item.error;
+  if (!item.job) return item.status === 'failed' ? 'Failed to submit' : 'Pending';
+  if (item.job.status === 'queued') return `Queued #${item.job.queuePosition ?? 1}`;
+  if (item.job.status === 'running') return item.job.stage;
+  if (item.job.status === 'complete') return 'Complete';
+  if (item.job.status === 'cancelled') return 'Cancelled';
+  return item.job.error ?? 'Failed';
 }
 
 function isTerminalJob(job: Job) {

@@ -8,6 +8,7 @@
 - Added target-fit attempt strategies for duplicate-frame removal, nth-frame dropping, transparency rectangle optimization, and larger-than-source GIF rejection.
 - Added local source probing plus a visual trim timeline with current-preview start/end controls.
 - Added persisted settings, named presets, and recent output shortcuts.
+- Added multi-file batch submission with per-file queue status, attempts, cancel, download, and reveal actions.
 - Expanded the smoke test to cover malformed multipart uploads, upload size limits, unsupported content, no-video media, and the successful GIF path.
 - Expanded the smoke test to cover queued and running job cancellation.
 

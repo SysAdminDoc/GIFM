@@ -456,7 +456,8 @@ button:disabled {
 .log-panel,
 .output-box,
 .attempt-box,
-.trim-panel {
+.trim-panel,
+.batch-panel {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-soft);
@@ -764,6 +765,70 @@ button:disabled {
   font-size: 12px;
 }
 
+.batch-panel {
+  overflow: hidden;
+}
+
+.batch-list {
+  display: grid;
+  gap: 1px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--border);
+}
+
+.batch-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.8fr) 0.8fr 1.1fr minmax(92px, auto);
+  gap: 8px;
+  align-items: center;
+  padding: 9px 10px;
+  background: var(--surface-soft);
+  color: var(--muted-strong);
+  font-size: 12px;
+}
+
+.batch-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.batch-main strong,
+.batch-main span,
+.batch-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-main strong {
+  color: var(--text);
+}
+
+.batch-main span,
+.batch-row > span {
+  color: var(--muted);
+}
+
+.batch-row > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.batch-row .secondary-button {
+  min-height: 32px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
 .muted-text {
   font-size: 13px;
 }
@@ -839,6 +904,10 @@ button:disabled {
 
   .attempt-row {
     grid-template-columns: 34px 1fr 1fr;
+  }
+
+  .batch-row {
+    grid-template-columns: 1fr 1fr;
   }
 
   .preset-actions {
