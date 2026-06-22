@@ -1,10 +1,10 @@
 # GIFM
 
-![Version](https://img.shields.io/badge/version-v0.1.0-4ecdc4)
+![Version](https://img.shields.io/badge/version-v0.2.0-4ecdc4)
 ![License](https://img.shields.io/badge/license-MIT-b7e35f)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-ffbd5b)
 
-GIFM v0.1.0 is a local GIF maker and compressor for Discord-ready animated GIFs. It converts MP4, MOV, WebM, AVI, MKV, and existing GIF files with bundled FFmpeg, then retries width, FPS, and palette settings until the output fits the selected target.
+GIFM v0.2.0 is a local GIF maker and compressor for Discord-ready animated GIFs. It converts MP4, MOV, WebM, AVI, MKV, and existing GIF files with bundled FFmpeg, then retries width, FPS, and palette settings until the output fits the selected target.
 
 ## Features
 
@@ -12,6 +12,8 @@ GIFM v0.1.0 is a local GIF maker and compressor for Discord-ready animated GIFs.
 - Video-to-GIF conversion from common video files.
 - Existing GIF recompression through the same palette workflow.
 - Multi-file batch submission through the same local queue and current preset.
+- Timeline editor for long videos with exact timecodes, playhead start/end marking, saved GIF cuts, and export-one/export-all actions.
+- Prepared source sessions so one long video can be staged once and reused for many GIF cuts without re-uploading it each time.
 - Visual trim timeline with source duration, resolution, FPS, codec, and rotation metadata.
 - Browser-side metadata/frame preflight for supported files, with automatic FFprobe fallback when local preview decode is unavailable.
 - Auto-fit loop for width, frame rate, color count, duplicate-frame removal, nth-frame dropping, transparency rectangles, and optional duration trimming.
@@ -81,13 +83,13 @@ The Encoder setting then exposes `gifski` beside the default FFmpeg palette enco
 
 ## Local Safety Controls
 
-GIFM binds to `127.0.0.1` by default and rejects non-local hosts unless `GIFM_ALLOW_REMOTE=1` is set on a trusted network. Uploads are limited to 2 GB by default and are checked before FFmpeg runs.
+GIFM binds to `127.0.0.1` by default and rejects non-local hosts unless `GIFM_ALLOW_REMOTE=1` is set on a trusted network. Uploads are limited to 20 GB by default and are checked before FFmpeg runs.
 
 Optional environment controls:
 
 ```powershell
-$env:GIFM_MAX_UPLOAD_MB = "2048"
-$env:GIFM_DATA_MAX_MB = "5120"
+$env:GIFM_MAX_UPLOAD_MB = "20480"
+$env:GIFM_DATA_MAX_MB = "25600"
 $env:GIFM_DATA_MAX_AGE_HOURS = "24"
 $env:GIFM_MAX_CONCURRENT_JOBS = "1"
 $env:GIFM_OUTPUT_DIR = "D:\GIFM-output"

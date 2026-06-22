@@ -9,8 +9,10 @@ import {
   MonitorDown,
   Play,
   RotateCcw,
+  Scissors,
   Settings2,
   Terminal,
+  Trash2,
   UploadCloud,
   Video,
   Wand2
@@ -24,6 +26,7 @@ import {
   type PropsWithChildren,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState
@@ -31,7 +34,7 @@ import {
 import { probeClientMedia } from './clientPreflight';
 import { STRINGS } from './strings';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const TARGET_PROFILES = STRINGS.target.profiles;
 
 type TargetPreset = typeof TARGET_PROFILES[number]['id'];
@@ -130,6 +133,9 @@ type HealthInfo = {
     arch: string;
     node: string;
   };
+  maxUploadBytes?: number;
+  maxTrimStartSec?: number;
+  preparedSources?: number;
 };
 
 type SavedPreset = {
@@ -155,6 +161,29 @@ type BatchJob = {
   job?: Job;
   status: 'pending' | 'submitted' | 'failed';
   error?: string;
+};
+
+type SourceSession = {
+  id: string;
+  inputName: string;
+  inputSize: number;
+  sourceKind: string;
+  createdAt: string;
+  lastUsedAt: string;
+  durationSec: number | null;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  codec: string;
+  rotation: number;
+};
+
+type TimelineClip = {
+  id: string;
+  name: string;
+  startSec: number;
+  durationSec: number;
+  createdAt: string;
 };
 
 type SavePickerWindow = Window & {
@@ -199,6 +228,7 @@ const SETTINGS_KEY = 'gifm:settings:v1';
 const PRESETS_KEY = 'gifm:presets:v1';
 const RECENTS_KEY = 'gifm:recents:v1';
 const MAX_RECENT_OUTPUTS = 8;
+const MAX_TRIM_START_SEC = 24 * 60 * 60;
 
 class ErrorBoundary extends Component<PropsWithChildren, { error?: Error }> {
   state: { error?: Error } = {};
@@ -251,9 +281,14 @@ function GifmApp() {
   const [notice, setNotice] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [sourceMeta, setSourceMeta] = useState<SourceMeta | null>(null);
+  const [sourceSession, setSourceSession] = useState<SourceSession | null>(null);
+  const [sourceBusy, setSourceBusy] = useState(false);
+  const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
+  const [selectedClipId, setSelectedClipId] = useState('');
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [probeBusy, setProbeBusy] = useState(false);
   const [previewTime, setPreviewTime] = useState(0);
+  const [previewSeekTime, setPreviewSeekTime] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -289,7 +324,11 @@ function GifmApp() {
   useEffect(() => {
     if (!file) {
       setSourceMeta(null);
+      setSourceSession(null);
+      setTimelineClips([]);
+      setSelectedClipId('');
       setPreviewTime(0);
+      setPreviewSeekTime(null);
       return undefined;
     }
     if (!objectUrl) return undefined;
@@ -415,6 +454,11 @@ function GifmApp() {
     setBatchFiles(files);
     setBatchJobs([]);
     setJob(null);
+    setSourceSession(null);
+    setTimelineClips([]);
+    setSelectedClipId('');
+    setPreviewTime(0);
+    setPreviewSeekTime(null);
     setNotice(files.length > 1 ? STRINGS.notices.filesLoaded(files.length) : STRINGS.notices.fileLoaded(nextFile.name));
   }, []);
 
@@ -433,13 +477,11 @@ function GifmApp() {
     setDragActive(true);
   };
 
-  const startEncoding = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!batchFiles.length) return;
-
+  const submitUploadedFiles = async (filesToSubmit: File[], settingsForJob: Settings, noticeText: string) => {
+    if (!filesToSubmit.length) return;
     setBusy(true);
-    setNotice(batchFiles.length > 1 ? STRINGS.notices.submittingJobs(batchFiles.length) : STRINGS.notices.encodingStarted);
-    const queuedItems = batchFiles.map((item) => ({
+    setNotice(noticeText);
+    const queuedItems = filesToSubmit.map((item) => ({
       localId: crypto.randomUUID(),
       inputName: item.name,
       inputSize: item.size,
@@ -449,12 +491,12 @@ function GifmApp() {
 
     try {
       let firstJob: Job | null = null;
-      for (let index = 0; index < batchFiles.length; index += 1) {
-        const nextFile = batchFiles[index];
+      for (let index = 0; index < filesToSubmit.length; index += 1) {
+        const nextFile = filesToSubmit[index];
         const localId = queuedItems[index].localId;
         const body = new FormData();
         body.set('media', nextFile);
-        body.set('settings', JSON.stringify(settings));
+        body.set('settings', JSON.stringify(settingsForJob));
 
         const response = await fetch('/api/jobs', {
           method: 'POST',
@@ -476,6 +518,132 @@ function GifmApp() {
       }
 
       setNotice(firstJob ? STRINGS.notices.jobsSubmitted : STRINGS.notices.noJobsSubmitted);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : STRINGS.errors.encodeStartFailed);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEncoding = async (event: FormEvent) => {
+    event.preventDefault();
+    await submitUploadedFiles(
+      batchFiles,
+      settings,
+      batchFiles.length > 1 ? STRINGS.notices.submittingJobs(batchFiles.length) : STRINGS.notices.encodingStarted
+    );
+  };
+
+  const prepareSource = async () => {
+    if (!file) throw new Error(STRINGS.errors.noSourceFile);
+    if (sourceSession && sourceSession.inputName === file.name && sourceSession.inputSize === file.size) {
+      return sourceSession;
+    }
+
+    setSourceBusy(true);
+    setNotice(STRINGS.notices.preparingSource(file.name));
+    try {
+      const body = new FormData();
+      body.set('media', file);
+      const response = await fetch('/api/sources', { method: 'POST', body });
+      if (!response.ok) {
+        throw new Error(await readApiError(response, `${STRINGS.errors.sourcePrepareFailed} (${response.status})`));
+      }
+
+      const prepared = (await response.json()) as SourceSession;
+      setSourceSession(prepared);
+      setSourceMeta((current) => current ?? {
+        durationSec: prepared.durationSec,
+        width: prepared.width,
+        height: prepared.height,
+        fps: prepared.fps,
+        codec: prepared.codec,
+        rotation: prepared.rotation,
+        probeSource: 'server',
+        frameSampled: false
+      });
+      setNotice(STRINGS.notices.sourcePrepared(prepared.inputName));
+      return prepared;
+    } finally {
+      setSourceBusy(false);
+    }
+  };
+
+  const addTimelineClip = () => {
+    if (!file) return;
+    const clip = makeTimelineClip(timelineClips.length + 1, settings);
+    setTimelineClips((current) => [...current, clip]);
+    setSelectedClipId(clip.id);
+    setNotice(STRINGS.notices.clipAdded(clip.name));
+  };
+
+  const updateTimelineClip = (id: string) => {
+    const clip = timelineClips.find((item) => item.id === id);
+    if (!clip) return;
+    setTimelineClips((current) => current.map((item) => item.id === id ? {
+      ...item,
+      startSec: Number(settings.startSec.toFixed(2)),
+      durationSec: Number(settings.durationSec.toFixed(2))
+    } : item));
+    setNotice(STRINGS.notices.clipUpdated(clip.name));
+  };
+
+  const applyTimelineClip = (clip: TimelineClip) => {
+    setSettings((current) => clipSettings(current, clip));
+    setSelectedClipId(clip.id);
+    setPreviewSeekTime(clip.startSec);
+    setNotice(STRINGS.notices.clipLoaded(clip.name));
+  };
+
+  const deleteTimelineClip = (id: string) => {
+    const clip = timelineClips.find((item) => item.id === id);
+    setTimelineClips((current) => current.filter((item) => item.id !== id));
+    if (selectedClipId === id) setSelectedClipId('');
+    if (clip) setNotice(STRINGS.notices.clipDeleted(clip.name));
+  };
+
+  const exportTimelineClips = async (clipsToExport: TimelineClip[]) => {
+    if (!clipsToExport.length || !file) return;
+    setBusy(true);
+    try {
+      const prepared = await prepareSource();
+      setNotice(STRINGS.notices.submittingClips(clipsToExport.length));
+      const queuedItems = clipsToExport.map((clip) => ({
+        localId: crypto.randomUUID(),
+        inputName: `${prepared.inputName} - ${clip.name}`,
+        inputSize: prepared.inputSize,
+        status: 'pending' as const
+      }));
+      setBatchJobs(queuedItems);
+
+      let firstJob: Job | null = null;
+      for (let index = 0; index < clipsToExport.length; index += 1) {
+        const clip = clipsToExport[index];
+        const localId = queuedItems[index].localId;
+        const response = await fetch(`/api/sources/${prepared.id}/jobs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clipName: clip.name,
+            settings: clipSettings(settings, clip)
+          })
+        });
+
+        if (!response.ok) {
+          const message = await readApiError(response, `${STRINGS.errors.encodeStartFailed} (${response.status})`);
+          setBatchJobs((current) => current.map((item) => item.localId === localId ? { ...item, status: 'failed', error: message } : item));
+          continue;
+        }
+
+        const nextJob = (await response.json()) as Job;
+        setBatchJobs((current) => current.map((item) => item.localId === localId ? { ...item, status: 'submitted', job: nextJob } : item));
+        if (!firstJob) {
+          firstJob = nextJob;
+          setJob(nextJob);
+        }
+      }
+
+      setNotice(firstJob ? STRINGS.notices.clipJobsSubmitted : STRINGS.notices.noJobsSubmitted);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : STRINGS.errors.encodeStartFailed);
     } finally {
@@ -655,12 +823,27 @@ function GifmApp() {
             <StatusTile label={STRINGS.input.queue} value={queueLabel(job)} tone={job?.status === 'queued' ? 'amber' : 'muted'} />
           </div>
 
-          <TrimTimeline
+          <TimelineEditor
             settings={settings}
             setSettings={setSettings}
             sourceMeta={sourceMeta}
             probeBusy={probeBusy}
             previewTime={previewTime}
+            onSeekPreview={setPreviewSeekTime}
+            clips={timelineClips}
+            selectedClipId={selectedClipId}
+            onAddClip={addTimelineClip}
+            onUpdateClip={updateTimelineClip}
+            onApplyClip={applyTimelineClip}
+            onDeleteClip={deleteTimelineClip}
+            onExportClip={(clip) => exportTimelineClips([clip])}
+            onExportAll={() => exportTimelineClips(timelineClips)}
+            onPrepareSource={() => {
+              void prepareSource().catch((error) => setNotice(error instanceof Error ? error.message : STRINGS.errors.sourcePrepareFailed));
+            }}
+            sourceSession={sourceSession}
+            sourceBusy={sourceBusy}
+            exportBusy={busy}
           />
 
           <div className="action-row">
@@ -687,6 +870,11 @@ function GifmApp() {
                 setBatchFiles([]);
                 setBatchJobs([]);
                 setJob(null);
+                setSourceSession(null);
+                setTimelineClips([]);
+                setSelectedClipId('');
+                setPreviewTime(0);
+                setPreviewSeekTime(null);
                 setNotice(STRINGS.notices.selectionCleared);
               }}
             >
@@ -713,6 +901,7 @@ function GifmApp() {
           onSaveAs={saveOutputAs}
           onCopyText={copyText}
           onPreviewTime={setPreviewTime}
+          previewSeekTime={previewSeekTime}
           recentOutputs={recentOutputs}
           onRevealRecent={revealRecentOutput}
           onClearRecent={() => {
@@ -800,7 +989,7 @@ function SettingsPanel({
       <SettingsSection title={STRINGS.settings.sections.clip.title} description={STRINGS.settings.sections.clip.description}>
         <NumberField label={STRINGS.settings.width} value={settings.width} min={160} max={1280} step={20} suffix={STRINGS.settings.units.px} onChange={(value) => update('width', value)} />
         <NumberField label={STRINGS.settings.fps} value={settings.fps} min={5} max={30} step={1} suffix={STRINGS.settings.units.fps} onChange={(value) => update('fps', value)} />
-        <NumberField label={STRINGS.settings.start} value={settings.startSec} min={0} max={7200} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('startSec', value)} />
+        <NumberField label={STRINGS.settings.start} value={settings.startSec} min={0} max={health?.maxTrimStartSec ?? MAX_TRIM_START_SEC} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('startSec', value)} />
         <NumberField label={STRINGS.settings.duration} value={settings.durationSec} min={0.5} max={60} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('durationSec', value)} />
       </SettingsSection>
 
@@ -942,7 +1131,8 @@ function NumberField({
   suffix: string;
   onChange: (value: number) => void;
 }) {
-  const id = label.toLowerCase().replace(/\s+/g, '-');
+  const generatedId = useId();
+  const id = `${label.toLowerCase().replace(/\s+/g, '-')}-${generatedId}`;
   return (
     <label className="number-field" htmlFor={id}>
       <span>{label}</span>
@@ -1044,22 +1234,53 @@ function BatchQueue({
   );
 }
 
-function TrimTimeline({
+function TimelineEditor({
   settings,
   setSettings,
   sourceMeta,
   probeBusy,
-  previewTime
+  previewTime,
+  onSeekPreview,
+  clips,
+  selectedClipId,
+  onAddClip,
+  onUpdateClip,
+  onApplyClip,
+  onDeleteClip,
+  onExportClip,
+  onExportAll,
+  onPrepareSource,
+  sourceSession,
+  sourceBusy,
+  exportBusy
 }: {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   sourceMeta: SourceMeta | null;
   probeBusy: boolean;
   previewTime: number;
+  onSeekPreview: (seconds: number) => void;
+  clips: TimelineClip[];
+  selectedClipId: string;
+  onAddClip: () => void;
+  onUpdateClip: (id: string) => void;
+  onApplyClip: (clip: TimelineClip) => void;
+  onDeleteClip: (id: string) => void;
+  onExportClip: (clip: TimelineClip) => void;
+  onExportAll: () => void;
+  onPrepareSource: () => void;
+  sourceSession: SourceSession | null;
+  sourceBusy: boolean;
+  exportBusy: boolean;
 }) {
   const duration = Math.max(0.5, sourceMeta?.durationSec ?? settings.startSec + settings.durationSec);
   const start = clampNumber(settings.startSec, 0, Math.max(0, duration - 0.5));
   const end = clampNumber(settings.startSec + settings.durationSec, start + 0.5, duration);
+  const selectedClip = clips.find((clip) => clip.id === selectedClipId);
+  const playhead = clampNumber(previewTime, 0, duration);
+  const rangeLeft = `${(start / duration) * 100}%`;
+  const rangeWidth = `${Math.max(0.2, ((end - start) / duration) * 100)}%`;
+  const playheadLeft = `${(playhead / duration) * 100}%`;
 
   const setStart = (value: number) => {
     setSettings((current) => {
@@ -1076,42 +1297,121 @@ function TrimTimeline({
     });
   };
 
+  const setStartAndSeek = (value: number) => {
+    setStart(value);
+    onSeekPreview(value);
+  };
+
+  const setEndAndSeek = (value: number) => {
+    setEnd(value);
+    onSeekPreview(value);
+  };
+
+  const setTimecodeStart = (value: number) => {
+    setStartAndSeek(value);
+  };
+
+  const setTimecodeEnd = (value: number) => {
+    setEndAndSeek(value);
+  };
+
   return (
-    <section className={`trim-panel${probeBusy ? ' is-loading' : ''}`} aria-label={STRINGS.trim.aria} aria-busy={probeBusy}>
-      <div className="trim-head">
-        <strong>{probeBusy ? STRINGS.trim.probing : STRINGS.trim.title}</strong>
-        <span>
-          {formatSeconds(start)} - {formatSeconds(end)} / {formatSeconds(duration)}
-        </span>
+    <section className={`timeline-editor${probeBusy ? ' is-loading' : ''}`} aria-label={STRINGS.timeline.aria} aria-busy={probeBusy}>
+      <div className="timeline-head">
+        <div className="output-title">
+          <Scissors aria-hidden="true" />
+          <h3>{probeBusy ? STRINGS.trim.probing : STRINGS.timeline.title}</h3>
+        </div>
+        <div className="timeline-summary">
+          <strong>{formatTimecode(start)} - {formatTimecode(end)}</strong>
+          <span>{STRINGS.timeline.durationLabel(formatTimecode(end - start), formatTimecode(duration))}</span>
+        </div>
       </div>
-      <div className="range-stack">
-        <input
-          type="range"
-          min={0}
-          max={duration}
-          step={0.05}
-          value={start}
-          onChange={(event) => setStart(Number(event.currentTarget.value))}
-          aria-label={STRINGS.trim.startAria}
-        />
-        <input
-          type="range"
-          min={0}
-          max={duration}
-          step={0.05}
-          value={end}
-          onChange={(event) => setEnd(Number(event.currentTarget.value))}
-          aria-label={STRINGS.trim.endAria}
+
+      <div className="timeline-rail-wrap">
+        <div className="timeline-rail" aria-hidden="true">
+          <span className="timeline-selected" style={{ left: rangeLeft, width: rangeWidth }} />
+          <span className="timeline-playhead" style={{ left: playheadLeft }} />
+          {clips.map((clip) => (
+            <span
+              key={clip.id}
+              className={`timeline-marker${clip.id === selectedClipId ? ' selected' : ''}`}
+              style={{
+                left: `${(clip.startSec / duration) * 100}%`,
+                width: `${Math.max(0.2, (clip.durationSec / duration) * 100)}%`
+              }}
+              title={`${clip.name}: ${formatTimecode(clip.startSec)} - ${formatTimecode(clip.startSec + clip.durationSec)}`}
+            />
+          ))}
+        </div>
+        <div className="timeline-scale">
+          <span>{formatTimecode(0)}</span>
+          <span>{STRINGS.timeline.playhead(formatTimecode(playhead))}</span>
+          <span>{formatTimecode(duration)}</span>
+        </div>
+      </div>
+
+      <div className="timeline-range-grid">
+        <label>
+          <span>{STRINGS.trim.startAria}</span>
+          <input
+            type="range"
+            min={0}
+            max={duration}
+            step={0.05}
+            value={start}
+            onChange={(event) => setStartAndSeek(Number(event.currentTarget.value))}
+            aria-label={STRINGS.trim.startAria}
+          />
+        </label>
+        <label>
+          <span>{STRINGS.trim.endAria}</span>
+          <input
+            type="range"
+            min={0}
+            max={duration}
+            step={0.05}
+            value={end}
+            onChange={(event) => setEndAndSeek(Number(event.currentTarget.value))}
+            aria-label={STRINGS.trim.endAria}
+          />
+        </label>
+      </div>
+
+      <div className="timecode-grid">
+        <TimecodeField label={STRINGS.settings.start} value={start} max={Math.max(0, end - 0.5)} onChange={setTimecodeStart} />
+        <TimecodeField label={STRINGS.trim.end} value={end} min={start + 0.5} max={duration} onChange={setTimecodeEnd} />
+        <NumberField
+          label={STRINGS.settings.duration}
+          value={Number((end - start).toFixed(2))}
+          min={0.5}
+          max={60}
+          step={0.25}
+          suffix={STRINGS.settings.units.seconds}
+          onChange={(value) => setEnd(start + value)}
         />
       </div>
-      <div className="trim-actions">
-        <button type="button" className="secondary-button" disabled={!sourceMeta} onClick={() => setStart(previewTime)}>
+
+      <div className="timeline-actions">
+        <button type="button" className="secondary-button" disabled={!sourceMeta} onClick={() => setStartAndSeek(previewTime)}>
           {STRINGS.trim.useCurrentStart}
         </button>
-        <button type="button" className="secondary-button" disabled={!sourceMeta} onClick={() => setEnd(previewTime)}>
+        <button type="button" className="secondary-button" disabled={!sourceMeta} onClick={() => setEndAndSeek(previewTime)}>
           {STRINGS.trim.useCurrentEnd}
         </button>
+        <button type="button" className="secondary-button" disabled={!sourceMeta} onClick={() => onSeekPreview(start)}>
+          <Play aria-hidden="true" />
+          {STRINGS.timeline.previewStart}
+        </button>
+        <button type="button" className="secondary-button" disabled={!sourceMeta} onClick={onAddClip}>
+          <Scissors aria-hidden="true" />
+          {STRINGS.timeline.addClip}
+        </button>
+        <button type="button" className="secondary-button" disabled={!selectedClip} onClick={() => selectedClip && onUpdateClip(selectedClip.id)}>
+          {STRINGS.timeline.updateClip}
+        </button>
       </div>
+
       <div className="metadata-grid" aria-label={STRINGS.trim.metadataAria}>
         <span>
           {STRINGS.trim.duration} <strong>{sourceMeta?.durationSec ? formatSeconds(sourceMeta.durationSec) : STRINGS.diagnostics.emptyValue}</strong>
@@ -1132,7 +1432,94 @@ function TrimTimeline({
           {STRINGS.trim.probe} <strong>{sourceProbeLabel(sourceMeta)}</strong>
         </span>
       </div>
+
+      <div className="source-session-row">
+        <div>
+          <strong>{sourceSession ? STRINGS.timeline.sourceReady : STRINGS.timeline.sourceNotReady}</strong>
+          <span>{sourceSession ? STRINGS.timeline.sourceReadyBody(sourceSession.inputName, formatBytes(sourceSession.inputSize)) : STRINGS.timeline.sourceNotReadyBody}</span>
+        </div>
+        <button type="button" className="secondary-button" disabled={!sourceMeta || sourceBusy} onClick={onPrepareSource}>
+          {sourceBusy ? <Loader2 aria-hidden="true" className="spin" /> : <UploadCloud aria-hidden="true" />}
+          {sourceBusy ? STRINGS.timeline.preparingSource : sourceSession ? STRINGS.timeline.reprepareSource : STRINGS.timeline.prepareSource}
+        </button>
+      </div>
+
+      <section className="clip-bin" aria-label={STRINGS.timeline.clipListAria}>
+        <div className="clip-bin-head">
+          <div>
+            <strong>{STRINGS.timeline.clipBinTitle}</strong>
+            <span>{clips.length ? STRINGS.timeline.clipCount(clips.length) : STRINGS.timeline.noClips}</span>
+          </div>
+          <button type="button" className="primary-button" disabled={!clips.length || sourceBusy || exportBusy} onClick={onExportAll}>
+            <Wand2 aria-hidden="true" />
+            {STRINGS.timeline.exportAll}
+          </button>
+        </div>
+        <div className="clip-list">
+          {clips.map((clip) => (
+            <div key={clip.id} className={`clip-row${clip.id === selectedClipId ? ' selected' : ''}`}>
+              <button type="button" className="clip-main" onClick={() => onApplyClip(clip)}>
+                <strong>{clip.name}</strong>
+                <span>{formatTimecode(clip.startSec)} - {formatTimecode(clip.startSec + clip.durationSec)} / {formatTimecode(clip.durationSec)}</span>
+              </button>
+              <button type="button" className="secondary-button" onClick={() => onExportClip(clip)} disabled={sourceBusy || exportBusy}>
+                <Wand2 aria-hidden="true" />
+                {STRINGS.timeline.exportClip}
+              </button>
+              <button type="button" className="secondary-button icon-button" aria-label={STRINGS.timeline.deleteClip(clip.name)} onClick={() => onDeleteClip(clip.id)}>
+                <Trash2 aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+          {!clips.length ? (
+            <EmptyState icon={<Scissors aria-hidden="true" />} title={STRINGS.timeline.emptyTitle} body={STRINGS.timeline.emptyBody} compact />
+          ) : null}
+        </div>
+      </section>
     </section>
+  );
+}
+
+function TimecodeField({
+  label,
+  value,
+  min = 0,
+  max,
+  onChange
+}: {
+  label: string;
+  value: number;
+  min?: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(() => formatTimecode(value));
+
+  useEffect(() => {
+    setDraft(formatTimecode(value));
+  }, [value]);
+
+  const commit = () => {
+    const parsed = parseTimecode(draft);
+    if (parsed === null) {
+      setDraft(formatTimecode(value));
+      return;
+    }
+    onChange(Number(clampNumber(parsed, min, max).toFixed(2)));
+  };
+
+  return (
+    <label className="timecode-field">
+      <span>{label}</span>
+      <input
+        type="text"
+        value={draft}
+        inputMode="numeric"
+        placeholder="0:00:00"
+        onBlur={commit}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+      />
+    </label>
   );
 }
 
@@ -1145,6 +1532,7 @@ function PreviewPanel({
   onSaveAs,
   onCopyText,
   onPreviewTime,
+  previewSeekTime,
   recentOutputs,
   onRevealRecent,
   onClearRecent
@@ -1157,18 +1545,31 @@ function PreviewPanel({
   onSaveAs: (job: Job) => void;
   onCopyText: (text: string, successMessage: string) => void;
   onPreviewTime: (seconds: number) => void;
+  previewSeekTime: number | null;
   recentOutputs: RecentOutput[];
   onRevealRecent: (id: string) => void;
   onClearRecent: () => void;
 }) {
   const isGif = file?.type === 'image/gif' || file?.name.toLowerCase().endsWith('.gif');
   const [altText, setAltText] = useState('');
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     if (job?.status === 'complete') {
       setAltText(defaultAltText(job.inputName));
     }
   }, [job?.id, job?.status, job?.inputName]);
+
+  useEffect(() => {
+    if (previewSeekTime === null || !videoRef.current) return;
+    const video = videoRef.current;
+    const nextTime = clampNumber(previewSeekTime, 0, Number.isFinite(video.duration) ? video.duration : previewSeekTime);
+    try {
+      video.currentTime = nextTime;
+    } catch {
+      // Some containers reject seeks until enough metadata is loaded.
+    }
+  }, [previewSeekTime, objectUrl]);
 
   return (
     <aside className="preview-panel" aria-label={STRINGS.preview.aria}>
@@ -1184,7 +1585,16 @@ function PreviewPanel({
         {objectUrl && isGif ? (
           <img src={objectUrl} alt={STRINGS.preview.selectedGifAlt} />
         ) : objectUrl ? (
-          <video src={objectUrl} controls muted playsInline onTimeUpdate={(event) => onPreviewTime(event.currentTarget.currentTime)} />
+          <video
+            ref={videoRef}
+            src={objectUrl}
+            controls
+            muted
+            playsInline
+            onLoadedMetadata={(event) => onPreviewTime(event.currentTarget.currentTime)}
+            onSeeked={(event) => onPreviewTime(event.currentTarget.currentTime)}
+            onTimeUpdate={(event) => onPreviewTime(event.currentTarget.currentTime)}
+          />
         ) : (
           <EmptyState icon={<Video aria-hidden="true" />} title={STRINGS.preview.emptyTitle} body={STRINGS.preview.empty} />
         )}
@@ -1601,6 +2011,24 @@ function recentFromJob(job: Job): RecentOutput {
   };
 }
 
+function makeTimelineClip(index: number, settings: Settings): TimelineClip {
+  return {
+    id: crypto.randomUUID(),
+    name: STRINGS.timeline.defaultClipName(index),
+    startSec: Number(settings.startSec.toFixed(2)),
+    durationSec: Number(settings.durationSec.toFixed(2)),
+    createdAt: new Date().toISOString()
+  };
+}
+
+function clipSettings(settings: Settings, clip: TimelineClip): Settings {
+  return {
+    ...settings,
+    startSec: clip.startSec,
+    durationSec: clip.durationSec
+  };
+}
+
 function loadSettings() {
   return normalizeSettings(readStorage<Partial<Settings>>(SETTINGS_KEY) ?? DEFAULT_SETTINGS);
 }
@@ -1630,7 +2058,7 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     targetMb,
     width: evenNumber(clampNumber(Number(value.width ?? DEFAULT_SETTINGS.width), 120, 1280)),
     fps: clampNumber(Number(value.fps ?? DEFAULT_SETTINGS.fps), 5, 30),
-    startSec: clampNumber(Number(value.startSec ?? DEFAULT_SETTINGS.startSec), 0, 7200),
+    startSec: clampNumber(Number(value.startSec ?? DEFAULT_SETTINGS.startSec), 0, MAX_TRIM_START_SEC),
     durationSec: clampNumber(Number(value.durationSec ?? DEFAULT_SETTINGS.durationSec), 0.5, 60),
     colors: clampNumber(Number(value.colors ?? DEFAULT_SETTINGS.colors), 16, 256),
     dither: isDitherMode(value.dither) ? value.dither : DEFAULT_SETTINGS.dither,
@@ -1695,4 +2123,26 @@ function formatSeconds(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds - minutes * 60;
   return STRINGS.format.minuteSeconds(minutes, rest.toFixed(0).padStart(2, '0'));
+}
+
+function formatTimecode(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00:00';
+  const rounded = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const wholeSeconds = rounded % 60;
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(wholeSeconds).padStart(2, '0')}`;
+}
+
+function parseTimecode(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  const parts = trimmed.split(':').map((part) => part.trim());
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+(?:\.\d+)?$/.test(part))) {
+    return null;
+  }
+  const [hours, minutes, seconds] = parts.length === 3 ? parts.map(Number) : [0, ...parts.map(Number)];
+  if (minutes >= 60 || seconds >= 60) return null;
+  return hours * 3600 + minutes * 60 + seconds;
 }

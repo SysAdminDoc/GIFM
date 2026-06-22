@@ -78,9 +78,15 @@ try {
   await assertVisibleText(page, 'Encoder');
   await assertVisibleText(page, 'FFmpeg palette');
   await assertVisibleText(page, 'Bundled FFmpeg palette encoder.');
+  await assertVisibleText(page, 'Timeline editor');
+  await assertVisibleText(page, 'Saved GIF cuts');
   await assertVisibleText(page, 'Diagnostics');
   await page.setInputFiles('input[type=file]', samplePath);
   await page.getByText('Client frame', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByRole('button', { name: 'Add clip' }).click();
+  await page.getByText('Clip 01', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+  await page.getByRole('button', { name: 'Prepare source' }).click();
+  await page.getByText('Source prepared once', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
 
   const state = await page.evaluate(() => {
     const encoderLabel = Array.from(document.querySelectorAll('label.select-field')).find((label) => label.querySelector('span')?.textContent?.trim() === 'Encoder');
@@ -92,11 +98,13 @@ try {
       options: encoderSelect ? Array.from(encoderSelect.options).map((option) => ({ value: option.value, disabled: option.disabled, text: option.textContent })) : [],
       diagnostics,
       metadata: Array.from(document.querySelectorAll('.metadata-grid span')).map((item) => item.textContent?.replace(/\s+/g, ' ').trim()),
+      clips: Array.from(document.querySelectorAll('.clip-row')).map((item) => item.textContent?.replace(/\s+/g, ' ').trim()),
+      sourceSession: document.querySelector('.source-session-row')?.textContent?.replace(/\s+/g, ' ').trim(),
       bodyOverflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth
     };
   });
 
-  if (state.title !== 'GIFM v0.1.0') {
+  if (state.title !== 'GIFM v0.2.0') {
     throw new Error(`Unexpected title: ${state.title}`);
   }
   if (state.encoderValue !== 'ffmpeg') {
@@ -110,6 +118,12 @@ try {
   }
   if (!state.metadata.some((item) => item?.includes('Probe Client frame'))) {
     throw new Error(`Expected client preflight metadata: ${JSON.stringify(state.metadata)}`);
+  }
+  if (!state.clips.some((item) => item?.includes('Clip 01'))) {
+    throw new Error(`Expected saved timeline clip: ${JSON.stringify(state.clips)}`);
+  }
+  if (!state.sourceSession?.includes('Source prepared once')) {
+    throw new Error(`Expected prepared source UI state: ${state.sourceSession}`);
   }
   if (probeRequests !== 0) {
     throw new Error(`Expected client preflight before upload, but observed ${probeRequests} /api/probe request(s).`);

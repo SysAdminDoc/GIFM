@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.2.0 - 2026-06-22
+
+- Added a timeline editor with timecode fields, playhead-aware start/end marking, a visual selection rail, saved GIF cuts, and per-cut or all-cuts export actions.
+- Added reusable prepared-source sessions so one long local video can be uploaded once and reused for many clip exports.
+- Raised the default local upload ceiling to 20 GB, the managed data ceiling to 25 GB, and the trim start ceiling to 24 hours for long source videos.
 - Added upload validation, typed API errors, local-only host guardrails, disk retention limits, and failed-job cleanup.
 - Added a cancellable job queue with configurable concurrency and queue positions.
 - Added expanded Discord target profiles and output suitability guidance.

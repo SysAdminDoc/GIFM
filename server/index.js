@@ -9,15 +9,16 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const PORT = parsePositiveInteger(process.env.GIFM_PORT ?? process.env.PORT, 4174);
 const HOST = (process.env.GIFM_HOST ?? '127.0.0.1').trim() || '127.0.0.1';
 const ALLOW_REMOTE = process.env.GIFM_ALLOW_REMOTE === '1';
 const GIFSKI_PATH = process.env.GIFM_GIFSKI_PATH ? path.resolve(process.env.GIFM_GIFSKI_PATH) : '';
-const MAX_UPLOAD_BYTES = parseByteLimit(process.env.GIFM_MAX_UPLOAD_BYTES, process.env.GIFM_MAX_UPLOAD_MB, 2 * 1024 * 1024 * 1024);
-const DATA_MAX_BYTES = parseByteLimit(process.env.GIFM_DATA_MAX_BYTES, process.env.GIFM_DATA_MAX_MB, 5 * 1024 * 1024 * 1024);
+const MAX_UPLOAD_BYTES = parseByteLimit(process.env.GIFM_MAX_UPLOAD_BYTES, process.env.GIFM_MAX_UPLOAD_MB, 20 * 1024 * 1024 * 1024);
+const DATA_MAX_BYTES = parseByteLimit(process.env.GIFM_DATA_MAX_BYTES, process.env.GIFM_DATA_MAX_MB, 25 * 1024 * 1024 * 1024);
 const DATA_MAX_AGE_MS = parseHours(process.env.GIFM_DATA_MAX_AGE_HOURS, 24) * 60 * 60 * 1000;
 const MAX_CONCURRENT_JOBS = parsePositiveInteger(process.env.GIFM_MAX_CONCURRENT_JOBS, 1);
+const MAX_TRIM_START_SEC = parsePositiveInteger(process.env.GIFM_MAX_TRIM_START_SEC, 24 * 60 * 60);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const dataDir = path.join(rootDir, 'data');
@@ -27,6 +28,7 @@ const workDir = path.join(dataDir, 'work');
 const distDir = path.join(rootDir, 'dist');
 const ffprobePath = ffprobeStatic.path;
 const jobs = new Map();
+const sources = new Map();
 const jobQueue = [];
 let runningJobs = 0;
 const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
@@ -94,8 +96,96 @@ app.get('/api/health', (_request, response) => {
     maxUploadBytes: MAX_UPLOAD_BYTES,
     dataMaxBytes: DATA_MAX_BYTES,
     dataMaxAgeHours: Math.round(DATA_MAX_AGE_MS / 60 / 60 / 1000),
-    maxConcurrentJobs: MAX_CONCURRENT_JOBS
+    maxConcurrentJobs: MAX_CONCURRENT_JOBS,
+    maxTrimStartSec: MAX_TRIM_START_SEC,
+    preparedSources: sources.size
   });
+});
+
+app.post('/api/sources', runUpload, async (request, response, next) => {
+  try {
+    if (!request.file) {
+      sendApiError(response, new ApiError(400, 'NO_MEDIA_FILE', 'No media file was uploaded.'));
+      return;
+    }
+
+    const mediaCheck = await inspectUploadedMedia(request.file.path);
+    if (!mediaCheck.ok) {
+      await removeFile(request.file.path);
+      sendApiError(response, new ApiError(415, 'UNSUPPORTED_MEDIA_CONTENT', 'The uploaded file does not look like a supported GIF or video container.'));
+      return;
+    }
+
+    const metadata = await ffprobe(request.file.path);
+    const source = sourceMetadata(metadata);
+    if (!source.video) {
+      await removeFile(request.file.path);
+      sendApiError(response, new ApiError(422, 'NO_VIDEO_STREAM', 'No video stream was found in the selected file.'));
+      return;
+    }
+
+    const id = randomUUID();
+    const prepared = {
+      id,
+      inputPath: request.file.path,
+      inputName: request.file.originalname,
+      inputSize: request.file.size,
+      sourceKind: mediaCheck.kind,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+      metadata: {
+        durationSec: source.durationSec,
+        width: source.width,
+        height: source.height,
+        fps: source.fps,
+        codec: source.codec,
+        rotation: source.rotation
+      }
+    };
+
+    sources.set(id, prepared);
+    await enforceDataRetention(new Set([prepared.inputPath]));
+    response.status(201).json(publicSource(prepared));
+  } catch (error) {
+    if (request.file?.path) await removeFile(request.file.path);
+    next(error);
+  }
+});
+
+app.post('/api/sources/:id/jobs', async (request, response, next) => {
+  try {
+    const source = sources.get(request.params.id);
+    if (!source || !existsSync(source.inputPath)) {
+      if (source) sources.delete(source.id);
+      sendApiError(response, new ApiError(404, 'SOURCE_NOT_FOUND', 'Prepared source not found. Prepare the video again, then retry the clip export.'));
+      return;
+    }
+
+    let settings;
+    try {
+      settings = parseSettings(request.body.settings ?? request.body);
+    } catch (error) {
+      sendApiError(response, normalizeError(error));
+      return;
+    }
+
+    source.lastUsedAt = new Date().toISOString();
+    const clipName = typeof request.body.clipName === 'string' ? request.body.clipName.trim() : '';
+    const job = createJob({
+      inputPath: source.inputPath,
+      inputName: clipName ? displayClipName(source.inputName, clipName) : source.inputName,
+      inputSize: source.inputSize,
+      sourceKind: source.sourceKind,
+      settings,
+      sourceId: source.id
+    });
+
+    jobs.set(job.id, job);
+    enqueueJob(job);
+    response.status(202).json(publicJob(job));
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post('/api/jobs', runUpload, async (request, response, next) => {
@@ -123,34 +213,15 @@ app.post('/api/jobs', runUpload, async (request, response, next) => {
 
     await enforceDataRetention(new Set([request.file.path]));
 
-    const id = randomUUID();
-    const job = {
-      id,
-      status: 'queued',
-      progress: 0,
-      stage: 'Queued',
-      queuePosition: 0,
+    const job = createJob({
       inputPath: request.file.path,
       inputName: request.file.originalname,
       inputSize: request.file.size,
       sourceKind: mediaCheck.kind,
-      outputPath: '',
-      outputBytes: undefined,
-      targetBytes: Math.round(settings.targetMb * 1024 * 1024),
-      downloadUrl: undefined,
-      startedAt: new Date().toISOString(),
-      completedAt: undefined,
-      error: undefined,
-      errorCode: undefined,
-      warnings: [],
-      logs: [],
-      commands: [],
-      attempts: [],
-      settings,
-      outputCandidates: new Set()
-    };
+      settings
+    });
 
-    jobs.set(id, job);
+    jobs.set(job.id, job);
     enqueueJob(job);
     response.status(202).json(publicJob(job));
   } catch (error) {
@@ -262,6 +333,36 @@ app.use((error, _request, response, _next) => {
 app.listen(PORT, HOST, () => {
   console.log(`GIFM v${VERSION} running at http://${HOST}:${PORT}`);
 });
+
+function createJob({ inputPath, inputName, inputSize, sourceKind, settings, sourceId = '' }) {
+  const id = randomUUID();
+  return {
+    id,
+    status: 'queued',
+    progress: 0,
+    stage: 'Queued',
+    queuePosition: 0,
+    inputPath,
+    inputName,
+    inputSize,
+    sourceKind,
+    sourceId,
+    outputPath: '',
+    outputBytes: undefined,
+    targetBytes: Math.round(settings.targetMb * 1024 * 1024),
+    downloadUrl: undefined,
+    startedAt: new Date().toISOString(),
+    completedAt: undefined,
+    error: undefined,
+    errorCode: undefined,
+    warnings: [],
+    logs: [],
+    commands: [],
+    attempts: [],
+    settings,
+    outputCandidates: new Set()
+  };
+}
 
 async function processJob(job) {
   checkCancelled(job);
@@ -750,6 +851,7 @@ async function cleanupOutputCandidates(job, keepPath = '') {
 
 async function cleanupInput(job) {
   if (!job.inputPath) return;
+  if (job.sourceId) return;
   const removed = await removeFile(job.inputPath);
   if (removed) job.inputPath = '';
 }
@@ -785,10 +887,19 @@ function pruneOldJobs() {
       jobs.delete(id);
     }
   }
+  for (const [id, source] of sources) {
+    const lastUsedAt = Date.parse(source.lastUsedAt || source.createdAt);
+    if (Number.isFinite(lastUsedAt) && now - lastUsedAt > DATA_MAX_AGE_MS) {
+      sources.delete(id);
+    }
+  }
 }
 
 function protectedJobPaths(extraProtected) {
   const paths = new Set([...extraProtected].filter(Boolean).map((item) => path.resolve(item)));
+  for (const source of sources.values()) {
+    if (source.inputPath) paths.add(path.resolve(source.inputPath));
+  }
   for (const job of jobs.values()) {
     if (job.status === 'queued' || job.status === 'running') {
       if (job.inputPath) paths.add(path.resolve(job.inputPath));
@@ -871,7 +982,7 @@ function isProtectedPath(entryPath, protectedPaths) {
 function parseSettings(raw) {
   let parsed;
   try {
-    parsed = typeof raw === 'string' ? JSON.parse(raw) : {};
+    parsed = typeof raw === 'string' ? JSON.parse(raw) : raw && typeof raw === 'object' ? raw : {};
   } catch {
     throw new ApiError(400, 'INVALID_SETTINGS', 'Settings must be valid JSON.');
   }
@@ -885,7 +996,7 @@ function parseSettings(raw) {
     targetMb,
     width: even(clamp(Number(parsed.width ?? 480), 120, 1280)),
     fps: clamp(Number(parsed.fps ?? 15), 5, 30),
-    startSec: clamp(Number(parsed.startSec ?? 0), 0, 7200),
+    startSec: clamp(Number(parsed.startSec ?? 0), 0, MAX_TRIM_START_SEC),
     durationSec: clamp(Number(parsed.durationSec ?? 6), 0.5, 60),
     colors: clamp(Number(parsed.colors ?? 96), 16, 256),
     dither: ['sierra2_4a', 'bayer', 'floyd_steinberg', 'none'].includes(parsed.dither) ? parsed.dither : 'sierra2_4a',
@@ -1287,6 +1398,18 @@ function publicJob(job) {
   };
 }
 
+function publicSource(source) {
+  return {
+    id: source.id,
+    inputName: source.inputName,
+    inputSize: source.inputSize,
+    sourceKind: source.sourceKind,
+    createdAt: source.createdAt,
+    lastUsedAt: source.lastUsedAt,
+    ...source.metadata
+  };
+}
+
 function recordCommand(job, stage, args, tool = ffmpegPath) {
   job.commands.push({
     stage,
@@ -1316,6 +1439,13 @@ function safeBaseName(name) {
 
 function downloadName(inputName) {
   return `${safeBaseName(inputName)}-gifm.gif`;
+}
+
+function displayClipName(inputName, clipName) {
+  const ext = path.extname(inputName);
+  const base = path.basename(inputName, ext);
+  const safeClip = clipName.replace(/[\r\n\t]+/g, ' ').replace(/[<>:"/\\|?*]+/g, '-').trim().slice(0, 60);
+  return safeClip ? `${base} - ${safeClip}${ext}` : inputName;
 }
 
 function revealPath(filePath) {

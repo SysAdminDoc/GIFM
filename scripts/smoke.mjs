@@ -88,6 +88,7 @@ try {
   await assertTooLargeUpload();
   await assertUnsupportedContent();
   await assertProbeMetadata();
+  await assertPreparedSourceClipJobs();
   await assertNoVideoJob();
   await assertQueueAndCancel();
   await assertAttemptOutputCleanup();
@@ -186,6 +187,34 @@ async function assertProbeMetadata() {
   }
 }
 
+async function assertPreparedSourceClipJobs() {
+  const fileBytes = await fs.readFile(samplePath);
+  const form = new FormData();
+  form.set('media', new File([fileBytes], 'prepared-source.mp4', { type: 'video/mp4' }));
+
+  const preparedResponse = await fetch(`${baseUrl}/api/sources`, { method: 'POST', body: form });
+  if (!preparedResponse.ok) {
+    throw new Error(`Prepared source upload failed: ${preparedResponse.status} ${await preparedResponse.text()}`);
+  }
+
+  const source = await preparedResponse.json();
+  if (!source.id || !source.durationSec || !source.width || !source.height) {
+    throw new Error(`Prepared source metadata incomplete: ${JSON.stringify(source, null, 2)}`);
+  }
+
+  const first = await startPreparedSourceJob(source.id, 'Clip 01', { ...validSettings(), startSec: 0, durationSec: 0.7 });
+  const firstJob = await waitForJob(first.id, 45000);
+  if (firstJob.status !== 'complete' || !firstJob.inputName.includes('Clip 01')) {
+    throw new Error(`Prepared source first clip failed: ${JSON.stringify(firstJob, null, 2)}`);
+  }
+
+  const second = await startPreparedSourceJob(source.id, 'Clip 02', { ...validSettings(), startSec: 0.8, durationSec: 0.7 });
+  const secondJob = await waitForJob(second.id, 45000);
+  if (secondJob.status !== 'complete' || !secondJob.inputName.includes('Clip 02')) {
+    throw new Error(`Prepared source second clip failed: ${JSON.stringify(secondJob, null, 2)}`);
+  }
+}
+
 async function assertNoVideoJob() {
   const audioBytes = await fs.readFile(audioOnlyPath);
   const form = new FormData();
@@ -269,6 +298,19 @@ async function startMediaJob(bytes, name, settings) {
   const response = await fetch(`${baseUrl}/api/jobs`, { method: 'POST', body: form });
   if (!response.ok) {
     throw new Error(`Failed to start ${name}: ${response.status} ${await response.text()}`);
+  }
+
+  return response.json();
+}
+
+async function startPreparedSourceJob(sourceId, clipName, settings) {
+  const response = await fetch(`${baseUrl}/api/sources/${sourceId}/jobs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clipName, settings })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to start prepared source clip ${clipName}: ${response.status} ${await response.text()}`);
   }
 
   return response.json();
