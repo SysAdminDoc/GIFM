@@ -10,6 +10,8 @@ const releaseRoot = path.join(rootDir, 'release');
 const packageName = `GIFM-v${packageJson.version}-win-x64`;
 const portableDir = path.join(releaseRoot, packageName);
 const zipPath = `${portableDir}.zip`;
+const launcherProject = path.join(rootDir, 'launcher', 'GIFM.Launcher.csproj');
+const launcherPublishDir = path.join(releaseRoot, 'launcher-publish');
 
 if (process.platform !== 'win32') {
   throw new Error('The portable package currently targets Windows because it includes a start-gifm.cmd launcher.');
@@ -17,6 +19,7 @@ if (process.platform !== 'win32') {
 
 await fs.rm(portableDir, { recursive: true, force: true });
 await fs.rm(zipPath, { force: true });
+await fs.rm(launcherPublishDir, { recursive: true, force: true });
 await fs.mkdir(path.join(portableDir, 'node'), { recursive: true });
 
 await Promise.all([
@@ -28,16 +31,32 @@ await Promise.all([
   fs.copyFile(process.execPath, path.join(portableDir, 'node', 'node.exe'))
 ]);
 
+await run('dotnet', [
+  'publish',
+  launcherProject,
+  '-c',
+  'Release',
+  '-r',
+  'win-x64',
+  '--self-contained',
+  'true',
+  '-o',
+  launcherPublishDir,
+  '/p:PublishSingleFile=true',
+  '/p:PublishTrimmed=true',
+  '/p:DebugType=none',
+  '/p:DebugSymbols=false'
+]);
+await fs.copyFile(path.join(launcherPublishDir, 'GIFM.exe'), path.join(portableDir, 'GIFM.exe'));
+await fs.rm(launcherPublishDir, { recursive: true, force: true });
+
 await fs.writeFile(
   path.join(portableDir, 'start-gifm.cmd'),
   [
     '@echo off',
     'setlocal',
     'cd /d "%~dp0"',
-    'set GIFM_PORT=4174',
-    'set GIFM_HOST=127.0.0.1',
-    'start "" "http://127.0.0.1:4174"',
-    '".\\node\\node.exe" ".\\server\\index.js"',
+    '".\\GIFM.exe"',
     'pause'
   ].join('\r\n')
 );

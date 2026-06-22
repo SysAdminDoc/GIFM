@@ -12,6 +12,7 @@
 - Added visible focus states, reduced-motion handling, ARIA progress semantics, and an output alt-text helper.
 - Added runtime diagnostics with FFmpeg/FFprobe versions, platform info, output estimate, latest FFmpeg command, and JSON export.
 - Added Windows portable packaging and smoke testing scripts.
+- Added a self-contained portable Windows `GIFM.exe` launcher that starts the bundled local server and opens the app.
 - Added configurable `GIFM_OUTPUT_DIR` and a browser Save as action with download fallback.
 - Added an optional user-provided gifski encoder backend with health diagnostics and licensing notes.
 - Centralized the default English UI copy in a typed string catalog and added a UI smoke test for render coverage.

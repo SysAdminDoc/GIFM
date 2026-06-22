@@ -2,6 +2,8 @@ node_modules/
 dist/
 release/
 data/
+bin/
+obj/
 .vite/
 *.tsbuildinfo
 vite.config.js

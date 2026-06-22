@@ -7,20 +7,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const packageJson = JSON.parse(await fs.readFile(path.join(rootDir, 'package.json'), 'utf8'));
 const portableDir = path.join(rootDir, 'release', `GIFM-v${packageJson.version}-win-x64`);
+const launcherPath = path.join(portableDir, 'GIFM.exe');
 const nodePath = path.join(portableDir, 'node', 'node.exe');
 const serverPath = path.join(portableDir, 'server', 'index.js');
 const port = 4194;
-const baseUrl = `http://127.0.0.1:${port}`;
 
+await assertExists(launcherPath);
 await assertExists(nodePath);
 await assertExists(serverPath);
 await assertExists(path.join(portableDir, 'dist', 'index.html'));
 await assertExists(path.join(portableDir, 'node_modules', 'ffmpeg-static'));
 await assertExists(`${portableDir}.zip`);
 
-const server = spawn(nodePath, [serverPath], {
+const server = spawn(launcherPath, [], {
   cwd: portableDir,
-  env: { ...process.env, GIFM_PORT: String(port), GIFM_HOST: '127.0.0.1' },
+  env: {
+    ...process.env,
+    GIFM_PORT: String(port),
+    GIFM_HOST: '127.0.0.1',
+    GIFM_OPEN_BROWSER: '0',
+    GIFM_LAUNCHER_SMOKE: '1'
+  },
   windowsHide: true,
   stdio: ['ignore', 'pipe', 'pipe']
 });
@@ -34,40 +41,30 @@ server.stderr.on('data', (chunk) => {
 });
 
 try {
-  await waitForHealth();
+  await waitForExit(server);
   console.log(`Portable smoke passed: ${portableDir}`);
 } finally {
-  server.kill();
+  if (!server.killed) server.kill();
 }
 
 async function assertExists(filePath) {
   await fs.stat(filePath);
 }
 
-function waitForHealth() {
+function waitForExit(child) {
   return new Promise((resolve, reject) => {
-    const deadline = Date.now() + 15000;
-    const tick = async () => {
-      try {
-        const response = await fetch(`${baseUrl}/api/health`);
-        if (response.ok) {
-          const health = await response.json();
-          if (health.ffmpeg?.available && health.ffprobe?.available) {
-            resolve();
-            return;
-          }
-        }
-      } catch {
-        // Server is still starting.
-      }
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error(`Launcher did not exit before timeout.\n${serverLog}`));
+    }, 20000);
 
-      if (Date.now() > deadline) {
-        reject(new Error(`Portable server did not become healthy.\n${serverLog}`));
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        reject(new Error(`Launcher exited with ${code}.\n${serverLog}`));
         return;
       }
-
-      setTimeout(tick, 300);
-    };
-    tick();
+      resolve();
+    });
   });
 }
