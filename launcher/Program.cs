@@ -1,190 +1,342 @@
 using System.Diagnostics;
+using System.Drawing;
 using System.Net.Http;
+using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
-const int DefaultPort = 4174;
-const string DefaultHost = "127.0.0.1";
-
-var appDir = AppContext.BaseDirectory;
-var dataDir = Path.Combine(appDir, "data");
-var logPath = Path.Combine(dataDir, "gifm-server.log");
-var nodePath = Path.Combine(appDir, "node", "node.exe");
-var serverPath = Path.Combine(appDir, "server", "index.js");
-var port = ParsePositiveInteger(Environment.GetEnvironmentVariable("GIFM_PORT"), DefaultPort);
-var host = NormalizeHost(Environment.GetEnvironmentVariable("GIFM_HOST"));
-var url = $"http://{HostForUrl(host)}:{port}";
-var openBrowser = Environment.GetEnvironmentVariable("GIFM_OPEN_BROWSER") != "0";
-var smokeMode = Environment.GetEnvironmentVariable("GIFM_LAUNCHER_SMOKE") == "1";
-
-Directory.CreateDirectory(dataDir);
-using var logWriter = TextWriter.Synchronized(OpenSharedLog(logPath));
-Log(logWriter, $"GIFM launcher starting from {appDir}");
-
-if (await IsHealthy(url))
+internal static class Program
 {
-  Console.WriteLine($"GIFM is already running at {url}");
-  if (openBrowser) OpenBrowser(url);
-  return 0;
-}
+    const int DefaultPort = 4174;
+    const string DefaultHost = "127.0.0.1";
 
-if (!File.Exists(nodePath))
-{
-  Console.Error.WriteLine($"Bundled Node runtime was not found: {nodePath}");
-  return 1;
-}
-
-if (!File.Exists(serverPath))
-{
-  Console.Error.WriteLine($"GIFM server entry point was not found: {serverPath}");
-  return 1;
-}
-
-using var server = StartServer(nodePath, serverPath, appDir, host, port, logWriter);
-Console.CancelKeyPress += (_, eventArgs) =>
-{
-  eventArgs.Cancel = true;
-  StopServer(server);
-};
-
-if (!await WaitForHealthy(url, TimeSpan.FromSeconds(20)))
-{
-  Console.Error.WriteLine($"GIFM did not become ready at {url}. See {logPath}");
-  StopServer(server);
-  return 1;
-}
-
-Console.WriteLine($"GIFM is running at {url}");
-Console.WriteLine("Close this window or press Ctrl+C to stop GIFM.");
-if (openBrowser) OpenBrowser(url);
-
-if (smokeMode)
-{
-  StopServer(server);
-  return 0;
-}
-
-await server.WaitForExitAsync();
-return server.ExitCode;
-
-static Process StartServer(string nodePath, string serverPath, string appDir, string host, int port, TextWriter logWriter)
-{
-  var startInfo = new ProcessStartInfo
-  {
-    FileName = nodePath,
-    WorkingDirectory = appDir,
-    UseShellExecute = false,
-    RedirectStandardOutput = true,
-    RedirectStandardError = true,
-    CreateNoWindow = false
-  };
-  startInfo.ArgumentList.Add(serverPath);
-  startInfo.Environment["GIFM_PORT"] = port.ToString();
-  startInfo.Environment["GIFM_HOST"] = host;
-
-  var process = new Process
-  {
-    StartInfo = startInfo,
-    EnableRaisingEvents = true
-  };
-  process.OutputDataReceived += (_, eventArgs) => WriteServerLine(logWriter, eventArgs.Data);
-  process.ErrorDataReceived += (_, eventArgs) => WriteServerLine(logWriter, eventArgs.Data);
-
-  if (!process.Start())
-  {
-    throw new InvalidOperationException("GIFM server process did not start.");
-  }
-
-  process.BeginOutputReadLine();
-  process.BeginErrorReadLine();
-  return process;
-}
-
-static void WriteServerLine(TextWriter logWriter, string? line)
-{
-  if (string.IsNullOrWhiteSpace(line)) return;
-  Console.WriteLine(line);
-  Log(logWriter, line);
-}
-
-static async Task<bool> WaitForHealthy(string url, TimeSpan timeout)
-{
-  var deadline = DateTimeOffset.UtcNow + timeout;
-  while (DateTimeOffset.UtcNow < deadline)
-  {
-    if (await IsHealthy(url)) return true;
-    await Task.Delay(300);
-  }
-  return false;
-}
-
-static async Task<bool> IsHealthy(string url)
-{
-  try
-  {
-    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-    using var response = await client.GetAsync($"{url}/api/health");
-    return response.IsSuccessStatusCode;
-  }
-  catch
-  {
-    return false;
-  }
-}
-
-static void OpenBrowser(string url)
-{
-  try
-  {
-    Process.Start(new ProcessStartInfo
+    [STAThread]
+    static int Main()
     {
-      FileName = url,
-      UseShellExecute = true
-    });
-  }
-  catch (Exception error)
-  {
-    Console.Error.WriteLine($"Could not open browser: {error.Message}");
-  }
-}
-
-static void StopServer(Process server)
-{
-  try
-  {
-    if (!server.HasExited)
-    {
-      server.Kill(entireProcessTree: true);
-      server.WaitForExit(5000);
+        return Run();
     }
-  }
-  catch
-  {
-    // The process may already be exiting.
-  }
-}
 
-static void Log(TextWriter logWriter, string message)
-{
-  logWriter.WriteLine($"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}] {message}");
-}
+    static int Run()
+    {
+        var appDir = AppContext.BaseDirectory;
+        var dataDir = Path.Combine(appDir, "data");
+        var logPath = Path.Combine(dataDir, "gifm-server.log");
+        var webViewDataDir = Path.Combine(dataDir, "webview2");
+        var nodePath = Path.Combine(appDir, "node", "node.exe");
+        var serverPath = Path.Combine(appDir, "server", "index.js");
+        var port = ParsePositiveInteger(Environment.GetEnvironmentVariable("GIFM_PORT"), DefaultPort);
+        var host = NormalizeHost(Environment.GetEnvironmentVariable("GIFM_HOST"));
+        var url = $"http://{HostForUrl(host)}:{port}";
+        var smokeMode = Environment.GetEnvironmentVariable("GIFM_LAUNCHER_SMOKE") == "1";
 
-static StreamWriter OpenSharedLog(string logPath)
-{
-  var stream = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-  return new StreamWriter(stream) { AutoFlush = true };
-}
+        Directory.CreateDirectory(dataDir);
+        Directory.CreateDirectory(webViewDataDir);
 
-static int ParsePositiveInteger(string? value, int fallback)
-{
-  return int.TryParse(value, out var number) && number > 0 ? number : fallback;
-}
+        using var logWriter = TextWriter.Synchronized(OpenSharedLog(logPath));
+        Log(logWriter, $"GIFM desktop starting from {appDir}");
 
-static string NormalizeHost(string? value)
-{
-  return string.IsNullOrWhiteSpace(value) ? DefaultHost : value.Trim();
-}
+        Process? server = null;
+        var startedServer = false;
 
-static string HostForUrl(string host)
-{
-  if (host is "0.0.0.0" or "::") return DefaultHost;
-  return host.Contains(':') && !host.StartsWith('[') ? $"[{host}]" : host;
+        try
+        {
+            if (!IsHealthy(url))
+            {
+                if (!File.Exists(nodePath))
+                {
+                    return Fatal(smokeMode, logWriter, $"Bundled Node runtime was not found: {nodePath}");
+                }
+
+                if (!File.Exists(serverPath))
+                {
+                    return Fatal(smokeMode, logWriter, $"GIFM server entry point was not found: {serverPath}");
+                }
+
+                server = StartServer(nodePath, serverPath, appDir, host, port, logWriter);
+                startedServer = true;
+
+                if (!WaitForHealthy(url, TimeSpan.FromSeconds(20)))
+                {
+                    return Fatal(smokeMode, logWriter, $"GIFM did not become ready at {url}. See {logPath}");
+                }
+            }
+
+            Log(logWriter, $"GIFM ready at {url}");
+
+            if (smokeMode)
+            {
+                return 0;
+            }
+
+            ApplicationConfiguration.Initialize();
+            return RunDesktopShell(url, webViewDataDir, logWriter, server, startedServer);
+        }
+        catch (Exception error)
+        {
+            Log(logWriter, $"Fatal launcher error: {error}");
+            if (!smokeMode)
+            {
+                MessageBox.Show(
+                  $"GIFM could not start.\n\n{error.Message}\n\nDetails were written to:\n{logPath}",
+                  "GIFM",
+                  MessageBoxButtons.OK,
+                  MessageBoxIcon.Error);
+            }
+
+            return 1;
+        }
+        finally
+        {
+            if (startedServer && server is not null)
+            {
+                StopServer(server);
+            }
+        }
+    }
+
+    static int RunDesktopShell(string url, string webViewDataDir, TextWriter logWriter, Process? server, bool startedServer)
+    {
+        using var form = new Form
+        {
+            Text = "GIFM v0.1.0",
+            StartPosition = FormStartPosition.CenterScreen,
+            BackColor = Color.FromArgb(11, 15, 20),
+            ForeColor = Color.FromArgb(229, 235, 246),
+            Width = 1280,
+            Height = 860,
+            MinimumSize = new Size(1024, 700)
+        };
+
+        var loadingLabel = new Label
+        {
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            Text = "Starting GIFM...",
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI", 12F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = Color.FromArgb(189, 198, 214),
+            BackColor = Color.FromArgb(11, 15, 20)
+        };
+
+        var webView = new WebView2
+        {
+            Dock = DockStyle.Fill,
+            DefaultBackgroundColor = Color.FromArgb(11, 15, 20)
+        };
+
+        form.Controls.Add(webView);
+        form.Controls.Add(loadingLabel);
+        loadingLabel.BringToFront();
+
+        if (startedServer && server is not null)
+        {
+            server.EnableRaisingEvents = true;
+            server.Exited += (_, _) =>
+            {
+                Log(logWriter, $"GIFM server exited with code {server.ExitCode}");
+                if (form.IsDisposed || !form.IsHandleCreated) return;
+                form.BeginInvoke(() =>
+        {
+                  MessageBox.Show(
+            "GIFM's local processing service stopped unexpectedly. Relaunch GIFM to start a fresh session.",
+            "GIFM",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+                  form.Close();
+              });
+            };
+        }
+
+        form.Shown += async (_, _) =>
+        {
+            try
+            {
+                var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: webViewDataDir);
+                await webView.EnsureCoreWebView2Async(environment);
+                webView.CoreWebView2.Settings.AreDevToolsEnabled = Environment.GetEnvironmentVariable("GIFM_DEVTOOLS") == "1";
+                webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                webView.CoreWebView2.NavigationStarting += (_, eventArgs) =>
+          {
+                if (IsAllowedNavigation(url, eventArgs.Uri)) return;
+                eventArgs.Cancel = true;
+                OpenExternal(eventArgs.Uri, logWriter);
+            };
+                webView.CoreWebView2.ProcessFailed += (_, eventArgs) =>
+          {
+                Log(logWriter, $"WebView2 process failed: {eventArgs.ProcessFailedKind}");
+            };
+                webView.CoreWebView2.NavigationCompleted += (_, eventArgs) =>
+          {
+                if (eventArgs.IsSuccess)
+                {
+                    loadingLabel.Visible = false;
+                    webView.BringToFront();
+                    return;
+                }
+
+                loadingLabel.Text = "GIFM could not load the desktop interface. Relaunch GIFM to retry.";
+                Log(logWriter, $"WebView2 navigation failed: {eventArgs.WebErrorStatus}");
+            };
+                Log(logWriter, "WebView2 initialized");
+                webView.CoreWebView2.Navigate(url);
+            }
+            catch (Exception error)
+            {
+                Log(logWriter, $"WebView2 startup failed: {error}");
+                MessageBox.Show(
+            "GIFM needs the Microsoft Edge WebView2 Runtime to open as a desktop app.\n\nInstall WebView2 Runtime, then relaunch GIFM.",
+            "GIFM",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Error);
+                form.Close();
+            }
+        };
+
+        Application.Run(form);
+        return 0;
+    }
+
+    static Process StartServer(string nodePath, string serverPath, string appDir, string host, int port, TextWriter logWriter)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = nodePath,
+            WorkingDirectory = appDir,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden
+        };
+        startInfo.ArgumentList.Add(serverPath);
+        startInfo.Environment["GIFM_PORT"] = port.ToString();
+        startInfo.Environment["GIFM_HOST"] = host;
+
+        var process = new Process
+        {
+            StartInfo = startInfo,
+            EnableRaisingEvents = true
+        };
+        process.OutputDataReceived += (_, eventArgs) => WriteServerLine(logWriter, eventArgs.Data);
+        process.ErrorDataReceived += (_, eventArgs) => WriteServerLine(logWriter, eventArgs.Data);
+
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("GIFM server process did not start.");
+        }
+
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return process;
+    }
+
+    static void WriteServerLine(TextWriter logWriter, string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return;
+        Log(logWriter, line);
+    }
+
+    static bool WaitForHealthy(string url, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (IsHealthy(url)) return true;
+            Thread.Sleep(300);
+        }
+        return false;
+    }
+
+    static bool IsHealthy(string url)
+    {
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            using var response = client.GetAsync($"{url}/api/health").GetAwaiter().GetResult();
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    static void OpenExternal(string url, TextWriter logWriter)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception error)
+        {
+            Log(logWriter, $"Could not open external URL {url}: {error.Message}");
+        }
+    }
+
+    static void StopServer(Process server)
+    {
+        try
+        {
+            if (!server.HasExited)
+            {
+                server.Kill(entireProcessTree: true);
+                server.WaitForExit(5000);
+            }
+        }
+        catch
+        {
+            // The process may already be exiting.
+        }
+    }
+
+    static int Fatal(bool smokeMode, TextWriter logWriter, string message)
+    {
+        Log(logWriter, message);
+        if (!smokeMode)
+        {
+            MessageBox.Show(message, "GIFM", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
+        return 1;
+    }
+
+    static void Log(TextWriter logWriter, string message)
+    {
+        logWriter.WriteLine($"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}] {message}");
+    }
+
+    static StreamWriter OpenSharedLog(string logPath)
+    {
+        var stream = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+        return new StreamWriter(stream) { AutoFlush = true };
+    }
+
+    static int ParsePositiveInteger(string? value, int fallback)
+    {
+        return int.TryParse(value, out var number) && number > 0 ? number : fallback;
+    }
+
+    static string NormalizeHost(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? DefaultHost : value.Trim();
+    }
+
+    static string HostForUrl(string host)
+    {
+        if (host is "0.0.0.0" or "::") return DefaultHost;
+        return host.Contains(':') && !host.StartsWith('[') ? $"[{host}]" : host;
+    }
+
+    static bool IsAllowedNavigation(string appUrl, string requestedUrl)
+    {
+        return Uri.TryCreate(appUrl, UriKind.Absolute, out var appUri)
+          && Uri.TryCreate(requestedUrl, UriKind.Absolute, out var requestedUri)
+          && string.Equals(appUri.Scheme, requestedUri.Scheme, StringComparison.OrdinalIgnoreCase)
+          && string.Equals(appUri.Host, requestedUri.Host, StringComparison.OrdinalIgnoreCase)
+          && appUri.Port == requestedUri.Port;
+    }
 }

@@ -48,7 +48,7 @@ npm run package:portable
 npm run package:smoke
 ```
 
-The portable artifact is written to `release/GIFM-v<version>-win-x64/` and zipped beside it. It includes `GIFM.exe`, the built client, Express server, current Node runtime, `node_modules`, bundled FFmpeg/FFprobe modules, and a `start-gifm.cmd` compatibility wrapper. Launch `GIFM.exe` to start the local server and open the app. To update a portable copy, replace the folder with a newly generated package.
+The portable artifact is written to `release/GIFM-v<version>-win-x64/` and zipped beside it. It includes a desktop `GIFM.exe`, the built client, Express server, current Node runtime, `node_modules`, bundled FFmpeg/FFprobe modules, and a `start-gifm.cmd` compatibility wrapper. Launch `GIFM.exe` to open GIFM as a Windows desktop app with its local processing service managed in the background. To update a portable copy, replace the folder with a newly generated package.
 
 ## Verify
 

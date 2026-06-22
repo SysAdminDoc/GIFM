@@ -43,11 +43,11 @@ await run('dotnet', [
   '-o',
   launcherPublishDir,
   '/p:PublishSingleFile=true',
-  '/p:PublishTrimmed=true',
+  '/p:IncludeNativeLibrariesForSelfExtract=true',
   '/p:DebugType=none',
   '/p:DebugSymbols=false'
 ]);
-await fs.copyFile(path.join(launcherPublishDir, 'GIFM.exe'), path.join(portableDir, 'GIFM.exe'));
+await copyDirectoryContents(launcherPublishDir, portableDir);
 await fs.rm(launcherPublishDir, { recursive: true, force: true });
 
 await fs.writeFile(
@@ -86,4 +86,13 @@ function run(command, args) {
       resolve();
     });
   });
+}
+
+async function copyDirectoryContents(sourceDir, targetDir) {
+  const entries = await fs.readdir(sourceDir, { withFileTypes: true });
+  await Promise.all(entries.map((entry) => {
+    const sourcePath = path.join(sourceDir, entry.name);
+    const targetPath = path.join(targetDir, entry.name);
+    return fs.cp(sourcePath, targetPath, { recursive: true });
+  }));
 }
