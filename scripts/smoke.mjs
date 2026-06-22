@@ -109,6 +109,9 @@ try {
   if (gifBytes.length > job.targetBytes) {
     throw new Error(`Smoke GIF exceeded target: ${gifBytes.length} > ${job.targetBytes}`);
   }
+  if (!job.attempts.every((attempt) => typeof attempt.strategy === 'string' && attempt.strategy.includes('transparency'))) {
+    throw new Error(`Attempt strategy metadata missing: ${JSON.stringify(job.attempts, null, 2)}`);
+  }
 
   console.log(`Smoke passed: ${gifBytes.length} bytes, ${job.attempts.length} attempt(s).`);
 } finally {

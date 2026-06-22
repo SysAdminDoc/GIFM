@@ -248,8 +248,12 @@ async function processJob(job) {
   let width = even(clamp(job.settings.width, 120, 1280));
   let fps = Math.round(clamp(job.settings.fps, 5, 30));
   let colors = Math.round(clamp(job.settings.colors, 16, 256));
+  let dedupeFrames = false;
+  let frameDropModulo = 0;
   const maxAttempts = job.settings.autoFit ? 9 : 1;
   let lastOutputPath = '';
+  let bestOutputPath = '';
+  let bestOutputBytes = Number.POSITIVE_INFINITY;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     checkCancelled(job);
@@ -258,11 +262,12 @@ async function processJob(job) {
     const palettePath = path.join(attemptWorkDir, `palette-${attempt}-001.png`);
     const palettePattern = path.join(attemptWorkDir, `palette-${attempt}-%03d.png`);
     const outputPath = path.join(outputDir, `${safeBaseName(job.inputName)}-${job.id.slice(0, 8)}-a${attempt}.gif`);
+    const strategy = strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo });
 
-    const attemptRecord = { attempt, width, fps, colors, durationSec };
+    const attemptRecord = { attempt, width, fps, colors, durationSec, strategy, dedupeFrames, frameDropModulo };
     job.attempts.push(attemptRecord);
     job.stage = `Attempt ${attempt}: palette`;
-    log(job, `Attempt ${attempt}: ${width}px, ${fps} fps, ${colors} colors, ${durationSec.toFixed(2)} sec`);
+    log(job, `Attempt ${attempt}: ${width}px, ${fps} fps, ${colors} colors, ${durationSec.toFixed(2)} sec, ${strategy}`);
 
     await runFfmpeg(
       [
@@ -270,7 +275,7 @@ async function processJob(job) {
         '-i',
         job.inputPath,
         '-vf',
-        `fps=${fps},scale=${width}:-2:flags=lanczos,palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
+        `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
         '-frames:v',
         '1',
         '-y',
@@ -294,7 +299,7 @@ async function processJob(job) {
         '-i',
         palettePath,
         '-lavfi',
-        `fps=${fps},scale=${width}:-2:flags=lanczos[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
+        `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
         '-loop',
         '0',
         '-y',
@@ -312,8 +317,17 @@ async function processJob(job) {
     attemptRecord.outputBytes = stat.size;
     lastOutputPath = outputPath;
     log(job, `Attempt ${attempt} output: ${formatBytes(stat.size)}`);
+    const rejectedLargerGif = job.sourceKind === 'gif' && stat.size >= job.inputSize;
+    attemptRecord.rejected = rejectedLargerGif;
 
-    if (stat.size <= job.targetBytes) {
+    if (rejectedLargerGif) {
+      log(job, `Attempt ${attempt} rejected: output is not smaller than the source GIF.`);
+    } else if (stat.size < bestOutputBytes) {
+      bestOutputBytes = stat.size;
+      bestOutputPath = outputPath;
+    }
+
+    if (!rejectedLargerGif && stat.size <= job.targetBytes) {
       job.outputPath = outputPath;
       job.outputBytes = stat.size;
       job.downloadUrl = `/api/jobs/${job.id}/download`;
@@ -336,6 +350,8 @@ async function processJob(job) {
       width,
       fps,
       colors,
+      dedupeFrames,
+      frameDropModulo,
       durationSec,
       outputBytes: stat.size,
       targetBytes: job.targetBytes,
@@ -350,12 +366,23 @@ async function processJob(job) {
     width = next.width;
     fps = next.fps;
     colors = next.colors;
+    dedupeFrames = next.dedupeFrames;
+    frameDropModulo = next.frameDropModulo;
     durationSec = next.durationSec;
   }
 
-  const finalStat = await fs.stat(lastOutputPath);
+  const finalOutputPath = bestOutputPath || lastOutputPath;
+  if (!finalOutputPath) {
+    throw new ApiError(422, 'NO_OUTPUT', 'No GIF output was produced.');
+  }
+
+  if (job.sourceKind === 'gif' && !bestOutputPath) {
+    throw new ApiError(422, 'OUTPUT_NOT_SMALLER', 'The generated GIF was larger than the source GIF, so GIFM kept the source unchanged.');
+  }
+
+  const finalStat = await fs.stat(finalOutputPath);
   checkCancelled(job);
-  job.outputPath = lastOutputPath;
+  job.outputPath = finalOutputPath;
   job.outputBytes = finalStat.size;
   job.downloadUrl = `/api/jobs/${job.id}/download`;
   job.progress = 100;
@@ -766,12 +793,14 @@ function normalizeTargetPreset(value) {
   return Object.hasOwn(targetProfiles, value) ? value : 'free';
 }
 
-function nextAttempt({ width, fps, colors, durationSec, outputBytes, targetBytes, allowTrim }) {
+function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, durationSec, outputBytes, targetBytes, allowTrim }) {
   const overRatio = outputBytes / targetBytes;
   const scale = clamp(Math.sqrt(targetBytes / outputBytes) * 0.94, 0.68, 0.9);
   let nextWidth = even(Math.max(120, width * scale));
   let nextFps = fps;
   let nextColors = colors;
+  let nextDedupeFrames = dedupeFrames;
+  let nextFrameDropModulo = frameDropModulo;
   let nextDuration = durationSec;
 
   if (nextWidth >= width - 8) {
@@ -780,6 +809,12 @@ function nextAttempt({ width, fps, colors, durationSec, outputBytes, targetBytes
       nextFps = Math.max(6, nextFps - (overRatio > 1.6 ? 3 : 2));
     } else if (nextColors > 32) {
       nextColors = Math.max(32, nextColors - (overRatio > 1.6 ? 32 : 16));
+    } else if (!nextDedupeFrames) {
+      nextDedupeFrames = true;
+    } else if (nextFrameDropModulo === 0) {
+      nextFrameDropModulo = 5;
+    } else if (nextFrameDropModulo > 3) {
+      nextFrameDropModulo -= 1;
     } else if (allowTrim && nextDuration > 1) {
       nextDuration = Math.max(1, nextDuration * scale);
     } else {
@@ -789,7 +824,14 @@ function nextAttempt({ width, fps, colors, durationSec, outputBytes, targetBytes
     nextColors = Math.max(64, nextColors - 16);
   }
 
-  if (nextWidth === width && nextFps === fps && nextColors === colors && Math.abs(nextDuration - durationSec) < 0.05) {
+  if (
+    nextWidth === width &&
+    nextFps === fps &&
+    nextColors === colors &&
+    nextDedupeFrames === dedupeFrames &&
+    nextFrameDropModulo === frameDropModulo &&
+    Math.abs(nextDuration - durationSec) < 0.05
+  ) {
     return null;
   }
 
@@ -797,8 +839,30 @@ function nextAttempt({ width, fps, colors, durationSec, outputBytes, targetBytes
     width: nextWidth,
     fps: Math.round(nextFps),
     colors: Math.round(nextColors),
+    dedupeFrames: nextDedupeFrames,
+    frameDropModulo: nextFrameDropModulo,
     durationSec: Number(nextDuration.toFixed(2))
   };
+}
+
+function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo }) {
+  const filters = [];
+  if (dedupeFrames) {
+    filters.push('mpdecimate', 'setpts=N/FRAME_RATE/TB');
+  }
+  if (frameDropModulo > 0) {
+    filters.push(`select='not(eq(mod(n\\,${frameDropModulo})\\,0))'`, 'setpts=N/FRAME_RATE/TB');
+  }
+  filters.push(`fps=${fps}`, `scale=${width}:-2:flags=lanczos`);
+  return filters.join(',');
+}
+
+function strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo }) {
+  const parts = [`${width}px`, `${fps}fps`, `${colors} colors`];
+  if (dedupeFrames) parts.push('dedupe frames');
+  if (frameDropModulo > 0) parts.push(`drop every ${frameDropModulo}th frame`);
+  parts.push('transparency rectangles');
+  return parts.join(' / ');
 }
 
 function trimArgs(startSec, durationSec) {

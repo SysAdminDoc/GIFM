@@ -57,6 +57,8 @@ type Attempt = {
   fps: number;
   colors: number;
   durationSec: number;
+  strategy?: string;
+  rejected?: boolean;
   outputBytes?: number;
 };
 
@@ -629,7 +631,9 @@ function PreviewPanel({
               <span>{attempt.width}px</span>
               <span>{attempt.fps} fps</span>
               <span>{attempt.colors} colors</span>
+              <span>{attempt.strategy ?? 'standard'}</span>
               <strong>{attempt.outputBytes ? formatBytes(attempt.outputBytes) : 'running'}</strong>
+              {attempt.rejected ? <span className="attempt-rejected">rejected</span> : null}
             </div>
           ))}
           {!job?.attempts.length && <p className="muted-text">No attempts yet.</p>}

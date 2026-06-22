@@ -12,9 +12,9 @@ GIFM v0.1.0 is a local GIF maker and compressor for Discord-ready animated GIFs.
 - Video-to-GIF conversion from common video files.
 - Existing GIF recompression through the same palette workflow.
 - Trim controls for start time and duration.
-- Auto-fit loop for width, frame rate, color count, and optional duration trimming.
+- Auto-fit loop for width, frame rate, color count, duplicate-frame removal, nth-frame dropping, transparency rectangles, and optional duration trimming.
 - Local preview, queued/running progress, cancellable jobs, FFmpeg log, exact output byte count, and download/open-output actions.
-- Output suitability copy that says whether the GIF fits the selected Discord target and which compression lever to try next when it does not.
+- Output suitability and attempt strategy copy that says whether the GIF fits the selected Discord target and which compression lever was used.
 
 ## Run Locally
 
