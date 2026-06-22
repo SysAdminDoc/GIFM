@@ -471,7 +471,8 @@ textarea:focus-visible {
 .output-box,
 .attempt-box,
 .trim-panel,
-.batch-panel {
+.batch-panel,
+.diagnostics-panel {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-soft);
@@ -870,6 +871,66 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
+.diagnostics-panel {
+  display: grid;
+  overflow: hidden;
+}
+
+.diagnostic-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px;
+}
+
+.diagnostic-grid span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnostic-grid strong {
+  overflow: hidden;
+  color: var(--muted-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-details {
+  padding: 0 12px 12px;
+}
+
+.command-details summary {
+  cursor: pointer;
+  color: var(--muted-strong);
+  font-weight: 800;
+}
+
+.command-details pre {
+  max-height: 140px;
+  margin: 8px 0 0;
+  overflow: auto;
+  color: #bcd5d1;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.diagnostic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.diagnostic-actions .secondary-button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 .muted-text {
   font-size: 13px;
 }
@@ -971,6 +1032,10 @@ textarea:focus-visible {
   }
 
   .metadata-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .diagnostic-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

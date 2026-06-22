@@ -10,6 +10,7 @@
 - Added persisted settings, named presets, and recent output shortcuts.
 - Added multi-file batch submission with per-file queue status, attempts, cancel, download, and reveal actions.
 - Added visible focus states, reduced-motion handling, ARIA progress semantics, and an output alt-text helper.
+- Added runtime diagnostics with FFmpeg/FFprobe versions, platform info, output estimate, latest FFmpeg command, and JSON export.
 - Expanded the smoke test to cover malformed multipart uploads, upload size limits, unsupported content, no-video media, and the successful GIF path.
 - Expanded the smoke test to cover queued and running job cancellation.
 

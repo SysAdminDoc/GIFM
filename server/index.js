@@ -45,6 +45,7 @@ if (!ffmpegPath || !ffprobePath) {
   throw new Error('Bundled FFmpeg or FFprobe binary was not found.');
 }
 
+const runtimeInfo = await getRuntimeInfo();
 await enforceDataRetention();
 
 const storage = multer.diskStorage({
@@ -83,8 +84,9 @@ app.get('/api/health', (_request, response) => {
   response.json({
     ok: true,
     version: VERSION,
-    ffmpeg: Boolean(ffmpegPath),
-    ffprobe: Boolean(ffprobePath),
+    ffmpeg: runtimeInfo.ffmpeg,
+    ffprobe: runtimeInfo.ffprobe,
+    platform: runtimeInfo.platform,
     host: HOST,
     remoteAllowed: ALLOW_REMOTE,
     maxUploadBytes: MAX_UPLOAD_BYTES,
@@ -140,6 +142,7 @@ app.post('/api/jobs', runUpload, async (request, response, next) => {
       errorCode: undefined,
       warnings: [],
       logs: [],
+      commands: [],
       attempts: [],
       settings
     };
@@ -999,6 +1002,7 @@ function runFfmpeg(args, job, stage, progressStart, progressEnd, durationSec) {
     }
 
     const child = spawn(ffmpegPath, ['-hide_banner', ...args], { windowsHide: true });
+    recordCommand(job, stage, ['-hide_banner', ...args]);
     trackChild(job, child);
     let stderr = '';
 
@@ -1066,9 +1070,26 @@ function publicJob(job) {
     errorCode: job.errorCode,
     warnings: job.warnings,
     logs: job.logs.slice(-120),
+    commands: job.commands?.slice(-20) ?? [],
     attempts: job.attempts,
     settings: job.settings
   };
+}
+
+function recordCommand(job, stage, args) {
+  job.commands.push({
+    stage,
+    tool: ffmpegPath,
+    args,
+    command: [ffmpegPath, ...args].map(commandToken).join(' ')
+  });
+  if (job.commands.length > 20) job.commands.shift();
+}
+
+function commandToken(value) {
+  const text = String(value);
+  if (!/[\s"']/g.test(text)) return text;
+  return `"${text.replace(/"/g, '\\"')}"`;
 }
 
 function log(job, message) {
@@ -1102,6 +1123,45 @@ function revealPath(filePath) {
 
 async function cleanupWork(jobId) {
   await fs.rm(path.join(workDir, jobId), { recursive: true, force: true });
+}
+
+async function getRuntimeInfo() {
+  const [ffmpegVersion, ffprobeVersion] = await Promise.all([
+    toolVersion(ffmpegPath),
+    toolVersion(ffprobePath)
+  ]);
+
+  return {
+    platform: {
+      os: process.platform,
+      arch: process.arch,
+      node: process.version
+    },
+    ffmpeg: {
+      available: Boolean(ffmpegPath),
+      path: ffmpegPath,
+      version: ffmpegVersion
+    },
+    ffprobe: {
+      available: Boolean(ffprobePath),
+      path: ffprobePath,
+      version: ffprobeVersion
+    }
+  };
+}
+
+function toolVersion(toolPath) {
+  return new Promise((resolve) => {
+    const child = spawn(toolPath, ['-version'], { windowsHide: true });
+    let stdout = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.on('error', () => resolve('unavailable'));
+    child.on('close', () => {
+      resolve(stdout.trim().split(/\r?\n/)[0] || 'unknown');
+    });
+  });
 }
 
 function clamp(value, min, max) {

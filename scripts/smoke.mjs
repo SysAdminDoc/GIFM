@@ -78,6 +78,7 @@ server.stderr.on('data', (chunk) => {
 
 try {
   await waitForHealth();
+  await assertHealthDiagnostics();
   await assertMalformedMultipart();
   await assertTooLargeUpload();
   await assertUnsupportedContent();
@@ -126,6 +127,14 @@ async function assertMalformedMultipart() {
     body: 'broken'
   });
   await expectApiError(response, 400, 'MALFORMED_MULTIPART');
+}
+
+async function assertHealthDiagnostics() {
+  const response = await fetch(`${baseUrl}/api/health`);
+  const health = await response.json();
+  if (!health.ffmpeg?.path || !health.ffmpeg?.version || !health.ffprobe?.path || !health.platform?.node) {
+    throw new Error(`Health diagnostics incomplete: ${JSON.stringify(health, null, 2)}`);
+  }
 }
 
 async function assertTooLargeUpload() {

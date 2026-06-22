@@ -79,8 +79,16 @@ type Job = {
   errorCode?: string;
   warnings: string[];
   logs: string[];
+  commands?: CommandRecord[];
   attempts: Attempt[];
   settings: Settings;
+};
+
+type CommandRecord = {
+  stage: string;
+  tool: string;
+  args: string[];
+  command: string;
 };
 
 type SourceMeta = {
@@ -90,6 +98,25 @@ type SourceMeta = {
   fps: number | null;
   codec: string;
   rotation: number;
+};
+
+type HealthInfo = {
+  version: string;
+  ffmpeg: {
+    available: boolean;
+    path: string;
+    version: string;
+  };
+  ffprobe: {
+    available: boolean;
+    path: string;
+    version: string;
+  };
+  platform: {
+    os: string;
+    arch: string;
+    node: string;
+  };
 };
 
 type SavedPreset = {
@@ -207,6 +234,7 @@ function GifmApp() {
   const [notice, setNotice] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [sourceMeta, setSourceMeta] = useState<SourceMeta | null>(null);
+  const [health, setHealth] = useState<HealthInfo | null>(null);
   const [probeBusy, setProbeBusy] = useState(false);
   const [previewTime, setPreviewTime] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -222,6 +250,13 @@ function GifmApp() {
   useEffect(() => {
     writeStorage(RECENTS_KEY, recentOutputs);
   }, [recentOutputs]);
+
+  useEffect(() => {
+    fetch('/api/health')
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => setHealth(payload as HealthInfo | null))
+      .catch(() => setHealth(null));
+  }, []);
 
   useEffect(() => {
     if (!file) {
@@ -589,6 +624,7 @@ function GifmApp() {
           <ProgressPanel job={job} />
           <BatchQueue jobs={batchJobs} onSelectJob={setJob} onRevealJob={revealRecentOutput} onCancelJob={cancelBatchJob} />
           <LogPanel job={job} />
+          <DiagnosticsPanel health={health} sourceMeta={sourceMeta} settings={settings} job={job} />
         </section>
 
         <PreviewPanel
@@ -1171,6 +1207,59 @@ function LogPanel({ job }: { job: Job | null }) {
   );
 }
 
+function DiagnosticsPanel({
+  health,
+  sourceMeta,
+  settings,
+  job
+}: {
+  health: HealthInfo | null;
+  sourceMeta: SourceMeta | null;
+  settings: Settings;
+  job: Job | null;
+}) {
+  const latestCommand = job?.commands?.at(-1);
+  const diagnostic = useMemo(() => ({
+    generatedAt: new Date().toISOString(),
+    health,
+    sourceMeta,
+    estimate: sourceMeta ? {
+      outputBytes: estimateOutputBytes(settings, sourceMeta),
+      targetBytes: settings.targetMb * 1024 * 1024
+    } : null,
+    settings,
+    job
+  }), [health, sourceMeta, settings, job]);
+  const json = useMemo(() => JSON.stringify(diagnostic, null, 2), [diagnostic]);
+
+  return (
+    <section className="diagnostics-panel" aria-label="Diagnostics">
+      <div className="output-title">
+        <Terminal aria-hidden="true" />
+        <h3>Diagnostics</h3>
+      </div>
+      <div className="diagnostic-grid">
+        <span>FFmpeg <strong>{health?.ffmpeg.version ?? 'Unknown'}</strong></span>
+        <span>FFprobe <strong>{health?.ffprobe.version ?? 'Unknown'}</strong></span>
+        <span>Platform <strong>{health ? `${health.platform.os}/${health.platform.arch}` : 'Unknown'}</strong></span>
+        <span>Estimate <strong>{sourceMeta ? formatBytes(estimateOutputBytes(settings, sourceMeta)) : '-'}</strong></span>
+      </div>
+      <details className="command-details">
+        <summary>Latest FFmpeg command</summary>
+        <pre>{latestCommand?.command ?? 'No FFmpeg command has run yet.'}</pre>
+      </details>
+      <div className="diagnostic-actions">
+        <button type="button" className="secondary-button" onClick={() => navigator.clipboard?.writeText(json)}>
+          Copy JSON
+        </button>
+        <button type="button" className="secondary-button" onClick={() => downloadDiagnosticJson(json)}>
+          Download JSON
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -1181,6 +1270,27 @@ function formatBytes(bytes: number) {
     unit += 1;
   }
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function estimateOutputBytes(settings: Settings, sourceMeta: SourceMeta) {
+  const duration = Math.max(0.5, Math.min(settings.durationSec, sourceMeta.durationSec ?? settings.durationSec));
+  const sourceWidth = sourceMeta.width ?? settings.width;
+  const sourceHeight = sourceMeta.height ?? settings.width;
+  const scale = settings.width / Math.max(1, sourceWidth);
+  const height = Math.max(1, sourceHeight * scale);
+  const frames = Math.max(1, duration * settings.fps);
+  const paletteFactor = clampNumber(settings.colors / 256, 0.15, 1);
+  return Math.round(settings.width * height * frames * 0.18 * paletteFactor);
+}
+
+function downloadDiagnosticJson(json: string) {
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `gifm-diagnostics-${Date.now()}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function formatRatio(ratio: number) {
