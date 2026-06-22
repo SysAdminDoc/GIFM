@@ -504,6 +504,16 @@ function GifmApp() {
     }
   };
 
+  const copyText = useCallback(async (text: string, successMessage: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error(STRINGS.errors.copyFailed);
+      await navigator.clipboard.writeText(text);
+      setNotice(successMessage);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : STRINGS.errors.copyFailed);
+    }
+  }, []);
+
   const cancelEncoding = async () => {
     if (!job || !canCancel) return;
 
@@ -558,7 +568,13 @@ function GifmApp() {
 
   const revealRecentOutput = async (id: string) => {
     const response = await fetch(`/api/jobs/${id}/reveal`, { method: 'POST' });
-    setNotice(response.ok ? STRINGS.notices.outputOpened : await readApiError(response, STRINGS.errors.recentUnavailable));
+    if (response.ok) {
+      setNotice(STRINGS.notices.outputOpened);
+      return;
+    }
+
+    setRecentOutputs((current) => current.filter((item) => item.id !== id));
+    setNotice(await readApiError(response, STRINGS.errors.recentUnavailable));
   };
 
   return (
@@ -685,7 +701,7 @@ function GifmApp() {
           <ProgressPanel job={job} />
           <BatchQueue jobs={batchJobs} onSelectJob={setJob} onRevealJob={revealRecentOutput} onSaveAs={saveOutputAs} onCancelJob={cancelBatchJob} />
           <LogPanel job={job} />
-          <DiagnosticsPanel health={health} sourceMeta={sourceMeta} settings={settings} job={job} />
+          <DiagnosticsPanel health={health} sourceMeta={sourceMeta} settings={settings} job={job} onCopyText={copyText} />
         </section>
 
         <PreviewPanel
@@ -695,10 +711,14 @@ function GifmApp() {
           outputFit={outputFit}
           onReveal={revealOutput}
           onSaveAs={saveOutputAs}
+          onCopyText={copyText}
           onPreviewTime={setPreviewTime}
           recentOutputs={recentOutputs}
           onRevealRecent={revealRecentOutput}
-          onClearRecent={() => setRecentOutputs([])}
+          onClearRecent={() => {
+            setRecentOutputs([]);
+            setNotice(STRINGS.notices.recentCleared);
+          }}
         />
       </form>
     </main>
@@ -1123,6 +1143,7 @@ function PreviewPanel({
   outputFit,
   onReveal,
   onSaveAs,
+  onCopyText,
   onPreviewTime,
   recentOutputs,
   onRevealRecent,
@@ -1134,6 +1155,7 @@ function PreviewPanel({
   outputFit: boolean;
   onReveal: () => void;
   onSaveAs: (job: Job) => void;
+  onCopyText: (text: string, successMessage: string) => void;
   onPreviewTime: (seconds: number) => void;
   recentOutputs: RecentOutput[];
   onRevealRecent: (id: string) => void;
@@ -1200,7 +1222,7 @@ function PreviewPanel({
               <span>{STRINGS.output.altText}</span>
               <textarea value={altText} rows={2} onChange={(event) => setAltText(event.currentTarget.value)} />
             </label>
-            <button type="button" className="secondary-button alt-copy" onClick={() => navigator.clipboard?.writeText(altText)}>
+            <button type="button" className="secondary-button alt-copy" onClick={() => onCopyText(altText, STRINGS.notices.altTextCopied)}>
               {STRINGS.output.copyAltText}
             </button>
           </>
@@ -1357,12 +1379,14 @@ function DiagnosticsPanel({
   health,
   sourceMeta,
   settings,
-  job
+  job,
+  onCopyText
 }: {
   health: HealthInfo | null;
   sourceMeta: SourceMeta | null;
   settings: Settings;
   job: Job | null;
+  onCopyText: (text: string, successMessage: string) => void;
 }) {
   const latestCommand = job?.commands?.at(-1);
   const diagnostic = useMemo(() => ({
@@ -1396,7 +1420,7 @@ function DiagnosticsPanel({
         <pre>{latestCommand?.command ?? STRINGS.diagnostics.noCommand}</pre>
       </details>
       <div className="diagnostic-actions">
-        <button type="button" className="secondary-button" onClick={() => navigator.clipboard?.writeText(json)}>
+        <button type="button" className="secondary-button" onClick={() => onCopyText(json, STRINGS.notices.diagnosticsCopied)}>
           {STRINGS.diagnostics.copyJson}
         </button>
         <button type="button" className="secondary-button" onClick={() => downloadDiagnosticJson(json)}>

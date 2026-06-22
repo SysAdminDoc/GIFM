@@ -21,6 +21,7 @@ export const STRINGS = {
     outputUnavailable: 'Output is not available.',
     downloadFailed: 'Download failed',
     saveFailed: 'Save failed',
+    copyFailed: 'Copy failed',
     cancelFailed: 'Cancel failed',
     outputOpenFailed: 'Could not open output location',
     recentUnavailable: 'Recent output is no longer available'
@@ -34,12 +35,15 @@ export const STRINGS = {
     noJobsSubmitted: 'No jobs were submitted',
     outputOpened: 'Output location opened',
     gifSaved: 'GIF saved',
+    altTextCopied: 'Alt text copied',
+    diagnosticsCopied: 'Diagnostics copied',
     saveCancelled: 'Save cancelled',
     jobCancelled: 'Job cancelled',
     presetSaved: (name: string) => `Preset saved: ${name}`,
     presetLoaded: (name: string) => `Preset loaded: ${name}`,
     presetDeleted: (name: string) => `Preset deleted: ${name}`,
-    selectionCleared: 'Selection cleared'
+    selectionCleared: 'Selection cleared',
+    recentCleared: 'Recent outputs cleared'
   },
   target: {
     title: 'Target',

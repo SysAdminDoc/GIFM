@@ -65,7 +65,7 @@ const server = spawn(process.execPath, ['server/index.js'], {
     GIFM_PORT: String(port),
     GIFM_MAX_UPLOAD_MB: '16',
     GIFM_DATA_MAX_MB: '64',
-    GIFM_MAX_CONCURRENT_JOBS: '1',
+    GIFM_MAX_CONCURRENT_JOBS: 'invalid',
     GIFM_GIFSKI_PATH: '',
     GIFM_OUTPUT_DIR: smokeOutputDir
   },
@@ -90,6 +90,8 @@ try {
   await assertProbeMetadata();
   await assertNoVideoJob();
   await assertQueueAndCancel();
+  await assertAttemptOutputCleanup();
+  await assertTrimStartAdjustment();
 
   const fileBytes = await fs.readFile(samplePath);
   const form = new FormData();
@@ -146,6 +148,9 @@ async function assertHealthDiagnostics() {
   }
   if (health.gifski.available) {
     throw new Error(`Smoke test should not enable gifski without GIFM_GIFSKI_PATH: ${JSON.stringify(health.gifski, null, 2)}`);
+  }
+  if (health.maxConcurrentJobs !== 1) {
+    throw new Error(`Invalid GIFM_MAX_CONCURRENT_JOBS should fall back to 1: ${JSON.stringify(health, null, 2)}`);
   }
 }
 
@@ -220,6 +225,40 @@ async function assertQueueAndCancel() {
   }
 
   await waitForStatus(first.id, ['cancelled'], 10000);
+}
+
+async function assertAttemptOutputCleanup() {
+  const bytes = await fs.readFile(samplePath);
+  const started = await startMediaJob(bytes, 'multi-attempt.mp4', cleanupSettings());
+  const job = await waitForJob(started.id, 45000);
+  if (job.status !== 'complete') {
+    throw new Error(`Cleanup job did not complete: ${JSON.stringify(job, null, 2)}`);
+  }
+  if (job.attempts.length < 2) {
+    throw new Error(`Cleanup job should force multiple attempts: ${JSON.stringify(job.attempts, null, 2)}`);
+  }
+
+  const outputFiles = await fs.readdir(smokeOutputDir);
+  const jobOutputs = outputFiles.filter((name) => name.includes(job.id.slice(0, 8)) && name.endsWith('.gif'));
+  if (jobOutputs.length !== 1) {
+    throw new Error(`Expected only the selected final GIF to remain, found ${JSON.stringify(jobOutputs)}`);
+  }
+}
+
+async function assertTrimStartAdjustment() {
+  const bytes = await fs.readFile(samplePath);
+  const started = await startMediaJob(bytes, 'trim-beyond-duration.mp4', {
+    ...validSettings(),
+    startSec: 999,
+    durationSec: 4
+  });
+  const job = await waitForJob(started.id, 45000);
+  if (job.status !== 'complete') {
+    throw new Error(`Trim adjustment job did not complete: ${JSON.stringify(job, null, 2)}`);
+  }
+  if (!job.warnings.some((warning) => warning.includes('adjusted'))) {
+    throw new Error(`Expected trim adjustment warning, got ${JSON.stringify(job.warnings, null, 2)}`);
+  }
 }
 
 async function startMediaJob(bytes, name, settings) {
@@ -307,6 +346,23 @@ function slowSettings() {
     paletteMode: 'full',
     encoderBackend: 'ffmpeg',
     autoFit: false,
+    allowTrim: false
+  };
+}
+
+function cleanupSettings() {
+  return {
+    targetPreset: 'custom',
+    targetMb: 0.05,
+    width: 640,
+    fps: 30,
+    startSec: 0,
+    durationSec: 2,
+    colors: 256,
+    dither: 'sierra2_4a',
+    paletteMode: 'full',
+    encoderBackend: 'ffmpeg',
+    autoFit: true,
     allowTrim: false
   };
 }

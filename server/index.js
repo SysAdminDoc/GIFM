@@ -10,14 +10,14 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const VERSION = '0.1.0';
-const PORT = Number(process.env.GIFM_PORT ?? process.env.PORT ?? 4174);
-const HOST = process.env.GIFM_HOST ?? '127.0.0.1';
+const PORT = parsePositiveInteger(process.env.GIFM_PORT ?? process.env.PORT, 4174);
+const HOST = (process.env.GIFM_HOST ?? '127.0.0.1').trim() || '127.0.0.1';
 const ALLOW_REMOTE = process.env.GIFM_ALLOW_REMOTE === '1';
 const GIFSKI_PATH = process.env.GIFM_GIFSKI_PATH ? path.resolve(process.env.GIFM_GIFSKI_PATH) : '';
 const MAX_UPLOAD_BYTES = parseByteLimit(process.env.GIFM_MAX_UPLOAD_BYTES, process.env.GIFM_MAX_UPLOAD_MB, 2 * 1024 * 1024 * 1024);
 const DATA_MAX_BYTES = parseByteLimit(process.env.GIFM_DATA_MAX_BYTES, process.env.GIFM_DATA_MAX_MB, 5 * 1024 * 1024 * 1024);
 const DATA_MAX_AGE_MS = parseHours(process.env.GIFM_DATA_MAX_AGE_HOURS, 24) * 60 * 60 * 1000;
-const MAX_CONCURRENT_JOBS = Math.max(1, Math.round(Number(process.env.GIFM_MAX_CONCURRENT_JOBS ?? 1)));
+const MAX_CONCURRENT_JOBS = parsePositiveInteger(process.env.GIFM_MAX_CONCURRENT_JOBS, 1);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const dataDir = path.join(rootDir, 'data');
@@ -146,7 +146,8 @@ app.post('/api/jobs', runUpload, async (request, response, next) => {
       logs: [],
       commands: [],
       attempts: [],
-      settings
+      settings,
+      outputCandidates: new Set()
     };
 
     jobs.set(id, job);
@@ -281,9 +282,15 @@ async function processJob(job) {
     throw new ApiError(422, 'NO_VIDEO_STREAM', 'No video stream was found in the selected file.');
   }
 
-  const startSec = Math.max(0, job.settings.startSec);
+  let startSec = Math.max(0, job.settings.startSec);
   let durationSec = Math.max(0.5, job.settings.durationSec);
   if (Number.isFinite(sourceDuration) && sourceDuration > 0) {
+    if (startSec >= sourceDuration) {
+      const adjustedStart = Math.max(0, sourceDuration - 0.5);
+      job.warnings.push(`Trim start was beyond the source duration and was adjusted to ${adjustedStart.toFixed(2)} sec.`);
+      log(job, `Adjusted trim start from ${startSec.toFixed(2)} sec to ${adjustedStart.toFixed(2)} sec.`);
+      startSec = Number(adjustedStart.toFixed(2));
+    }
     durationSec = Math.min(durationSec, Math.max(0.5, sourceDuration - startSec));
   }
 
@@ -302,10 +309,12 @@ async function processJob(job) {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     checkCancelled(job);
     const attemptWorkDir = path.join(workDir, job.id);
+    job.workPath = attemptWorkDir;
     await fs.mkdir(attemptWorkDir, { recursive: true });
     const palettePath = path.join(attemptWorkDir, `palette-${attempt}-001.png`);
     const palettePattern = path.join(attemptWorkDir, `palette-${attempt}-%03d.png`);
     const outputPath = path.join(outputDir, `${safeBaseName(job.inputName)}-${job.id.slice(0, 8)}-a${attempt}.gif`);
+    trackOutputCandidate(job, outputPath);
     const strategy = strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo });
 
     const attemptRecord = { attempt, width, fps, colors, durationSec, strategy, dedupeFrames, frameDropModulo };
@@ -342,6 +351,7 @@ async function processJob(job) {
       job.stage = 'Complete';
       job.status = 'complete';
       job.completedAt = new Date().toISOString();
+      await cleanupOutputCandidates(job, outputPath);
       await cleanupWork(job.id);
       await cleanupInput(job);
       await enforceDataRetention(new Set([job.outputPath]));
@@ -397,6 +407,7 @@ async function processJob(job) {
   job.status = 'complete';
   job.completedAt = new Date().toISOString();
   job.warnings.push(`Final GIF is ${formatBytes(finalStat.size)}, which is above the ${formatBytes(job.targetBytes)} target.`);
+  await cleanupOutputCandidates(job, finalOutputPath);
   await cleanupWork(job.id);
   await cleanupInput(job);
   await enforceDataRetention(new Set([job.outputPath]));
@@ -455,6 +466,7 @@ async function runQueuedJob(job) {
     }
   } finally {
     if (job.status === 'cancelled') {
+      await cleanupOutputCandidates(job);
       await cleanupInput(job);
       await cleanupWork(job.id);
       await enforceDataRetention();
@@ -508,6 +520,7 @@ async function finalizeCancelled(job) {
   job.errorCode = 'JOB_CANCELLED';
   job.completedAt = new Date().toISOString();
   log(job, 'Cancelled by user.');
+  await cleanupOutputCandidates(job);
   await cleanupWork(job.id);
   await cleanupInput(job);
   await enforceDataRetention();
@@ -705,9 +718,34 @@ async function failJob(job, error) {
   job.errorCode = apiError.code;
   job.completedAt = new Date().toISOString();
   log(job, `ERROR ${apiError.code}: ${apiError.message}`);
+  await cleanupOutputCandidates(job);
   await cleanupWork(job.id);
   await cleanupInput(job);
   await enforceDataRetention();
+}
+
+function trackOutputCandidate(job, outputPath) {
+  if (!job.outputCandidates) job.outputCandidates = new Set();
+  job.outputCandidates.add(path.resolve(outputPath));
+}
+
+async function cleanupOutputCandidates(job, keepPath = '') {
+  const candidates = [...(job.outputCandidates ?? [])];
+  const keep = keepPath ? path.resolve(keepPath) : '';
+  const kept = new Set();
+
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate);
+    if (keep && resolved === keep) {
+      kept.add(resolved);
+      continue;
+    }
+
+    const removed = await removeFile(resolved);
+    if (!removed) kept.add(resolved);
+  }
+
+  job.outputCandidates = kept;
 }
 
 async function cleanupInput(job) {
@@ -755,6 +793,10 @@ function protectedJobPaths(extraProtected) {
     if (job.status === 'queued' || job.status === 'running') {
       if (job.inputPath) paths.add(path.resolve(job.inputPath));
       if (job.outputPath) paths.add(path.resolve(job.outputPath));
+      if (job.workPath) paths.add(path.resolve(job.workPath));
+      for (const candidate of job.outputCandidates ?? []) {
+        paths.add(path.resolve(candidate));
+      }
     } else if (job.status === 'complete' && job.outputPath) {
       paths.add(path.resolve(job.outputPath));
     }
@@ -790,14 +832,14 @@ async function listManagedEntries(dir, protectedPaths) {
 
   for (const name of names) {
     const entryPath = path.join(dir, name);
-    const stat = await fs.stat(entryPath).catch(() => null);
+    const stat = await fs.lstat(entryPath).catch(() => null);
     if (!stat) continue;
 
     entries.push({
       path: entryPath,
       size: stat.isDirectory() ? await directorySize(entryPath) : stat.size,
       mtimeMs: stat.mtimeMs,
-      protected: protectedPaths.has(path.resolve(entryPath))
+      protected: isProtectedPath(entryPath, protectedPaths)
     });
   }
 
@@ -809,11 +851,21 @@ async function directorySize(dir) {
   let total = 0;
   for (const name of names) {
     const entryPath = path.join(dir, name);
-    const stat = await fs.stat(entryPath).catch(() => null);
+    const stat = await fs.lstat(entryPath).catch(() => null);
     if (!stat) continue;
     total += stat.isDirectory() ? await directorySize(entryPath) : stat.size;
   }
   return total;
+}
+
+function isProtectedPath(entryPath, protectedPaths) {
+  const resolved = path.resolve(entryPath);
+  for (const protectedPath of protectedPaths) {
+    if (resolved === protectedPath) return true;
+    if (protectedPath.startsWith(`${resolved}${path.sep}`)) return true;
+    if (resolved.startsWith(`${protectedPath}${path.sep}`)) return true;
+  }
+  return false;
 }
 
 function parseSettings(raw) {
@@ -1281,7 +1333,20 @@ function revealPath(filePath) {
 }
 
 async function cleanupWork(jobId) {
-  await fs.rm(path.join(workDir, jobId), { recursive: true, force: true });
+  await removeDirectory(path.join(workDir, jobId));
+}
+
+async function removeDirectory(dirPath) {
+  if (!dirPath) return true;
+
+  try {
+    await fs.rm(dirPath, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return true;
+    if (error?.code === 'EBUSY' || error?.code === 'EPERM') return false;
+    throw error;
+  }
 }
 
 async function getRuntimeInfo() {
@@ -1350,6 +1415,11 @@ function parseByteLimit(byteValue, mbValue, fallback) {
 function parseHours(value, fallback) {
   const hours = Number(value);
   return Number.isFinite(hours) && hours > 0 ? hours : fallback;
+}
+
+function parsePositiveInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.round(number) : fallback;
 }
 
 function even(value) {
