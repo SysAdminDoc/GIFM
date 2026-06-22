@@ -28,10 +28,12 @@ import {
   useRef,
   useState
 } from 'react';
+import { STRINGS } from './strings';
 
 const VERSION = '0.1.0';
+const TARGET_PROFILES = STRINGS.target.profiles;
 
-type TargetPreset = 'free' | 'nitro-basic' | 'nitro' | 'emoji' | 'avatar' | 'custom';
+type TargetPreset = typeof TARGET_PROFILES[number]['id'];
 type DitherMode = 'sierra2_4a' | 'bayer' | 'floyd_steinberg' | 'none';
 type PaletteMode = 'diff' | 'full' | 'single';
 type EncoderBackend = 'ffmpeg' | 'gifski';
@@ -190,19 +192,6 @@ const DEFAULT_SETTINGS: Settings = {
   allowTrim: false
 };
 
-const TARGET_PROFILES: Array<{
-  id: TargetPreset;
-  label: string;
-  targetMb: number;
-  description: string;
-}> = [
-  { id: 'free', label: 'Free 10 MB', targetMb: 10, description: 'Standard account file uploads.' },
-  { id: 'nitro-basic', label: 'Basic 50 MB', targetMb: 50, description: 'Nitro Basic file sharing limit.' },
-  { id: 'nitro', label: 'Nitro 500 MB', targetMb: 500, description: 'Full Nitro file sharing limit.' },
-  { id: 'emoji', label: 'Emoji 256 KB', targetMb: 256 / 1024, description: 'Custom animated emoji upload ceiling.' },
-  { id: 'avatar', label: 'Icon/avatar 10 MB', targetMb: 10, description: 'Square GIF guidance for avatars and server icons.' },
-  { id: 'custom', label: 'Custom', targetMb: 10, description: 'Use a specific byte target.' }
-];
 const SETTINGS_KEY = 'gifm:settings:v1';
 const PRESETS_KEY = 'gifm:presets:v1';
 const RECENTS_KEY = 'gifm:recents:v1';
@@ -224,11 +213,11 @@ class ErrorBoundary extends Component<PropsWithChildren, { error?: Error }> {
       return (
         <main className="fatal">
           <AlertTriangle aria-hidden="true" />
-          <h1>GIFM stopped rendering</h1>
+          <h1>{STRINGS.errors.fatalTitle}</h1>
           <p>{this.state.error.message}</p>
           <button type="button" onClick={() => window.location.reload()}>
             <RotateCcw aria-hidden="true" />
-            Reload
+            {STRINGS.errors.reload}
           </button>
         </main>
       );
@@ -309,7 +298,7 @@ function GifmApp() {
         body.set('media', file);
         const response = await fetch('/api/probe', { method: 'POST', body, signal: controller.signal });
         if (!response.ok) {
-          throw new Error(await readApiError(response, `Probe failed (${response.status})`));
+          throw new Error(await readApiError(response, `${STRINGS.errors.probeFailed} (${response.status})`));
         }
 
         const metadata = (await response.json()) as SourceMeta;
@@ -320,7 +309,7 @@ function GifmApp() {
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
         setSourceMeta(null);
-        setNotice(error instanceof Error ? error.message : 'Probe failed');
+        setNotice(error instanceof Error ? error.message : STRINGS.errors.probeFailed);
       } finally {
         if (!controller.signal.aborted) setProbeBusy(false);
       }
@@ -339,12 +328,12 @@ function GifmApp() {
       try {
         const response = await fetch(`/api/jobs/${job.id}`);
         if (!response.ok) {
-          throw new Error(`Status check failed (${response.status})`);
+          throw new Error(`${STRINGS.errors.statusFailed} (${response.status})`);
         }
         const nextJob = (await response.json()) as Job;
         setJob(nextJob);
       } catch (error) {
-        setNotice(error instanceof Error ? error.message : 'Status check failed');
+        setNotice(error instanceof Error ? error.message : STRINGS.errors.statusFailed);
       }
     }, 800);
 
@@ -411,7 +400,7 @@ function GifmApp() {
     setBatchFiles(files);
     setBatchJobs([]);
     setJob(null);
-    setNotice(files.length > 1 ? `${files.length} files loaded` : `${nextFile.name} loaded`);
+    setNotice(files.length > 1 ? STRINGS.notices.filesLoaded(files.length) : STRINGS.notices.fileLoaded(nextFile.name));
   }, []);
 
   const onFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -434,7 +423,7 @@ function GifmApp() {
     if (!batchFiles.length) return;
 
     setBusy(true);
-    setNotice(batchFiles.length > 1 ? `Submitting ${batchFiles.length} jobs` : 'Encoding started');
+    setNotice(batchFiles.length > 1 ? STRINGS.notices.submittingJobs(batchFiles.length) : STRINGS.notices.encodingStarted);
     const queuedItems = batchFiles.map((item) => ({
       localId: crypto.randomUUID(),
       inputName: item.name,
@@ -458,7 +447,7 @@ function GifmApp() {
         });
 
         if (!response.ok) {
-          const message = await readApiError(response, `Encoding failed to start (${response.status})`);
+          const message = await readApiError(response, `${STRINGS.errors.encodeStartFailed} (${response.status})`);
           setBatchJobs((current) => current.map((item) => item.localId === localId ? { ...item, status: 'failed', error: message } : item));
           continue;
         }
@@ -471,9 +460,9 @@ function GifmApp() {
         }
       }
 
-      setNotice(firstJob ? 'Jobs submitted' : 'No jobs were submitted');
+      setNotice(firstJob ? STRINGS.notices.jobsSubmitted : STRINGS.notices.noJobsSubmitted);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Encoding failed to start');
+      setNotice(error instanceof Error ? error.message : STRINGS.errors.encodeStartFailed);
     } finally {
       setBusy(false);
     }
@@ -482,7 +471,7 @@ function GifmApp() {
   const revealOutput = async () => {
     if (!job) return;
     const response = await fetch(`/api/jobs/${job.id}/reveal`, { method: 'POST' });
-    setNotice(response.ok ? 'Output location opened' : await readApiError(response, 'Could not open output location'));
+    setNotice(response.ok ? STRINGS.notices.outputOpened : await readApiError(response, STRINGS.errors.outputOpenFailed));
   };
 
   const saveOutputAs = async (targetJob: Job) => {
@@ -490,13 +479,13 @@ function GifmApp() {
 
     try {
       await saveJobOutput(targetJob);
-      setNotice('GIF saved');
+      setNotice(STRINGS.notices.gifSaved);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        setNotice('Save cancelled');
+        setNotice(STRINGS.notices.saveCancelled);
         return;
       }
-      setNotice(error instanceof Error ? error.message : 'Save failed');
+      setNotice(error instanceof Error ? error.message : STRINGS.errors.saveFailed);
     }
   };
 
@@ -505,26 +494,26 @@ function GifmApp() {
 
     const response = await fetch(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
     if (!response.ok) {
-      setNotice(await readApiError(response, 'Cancel failed'));
+      setNotice(await readApiError(response, STRINGS.errors.cancelFailed));
       return;
     }
 
     const nextJob = (await response.json()) as Job;
     setJob(nextJob);
-    setNotice('Job cancelled');
+    setNotice(STRINGS.notices.jobCancelled);
   };
 
   const cancelBatchJob = async (id: string) => {
     const response = await fetch(`/api/jobs/${id}/cancel`, { method: 'POST' });
     if (!response.ok) {
-      setNotice(await readApiError(response, 'Cancel failed'));
+      setNotice(await readApiError(response, STRINGS.errors.cancelFailed));
       return;
     }
 
     const nextJob = (await response.json()) as Job;
     setBatchJobs((current) => current.map((item) => item.job?.id === nextJob.id ? { ...item, job: nextJob } : item));
     if (job?.id === nextJob.id) setJob(nextJob);
-    setNotice('Job cancelled');
+    setNotice(STRINGS.notices.jobCancelled);
   };
 
   const savePreset = (name: string) => {
@@ -536,25 +525,25 @@ function GifmApp() {
       const nextPreset = { id: existing?.id ?? crypto.randomUUID(), name: trimmed, settings };
       return [nextPreset, ...current.filter((preset) => preset.id !== nextPreset.id)].slice(0, 20);
     });
-    setNotice(`Preset saved: ${trimmed}`);
+    setNotice(STRINGS.notices.presetSaved(trimmed));
   };
 
   const loadPreset = (id: string) => {
     const preset = savedPresets.find((item) => item.id === id);
     if (!preset) return;
     setSettings(normalizeSettings(preset.settings));
-    setNotice(`Preset loaded: ${preset.name}`);
+    setNotice(STRINGS.notices.presetLoaded(preset.name));
   };
 
   const deletePreset = (id: string) => {
     const preset = savedPresets.find((item) => item.id === id);
     setSavedPresets((current) => current.filter((item) => item.id !== id));
-    if (preset) setNotice(`Preset deleted: ${preset.name}`);
+    if (preset) setNotice(STRINGS.notices.presetDeleted(preset.name));
   };
 
   const revealRecentOutput = async (id: string) => {
     const response = await fetch(`/api/jobs/${id}/reveal`, { method: 'POST' });
-    setNotice(response.ok ? 'Output location opened' : await readApiError(response, 'Recent output is no longer available'));
+    setNotice(response.ok ? STRINGS.notices.outputOpened : await readApiError(response, STRINGS.errors.recentUnavailable));
   };
 
   return (
@@ -563,13 +552,13 @@ function GifmApp() {
         <div className="brand">
           <img src="/icon.svg" alt="" />
           <div>
-            <h1>GIFM</h1>
-            <p>v{VERSION} local GIF maker</p>
+            <h1>{STRINGS.app.name}</h1>
+            <p>{STRINGS.app.subtitle(VERSION)}</p>
           </div>
         </div>
         <div className="topbar-status" aria-live="polite">
           <Gauge aria-hidden="true" />
-          <span>{batchFiles.length > 1 ? `${batchFiles.length} files selected` : file ? `${formatBytes(file.size)} source` : 'Ready for video or GIF'}</span>
+          <span>{batchFiles.length > 1 ? STRINGS.app.filesSelected(batchFiles.length) : file ? STRINGS.app.sourceSize(formatBytes(file.size)) : STRINGS.app.ready}</span>
         </div>
       </header>
 
@@ -584,7 +573,7 @@ function GifmApp() {
           health={health}
         />
 
-        <section className="center-stage" aria-label="Input and encoding">
+        <section className="center-stage" aria-label={STRINGS.input.workspaceAria}>
           <div
             className={`drop-zone${dragActive ? ' is-active' : ''}`}
             onDrop={onDrop}
@@ -597,26 +586,26 @@ function GifmApp() {
               multiple
               accept="video/*,.gif,image/gif"
               onChange={onFileChange}
-              aria-label="Choose video or GIF file"
+              aria-label={STRINGS.input.fileAria}
             />
             <div className="drop-icon">
               {file?.type === 'image/gif' ? <ImageIcon aria-hidden="true" /> : <UploadCloud aria-hidden="true" />}
             </div>
             <div>
-              <h2>Drop video or GIF</h2>
-              <p>MP4, MOV, WebM, AVI, MKV, and existing GIF files are processed locally with FFmpeg.</p>
+              <h2>{STRINGS.input.heading}</h2>
+              <p>{STRINGS.input.description}</p>
             </div>
             <button type="button" className="secondary-button" onClick={() => fileInputRef.current?.click()}>
               <MonitorDown aria-hidden="true" />
-              Browse
+              {STRINGS.input.browse}
             </button>
           </div>
 
           <div className="source-strip">
-            <StatusTile label="Target" value={formatBytes(targetBytes)} tone="cyan" />
-            <StatusTile label="Source ratio" value={file ? formatRatio(originalRatio) : '-'} tone="amber" />
-            <StatusTile label="Auto fit" value={settings.autoFit ? 'On' : 'Off'} tone={settings.autoFit ? 'lime' : 'muted'} />
-            <StatusTile label="Queue" value={queueLabel(job)} tone={job?.status === 'queued' ? 'amber' : 'muted'} />
+            <StatusTile label={STRINGS.target.title} value={formatBytes(targetBytes)} tone="cyan" />
+            <StatusTile label={STRINGS.input.sourceRatio} value={file ? formatRatio(originalRatio) : STRINGS.diagnostics.emptyValue} tone="amber" />
+            <StatusTile label={STRINGS.settings.autoFit.label} value={settings.autoFit ? STRINGS.settings.autoFit.on : STRINGS.settings.autoFit.off} tone={settings.autoFit ? 'lime' : 'muted'} />
+            <StatusTile label={STRINGS.input.queue} value={queueLabel(job)} tone={job?.status === 'queued' ? 'amber' : 'muted'} />
           </div>
 
           <TrimTimeline
@@ -634,12 +623,12 @@ function GifmApp() {
               ) : (
                 <Wand2 aria-hidden="true" />
               )}
-              Start encoding
+              {STRINGS.input.startEncoding}
             </button>
             {canCancel ? (
               <button type="button" className="secondary-button" onClick={cancelEncoding}>
                 <AlertTriangle aria-hidden="true" />
-                Cancel
+                {STRINGS.input.cancel}
               </button>
             ) : null}
             <button
@@ -651,11 +640,11 @@ function GifmApp() {
                 setBatchFiles([]);
                 setBatchJobs([]);
                 setJob(null);
-                setNotice('Selection cleared');
+                setNotice(STRINGS.notices.selectionCleared);
               }}
             >
               <RotateCcw aria-hidden="true" />
-              Reset
+              {STRINGS.input.reset}
             </button>
             <span className="notice" aria-live="polite">
               {notice}
@@ -720,16 +709,16 @@ function SettingsPanel({
   const activeProfile = profileFor(settings.targetPreset);
 
   return (
-    <aside className="settings-panel" aria-label="Compression settings">
+    <aside className="settings-panel" aria-label={STRINGS.target.subtitle}>
       <div className="panel-heading">
         <Settings2 aria-hidden="true" />
         <div>
-          <h2>Target</h2>
-          <p>Discord-ready size controls</p>
+          <h2>{STRINGS.target.title}</h2>
+          <p>{STRINGS.target.subtitle}</p>
         </div>
       </div>
 
-      <div className="preset-grid" role="group" aria-label="Target size preset">
+      <div className="preset-grid" role="group" aria-label={STRINGS.target.ariaPresetGroup}>
         {TARGET_PROFILES.map((profile) => (
           <button
             key={profile.id}
@@ -743,12 +732,12 @@ function SettingsPanel({
       </div>
 
       <NumberField
-        label="Target"
+        label={STRINGS.target.sizeLabel}
         value={settings.targetMb}
         min={0.05}
         max={500}
         step={0.01}
-        suffix="MB"
+        suffix={STRINGS.target.customUnit}
         onChange={(value) => {
           setSettings((current) => ({ ...current, targetMb: value, targetPreset: 'custom' }));
         }}
@@ -757,9 +746,9 @@ function SettingsPanel({
 
       <div className="preset-manager">
         <label className="select-field">
-          <span>Saved preset</span>
+          <span>{STRINGS.presets.savedLabel}</span>
           <select value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.currentTarget.value)}>
-            <option value="">Choose preset</option>
+            <option value="">{STRINGS.presets.choose}</option>
             {savedPresets.map((preset) => (
               <option key={preset.id} value={preset.id}>
                 {preset.name}
@@ -772,8 +761,8 @@ function SettingsPanel({
             type="text"
             value={presetName}
             maxLength={32}
-            placeholder="Preset name"
-            aria-label="Preset name"
+            placeholder={STRINGS.presets.namePlaceholder}
+            aria-label={STRINGS.presets.namePlaceholder}
             onChange={(event) => setPresetName(event.currentTarget.value)}
           />
           <button
@@ -784,10 +773,10 @@ function SettingsPanel({
               setPresetName('');
             }}
           >
-            Save
+            {STRINGS.presets.save}
           </button>
           <button type="button" className="secondary-button" disabled={!selectedPresetId} onClick={() => onLoadPreset(selectedPresetId)}>
-            Load
+            {STRINGS.presets.load}
           </button>
           <button
             type="button"
@@ -798,63 +787,63 @@ function SettingsPanel({
               setSelectedPresetId('');
             }}
           >
-            Delete
+            {STRINGS.presets.delete}
           </button>
         </div>
       </div>
 
       <div className="rule" />
 
-      <NumberField label="Width" value={settings.width} min={160} max={1280} step={20} suffix="px" onChange={(value) => update('width', value)} />
-      <NumberField label="FPS" value={settings.fps} min={5} max={30} step={1} suffix="fps" onChange={(value) => update('fps', value)} />
-      <NumberField label="Start" value={settings.startSec} min={0} max={7200} step={0.25} suffix="sec" onChange={(value) => update('startSec', value)} />
-      <NumberField label="Duration" value={settings.durationSec} min={0.5} max={60} step={0.25} suffix="sec" onChange={(value) => update('durationSec', value)} />
+      <NumberField label={STRINGS.settings.width} value={settings.width} min={160} max={1280} step={20} suffix={STRINGS.settings.units.px} onChange={(value) => update('width', value)} />
+      <NumberField label={STRINGS.settings.fps} value={settings.fps} min={5} max={30} step={1} suffix={STRINGS.settings.units.fps} onChange={(value) => update('fps', value)} />
+      <NumberField label={STRINGS.settings.start} value={settings.startSec} min={0} max={7200} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('startSec', value)} />
+      <NumberField label={STRINGS.settings.duration} value={settings.durationSec} min={0.5} max={60} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('durationSec', value)} />
 
       <div className="rule" />
 
-      <NumberField label="Palette" value={settings.colors} min={16} max={256} step={8} suffix="colors" onChange={(value) => update('colors', value)} />
+      <NumberField label={STRINGS.settings.palette} value={settings.colors} min={16} max={256} step={8} suffix={STRINGS.settings.units.colors} onChange={(value) => update('colors', value)} />
 
       <label className="select-field">
-        <span>Dither</span>
+        <span>{STRINGS.settings.dither}</span>
         <select value={settings.dither} onChange={(event) => update('dither', event.target.value as DitherMode)}>
-          <option value="sierra2_4a">Sierra 2-4A</option>
-          <option value="bayer">Bayer</option>
-          <option value="floyd_steinberg">Floyd-Steinberg</option>
-          <option value="none">None</option>
+          <option value="sierra2_4a">{STRINGS.settings.ditherOptions.sierra}</option>
+          <option value="bayer">{STRINGS.settings.ditherOptions.bayer}</option>
+          <option value="floyd_steinberg">{STRINGS.settings.ditherOptions.floydSteinberg}</option>
+          <option value="none">{STRINGS.settings.ditherOptions.none}</option>
         </select>
       </label>
 
       <label className="select-field">
-        <span>Palette mode</span>
+        <span>{STRINGS.settings.paletteMode}</span>
         <select value={settings.paletteMode} onChange={(event) => update('paletteMode', event.target.value as PaletteMode)}>
-          <option value="diff">Scene diff</option>
-          <option value="full">Full frame</option>
-          <option value="single">Single palette</option>
+          <option value="diff">{STRINGS.settings.paletteModeOptions.diff}</option>
+          <option value="full">{STRINGS.settings.paletteModeOptions.full}</option>
+          <option value="single">{STRINGS.settings.paletteModeOptions.single}</option>
         </select>
       </label>
 
       <label className="select-field">
-        <span>Encoder</span>
+        <span>{STRINGS.settings.encoder}</span>
         <select value={settings.encoderBackend} onChange={(event) => update('encoderBackend', event.target.value as EncoderBackend)}>
-          <option value="ffmpeg">FFmpeg palette</option>
-          <option value="gifski" disabled={!health?.gifski?.available}>gifski</option>
+          <option value="ffmpeg">{STRINGS.settings.encoderOptions.ffmpeg}</option>
+          <option value="gifski" disabled={!health?.gifski?.available}>{STRINGS.settings.encoderOptions.gifski}</option>
         </select>
       </label>
       <p className="profile-note">
         {settings.encoderBackend === 'gifski'
-          ? 'Uses GIFM_GIFSKI_PATH. Confirm gifski licensing before redistributing output workflows.'
-          : 'Bundled FFmpeg palette encoder.'}
+          ? STRINGS.settings.encoderNotes.gifski
+          : STRINGS.settings.encoderNotes.ffmpeg}
       </p>
 
       <ToggleField
-        label="Auto fit"
-        description="Retry with lower width, FPS, and colors until the GIF fits."
+        label={STRINGS.settings.autoFit.label}
+        description={STRINGS.settings.autoFit.description}
         checked={settings.autoFit}
         onChange={(checked) => update('autoFit', checked)}
       />
       <ToggleField
-        label="Allow duration trim"
-        description="Only trims when every visual-quality lever is exhausted."
+        label={STRINGS.settings.allowTrim.label}
+        description={STRINGS.settings.allowTrim.description}
         checked={settings.allowTrim}
         onChange={(checked) => update('allowTrim', checked)}
       />
@@ -938,9 +927,9 @@ function BatchQueue({
   if (!jobs.length) return null;
 
   return (
-    <section className="batch-panel" aria-label="Batch queue">
+    <section className="batch-panel" aria-label={STRINGS.batch.aria}>
       <div className="output-title">
-        <h3>Batch queue</h3>
+        <h3>{STRINGS.batch.title}</h3>
       </div>
       <div className="batch-list">
         {jobs.map((item) => {
@@ -952,24 +941,24 @@ function BatchQueue({
                 <strong>{item.inputName}</strong>
                 <span>{batchStatus(item)}</span>
               </button>
-              <span>{itemJob?.attempts.length ?? 0} attempts</span>
+              <span>{STRINGS.batch.attempts(itemJob?.attempts.length ?? 0)}</span>
               <span>{itemJob?.outputBytes ? `${formatBytes(itemJob.outputBytes)} / ${formatBytes(itemJob.targetBytes)}` : formatBytes(item.inputSize)}</span>
               <div>
                 {itemJob?.status === 'complete' && itemJob.downloadUrl ? (
                   <>
                     <a className="secondary-button" href={itemJob.downloadUrl} download>
-                      Download
+                      {STRINGS.output.download}
                     </a>
                     <button type="button" className="secondary-button" onClick={() => onRevealJob(itemJob.id)}>
-                      Open
+                      {STRINGS.output.open}
                     </button>
                     <button type="button" className="secondary-button" onClick={() => onSaveAs(itemJob)}>
-                      Save as
+                      {STRINGS.output.saveAs}
                     </button>
                   </>
                 ) : canCancelItem ? (
                   <button type="button" className="secondary-button" onClick={() => onCancelJob(itemJob.id)}>
-                    Cancel
+                    {STRINGS.input.cancel}
                   </button>
                 ) : null}
               </div>
@@ -1014,9 +1003,9 @@ function TrimTimeline({
   };
 
   return (
-    <section className="trim-panel" aria-label="Trim timeline">
+    <section className="trim-panel" aria-label={STRINGS.trim.aria}>
       <div className="trim-head">
-        <strong>{probeBusy ? 'Probing source' : 'Source trim'}</strong>
+        <strong>{probeBusy ? STRINGS.trim.probing : STRINGS.trim.title}</strong>
         <span>
           {formatSeconds(start)} - {formatSeconds(end)} / {formatSeconds(duration)}
         </span>
@@ -1029,7 +1018,7 @@ function TrimTimeline({
           step={0.05}
           value={start}
           onChange={(event) => setStart(Number(event.currentTarget.value))}
-          aria-label="Trim start"
+          aria-label={STRINGS.trim.startAria}
         />
         <input
           type="range"
@@ -1038,32 +1027,32 @@ function TrimTimeline({
           step={0.05}
           value={end}
           onChange={(event) => setEnd(Number(event.currentTarget.value))}
-          aria-label="Trim end"
+          aria-label={STRINGS.trim.endAria}
         />
       </div>
       <div className="trim-actions">
         <button type="button" className="secondary-button" disabled={!sourceMeta} onClick={() => setStart(previewTime)}>
-          Use current start
+          {STRINGS.trim.useCurrentStart}
         </button>
         <button type="button" className="secondary-button" disabled={!sourceMeta} onClick={() => setEnd(previewTime)}>
-          Use current end
+          {STRINGS.trim.useCurrentEnd}
         </button>
       </div>
-      <div className="metadata-grid" aria-label="Source metadata">
+      <div className="metadata-grid" aria-label={STRINGS.trim.metadataAria}>
         <span>
-          Duration <strong>{sourceMeta?.durationSec ? formatSeconds(sourceMeta.durationSec) : '-'}</strong>
+          {STRINGS.trim.duration} <strong>{sourceMeta?.durationSec ? formatSeconds(sourceMeta.durationSec) : STRINGS.diagnostics.emptyValue}</strong>
         </span>
         <span>
-          Size <strong>{sourceMeta?.width && sourceMeta.height ? `${sourceMeta.width}x${sourceMeta.height}` : '-'}</strong>
+          {STRINGS.trim.size} <strong>{sourceMeta?.width && sourceMeta.height ? `${sourceMeta.width}x${sourceMeta.height}` : STRINGS.diagnostics.emptyValue}</strong>
         </span>
         <span>
-          FPS <strong>{sourceMeta?.fps ? sourceMeta.fps.toFixed(2) : '-'}</strong>
+          {STRINGS.trim.fps} <strong>{sourceMeta?.fps ? sourceMeta.fps.toFixed(2) : STRINGS.diagnostics.emptyValue}</strong>
         </span>
         <span>
-          Codec <strong>{sourceMeta?.codec || '-'}</strong>
+          {STRINGS.trim.codec} <strong>{sourceMeta?.codec || STRINGS.diagnostics.emptyValue}</strong>
         </span>
         <span>
-          Rotation <strong>{sourceMeta ? `${sourceMeta.rotation} deg` : '-'}</strong>
+          {STRINGS.trim.rotation} <strong>{sourceMeta ? STRINGS.trim.degrees(sourceMeta.rotation) : STRINGS.diagnostics.emptyValue}</strong>
         </span>
       </div>
     </section>
@@ -1103,32 +1092,32 @@ function PreviewPanel({
   }, [job?.id, job?.status, job?.inputName]);
 
   return (
-    <aside className="preview-panel" aria-label="Preview and output">
+    <aside className="preview-panel" aria-label={STRINGS.preview.aria}>
       <div className="panel-heading">
         <Play aria-hidden="true" />
         <div>
-          <h2>Preview</h2>
-          <p>{file ? file.name : 'No file selected'}</p>
+          <h2>{STRINGS.preview.title}</h2>
+          <p>{file ? file.name : STRINGS.preview.noFile}</p>
         </div>
       </div>
 
       <div className="preview-box">
         {objectUrl && isGif ? (
-          <img src={objectUrl} alt="Selected GIF preview" />
+          <img src={objectUrl} alt={STRINGS.preview.selectedGifAlt} />
         ) : objectUrl ? (
           <video src={objectUrl} controls muted playsInline onTimeUpdate={(event) => onPreviewTime(event.currentTarget.currentTime)} />
         ) : (
           <div className="empty-preview">
             <Video aria-hidden="true" />
-            <span>Select a video or GIF to preview it here.</span>
+            <span>{STRINGS.preview.empty}</span>
           </div>
         )}
       </div>
 
-      <section className="output-box" aria-label="Output">
+      <section className="output-box" aria-label={STRINGS.output.aria}>
         <div className="output-title">
           <FileDown aria-hidden="true" />
-          <h3>Output</h3>
+          <h3>{STRINGS.output.title}</h3>
         </div>
         {job?.status === 'complete' ? (
           <>
@@ -1142,40 +1131,40 @@ function PreviewPanel({
             <div className="download-grid">
               <a className="primary-button" href={job.downloadUrl} download>
                 <Download aria-hidden="true" />
-                Download GIF
+                {STRINGS.output.downloadGif}
               </a>
               <button type="button" className="secondary-button" onClick={onReveal}>
                 <MonitorDown aria-hidden="true" />
-                Open output
+                {STRINGS.output.openOutput}
               </button>
               <button type="button" className="secondary-button" onClick={() => onSaveAs(job)}>
                 <Download aria-hidden="true" />
-                Save as
+                {STRINGS.output.saveAs}
               </button>
             </div>
             <label className="alt-field">
-              <span>Alt text</span>
+              <span>{STRINGS.output.altText}</span>
               <textarea value={altText} rows={2} onChange={(event) => setAltText(event.currentTarget.value)} />
             </label>
             <button type="button" className="secondary-button alt-copy" onClick={() => navigator.clipboard?.writeText(altText)}>
-              Copy alt text
+              {STRINGS.output.copyAltText}
             </button>
           </>
         ) : job?.status === 'failed' ? (
           <>
             <p className="error-text">{job.error}</p>
-            {job.errorCode ? <p className="muted-text">Error code: {job.errorCode}</p> : null}
-            <p className="muted-text">Adjust settings and press Start encoding again, or reset the selection.</p>
+            {job.errorCode ? <p className="muted-text">{STRINGS.output.errorCode(job.errorCode)}</p> : null}
+            <p className="muted-text">{STRINGS.output.failedRecovery}</p>
           </>
         ) : job?.status === 'cancelled' ? (
-          <p className="muted-text">The job was cancelled. Press Start encoding to run it again.</p>
+          <p className="muted-text">{STRINGS.output.cancelledRecovery}</p>
         ) : (
-          <p className="muted-text">Finished GIFs appear here with exact byte size and download actions.</p>
+          <p className="muted-text">{STRINGS.output.empty}</p>
         )}
       </section>
 
-      <section className="attempt-box" aria-label="Encoding attempts">
-        <h3>Fit attempts</h3>
+      <section className="attempt-box" aria-label={STRINGS.attempts.aria}>
+        <h3>{STRINGS.attempts.title}</h3>
         <div className="attempt-list">
           {(job?.attempts ?? []).map((attempt) => (
             <div key={attempt.attempt} className="attempt-row">
@@ -1183,20 +1172,20 @@ function PreviewPanel({
               <span>{attempt.width}px</span>
               <span>{attempt.fps} fps</span>
               <span>{attempt.colors} colors</span>
-              <span>{attempt.strategy ?? 'standard'}</span>
-              <strong>{attempt.outputBytes ? formatBytes(attempt.outputBytes) : 'running'}</strong>
-              {attempt.rejected ? <span className="attempt-rejected">rejected</span> : null}
+              <span>{attempt.strategy ?? STRINGS.attempts.defaultStrategy}</span>
+              <strong>{attempt.outputBytes ? formatBytes(attempt.outputBytes) : STRINGS.attempts.running}</strong>
+              {attempt.rejected ? <span className="attempt-rejected">{STRINGS.attempts.rejected}</span> : null}
             </div>
           ))}
-          {!job?.attempts.length && <p className="muted-text">No attempts yet.</p>}
+          {!job?.attempts.length && <p className="muted-text">{STRINGS.attempts.empty}</p>}
         </div>
       </section>
 
-      <section className="recent-box" aria-label="Recent outputs">
+      <section className="recent-box" aria-label={STRINGS.recent.aria}>
         <div className="recent-heading">
-          <h3>Recent outputs</h3>
+          <h3>{STRINGS.recent.title}</h3>
           <button type="button" className="text-button" disabled={!recentOutputs.length} onClick={onClearRecent}>
-            Clear
+            {STRINGS.recent.clear}
           </button>
         </div>
         <div className="recent-list">
@@ -1210,15 +1199,15 @@ function PreviewPanel({
               </div>
               <div>
                 <a className="secondary-button" href={item.downloadUrl} download>
-                  Download
+                  {STRINGS.output.download}
                 </a>
                 <button type="button" className="secondary-button" onClick={() => onRevealRecent(item.id)}>
-                  Open
+                  {STRINGS.output.open}
                 </button>
               </div>
             </div>
           ))}
-          {!recentOutputs.length && <p className="muted-text">No recent outputs.</p>}
+          {!recentOutputs.length && <p className="muted-text">{STRINGS.recent.empty}</p>}
         </div>
       </section>
     </aside>
@@ -1237,15 +1226,15 @@ function StatusTile({ label, value, tone }: { label: string; value: string; tone
 function ProgressPanel({ job }: { job: Job | null }) {
   const progress = Math.max(0, Math.min(100, job?.progress ?? 0));
   return (
-    <section className="progress-panel" aria-label="Encoding progress">
+    <section className="progress-panel" aria-label={STRINGS.progress.aria}>
       <div>
-        <strong>{job?.stage ?? 'Idle'}</strong>
+        <strong>{job?.stage ?? STRINGS.progress.idle}</strong>
         <span>{Math.round(progress)}%</span>
       </div>
       <div
         className="progress-track"
         role="progressbar"
-        aria-label={job?.stage ?? 'Encoding progress'}
+        aria-label={job?.stage ?? STRINGS.progress.aria}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(progress)}
@@ -1265,12 +1254,12 @@ function ProgressPanel({ job }: { job: Job | null }) {
 
 function LogPanel({ job }: { job: Job | null }) {
   return (
-    <section className="log-panel" aria-label="Log">
+    <section className="log-panel" aria-label={STRINGS.log.aria}>
       <div className="output-title">
         <Terminal aria-hidden="true" />
-        <h3>Log</h3>
+        <h3>{STRINGS.log.title}</h3>
       </div>
-      <pre>{job?.logs.length ? job.logs.join('\n') : 'Waiting for an encode job.'}</pre>
+      <pre>{job?.logs.length ? job.logs.join('\n') : STRINGS.log.empty}</pre>
     </section>
   );
 }
@@ -1301,28 +1290,28 @@ function DiagnosticsPanel({
   const json = useMemo(() => JSON.stringify(diagnostic, null, 2), [diagnostic]);
 
   return (
-    <section className="diagnostics-panel" aria-label="Diagnostics">
+    <section className="diagnostics-panel" aria-label={STRINGS.diagnostics.aria}>
       <div className="output-title">
         <Terminal aria-hidden="true" />
-        <h3>Diagnostics</h3>
+        <h3>{STRINGS.diagnostics.title}</h3>
       </div>
       <div className="diagnostic-grid">
-        <span>FFmpeg <strong>{health?.ffmpeg.version ?? 'Unknown'}</strong></span>
-        <span>FFprobe <strong>{health?.ffprobe.version ?? 'Unknown'}</strong></span>
-        <span>Encoder <strong>{encoderHealthLabel(settings, health)}</strong></span>
-        <span>Platform <strong>{health ? `${health.platform.os}/${health.platform.arch}` : 'Unknown'}</strong></span>
-        <span>Estimate <strong>{sourceMeta ? formatBytes(estimateOutputBytes(settings, sourceMeta)) : '-'}</strong></span>
+        <span>{STRINGS.diagnostics.ffmpeg} <strong>{health?.ffmpeg.version ?? STRINGS.diagnostics.unknown}</strong></span>
+        <span>{STRINGS.diagnostics.ffprobe} <strong>{health?.ffprobe.version ?? STRINGS.diagnostics.unknown}</strong></span>
+        <span>{STRINGS.diagnostics.encoder} <strong>{encoderHealthLabel(settings, health)}</strong></span>
+        <span>{STRINGS.diagnostics.platform} <strong>{health ? `${health.platform.os}/${health.platform.arch}` : STRINGS.diagnostics.unknown}</strong></span>
+        <span>{STRINGS.diagnostics.estimate} <strong>{sourceMeta ? formatBytes(estimateOutputBytes(settings, sourceMeta)) : STRINGS.diagnostics.emptyValue}</strong></span>
       </div>
       <details className="command-details">
-        <summary>Latest FFmpeg command</summary>
-        <pre>{latestCommand?.command ?? 'No FFmpeg command has run yet.'}</pre>
+        <summary>{STRINGS.diagnostics.latestCommand}</summary>
+        <pre>{latestCommand?.command ?? STRINGS.diagnostics.noCommand}</pre>
       </details>
       <div className="diagnostic-actions">
         <button type="button" className="secondary-button" onClick={() => navigator.clipboard?.writeText(json)}>
-          Copy JSON
+          {STRINGS.diagnostics.copyJson}
         </button>
         <button type="button" className="secondary-button" onClick={() => downloadDiagnosticJson(json)}>
-          Download JSON
+          {STRINGS.diagnostics.downloadJson}
         </button>
       </div>
     </section>
@@ -1330,8 +1319,8 @@ function DiagnosticsPanel({
 }
 
 function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
+  if (!Number.isFinite(bytes) || bytes <= 0) return STRINGS.format.zeroBytes;
+  const units = STRINGS.format.byteUnits;
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) {
@@ -1363,14 +1352,14 @@ function downloadDiagnosticJson(json: string) {
 }
 
 function encoderHealthLabel(settings: Settings, health: HealthInfo | null) {
-  if (settings.encoderBackend === 'ffmpeg') return 'FFmpeg palette';
+  if (settings.encoderBackend === 'ffmpeg') return STRINGS.settings.encoderOptions.ffmpeg;
   if (health?.gifski?.available) return `gifski ${health.gifski.version}`;
-  return 'gifski unavailable';
+  return STRINGS.settings.encoderNotes.gifskiUnavailable;
 }
 
 function formatRatio(ratio: number) {
-  if (!Number.isFinite(ratio) || ratio <= 0) return '-';
-  if (ratio < 0.1) return '<0.1x';
+  if (!Number.isFinite(ratio) || ratio <= 0) return STRINGS.diagnostics.emptyValue;
+  if (ratio < 0.1) return STRINGS.format.tinyRatio;
   return `${ratio.toFixed(1)}x`;
 }
 
@@ -1381,20 +1370,20 @@ function profileFor(preset: TargetPreset) {
 function outputSuitability(job: Job) {
   const profile = profileFor(job.settings.targetPreset);
   if ((job.outputBytes ?? 0) <= job.targetBytes) {
-    return `Fits ${profile.label}. ${profile.description}`;
+    return STRINGS.output.fitsProfile(profile.label, profile.description);
   }
 
-  return `Over ${profile.label}. Try ${nextCompressionLever(job)}.`;
+  return STRINGS.output.overProfile(profile.label, nextCompressionLever(job));
 }
 
 function nextCompressionLever(job: Job) {
   const settings = job.settings;
-  if (settings.width > 360) return 'lower width first';
-  if (settings.fps > 10) return 'lower FPS';
-  if (settings.colors > 64) return 'fewer palette colors';
-  if (!settings.allowTrim && settings.durationSec > 2) return 'enabling duration trim';
-  if (settings.durationSec > 1) return 'a shorter clip';
-  return 'a smaller target profile or simpler source motion';
+  if (settings.width > 360) return STRINGS.output.levers.width;
+  if (settings.fps > 10) return STRINGS.output.levers.fps;
+  if (settings.colors > 64) return STRINGS.output.levers.colors;
+  if (!settings.allowTrim && settings.durationSec > 2) return STRINGS.output.levers.trim;
+  if (settings.durationSec > 1) return STRINGS.output.levers.shorter;
+  return STRINGS.output.levers.smallerTarget;
 }
 
 async function readApiError(response: Response, fallback: string) {
@@ -1406,16 +1395,16 @@ async function readApiError(response: Response, fallback: string) {
 async function fetchJob(id: string) {
   const response = await fetch(`/api/jobs/${id}`);
   if (!response.ok) {
-    throw new Error(await readApiError(response, `Status check failed (${response.status})`));
+    throw new Error(await readApiError(response, `${STRINGS.errors.statusFailed} (${response.status})`));
   }
   return response.json() as Promise<Job>;
 }
 
 async function saveJobOutput(job: Job) {
-  if (!job.downloadUrl) throw new Error('Output is not available.');
+  if (!job.downloadUrl) throw new Error(STRINGS.errors.outputUnavailable);
   const response = await fetch(job.downloadUrl);
   if (!response.ok) {
-    throw new Error(await readApiError(response, 'Download failed'));
+    throw new Error(await readApiError(response, STRINGS.errors.downloadFailed));
   }
 
   const blob = await response.blob();
@@ -1436,7 +1425,7 @@ async function saveJobOutput(job: Job) {
     suggestedName,
     types: [
       {
-        description: 'GIF image',
+        description: STRINGS.files.gifDescription,
         accept: { 'image/gif': ['.gif'] }
       }
     ]
@@ -1452,12 +1441,12 @@ function safeFileBase(inputName: string) {
 
 function batchStatus(item: BatchJob) {
   if (item.error) return item.error;
-  if (!item.job) return item.status === 'failed' ? 'Failed to submit' : 'Pending';
-  if (item.job.status === 'queued') return `Queued #${item.job.queuePosition ?? 1}`;
+  if (!item.job) return item.status === 'failed' ? STRINGS.batch.failedSubmit : STRINGS.batch.pending;
+  if (item.job.status === 'queued') return STRINGS.batch.queued(item.job.queuePosition ?? 1);
   if (item.job.status === 'running') return item.job.stage;
-  if (item.job.status === 'complete') return 'Complete';
-  if (item.job.status === 'cancelled') return 'Cancelled';
-  return item.job.error ?? 'Failed';
+  if (item.job.status === 'complete') return STRINGS.batch.complete;
+  if (item.job.status === 'cancelled') return STRINGS.batch.cancelled;
+  return item.job.error ?? STRINGS.batch.failed;
 }
 
 function isTerminalJob(job: Job) {
@@ -1465,17 +1454,17 @@ function isTerminalJob(job: Job) {
 }
 
 function queueLabel(job: Job | null) {
-  if (!job) return '-';
+  if (!job) return STRINGS.diagnostics.emptyValue;
   if (job.status === 'queued') return `#${job.queuePosition ?? 1}`;
-  if (job.status === 'running') return 'Running';
-  if (job.status === 'cancelled') return 'Cancelled';
-  if (job.status === 'failed') return 'Failed';
-  return 'Done';
+  if (job.status === 'running') return STRINGS.queueStatus.running;
+  if (job.status === 'cancelled') return STRINGS.queueStatus.cancelled;
+  if (job.status === 'failed') return STRINGS.queueStatus.failed;
+  return STRINGS.queueStatus.done;
 }
 
 function defaultAltText(inputName: string) {
   const base = inputName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
-  return base ? `${base} animated GIF` : 'Animated GIF';
+  return base ? STRINGS.alt.fromName(base) : STRINGS.alt.default;
 }
 
 function recentFromJob(job: Job): RecentOutput {
@@ -1579,9 +1568,9 @@ function evenNumber(value: number) {
 }
 
 function formatSeconds(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds < 0) return '0.00s';
-  if (seconds < 60) return `${seconds.toFixed(2)}s`;
+  if (!Number.isFinite(seconds) || seconds < 0) return STRINGS.format.zeroSeconds;
+  if (seconds < 60) return STRINGS.format.seconds(seconds.toFixed(2));
   const minutes = Math.floor(seconds / 60);
   const rest = seconds - minutes * 60;
-  return `${minutes}:${rest.toFixed(0).padStart(2, '0')}`;
+  return STRINGS.format.minuteSeconds(minutes, rest.toFixed(0).padStart(2, '0'));
 }

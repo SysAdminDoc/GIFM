@@ -15,6 +15,7 @@
     "preview": "node server/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test:smoke": "node scripts/smoke.mjs",
+    "test:ui": "npm run build && node scripts/ui-smoke.mjs",
     "package:portable": "npm run build && node scripts/package-portable.mjs",
     "package:smoke": "node scripts/package-smoke.mjs"
   },
