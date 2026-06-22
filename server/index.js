@@ -153,6 +153,44 @@ app.post('/api/jobs', runUpload, async (request, response, next) => {
   }
 });
 
+app.post('/api/probe', runUpload, async (request, response, next) => {
+  try {
+    if (!request.file) {
+      sendApiError(response, new ApiError(400, 'NO_MEDIA_FILE', 'No media file was uploaded.'));
+      return;
+    }
+
+    const mediaCheck = await inspectUploadedMedia(request.file.path);
+    if (!mediaCheck.ok) {
+      await removeFile(request.file.path);
+      sendApiError(response, new ApiError(415, 'UNSUPPORTED_MEDIA_CONTENT', 'The uploaded file does not look like a supported GIF or video container.'));
+      return;
+    }
+
+    const metadata = await ffprobe(request.file.path);
+    const source = sourceMetadata(metadata);
+    if (!source.video) {
+      sendApiError(response, new ApiError(422, 'NO_VIDEO_STREAM', 'No video stream was found in the selected file.'));
+      return;
+    }
+
+    response.json({
+      ok: true,
+      kind: mediaCheck.kind,
+      durationSec: source.durationSec,
+      width: source.width,
+      height: source.height,
+      fps: source.fps,
+      codec: source.codec,
+      rotation: source.rotation
+    });
+  } catch (error) {
+    next(error);
+  } finally {
+    if (request.file?.path) await removeFile(request.file.path);
+  }
+});
+
 app.get('/api/jobs/:id', (request, response) => {
   const job = jobs.get(request.params.id);
   if (!job) {
@@ -230,8 +268,9 @@ async function processJob(job) {
 
   const metadata = await ffprobe(job.inputPath, job);
   checkCancelled(job);
-  const sourceDuration = Number(metadata.format?.duration);
-  const videoStream = metadata.streams?.find((stream) => stream.codec_type === 'video');
+  const source = sourceMetadata(metadata);
+  const sourceDuration = source.durationSec;
+  const videoStream = source.video;
 
   if (!videoStream) {
     throw new ApiError(422, 'NO_VIDEO_STREAM', 'No video stream was found in the selected file.');
@@ -243,7 +282,7 @@ async function processJob(job) {
     durationSec = Math.min(durationSec, Math.max(0.5, sourceDuration - startSec));
   }
 
-  log(job, `Source: ${videoStream.width ?? '?'}x${videoStream.height ?? '?'} for ${durationSec.toFixed(2)} sec`);
+  log(job, `Source: ${source.width ?? '?'}x${source.height ?? '?'} ${source.codec ?? 'video'} at ${source.fps ? `${source.fps.toFixed(2)} fps` : '? fps'} for ${durationSec.toFixed(2)} sec`);
 
   let width = even(clamp(job.settings.width, 120, 1280));
   let fps = Math.round(clamp(job.settings.fps, 5, 30));
@@ -622,6 +661,44 @@ async function inspectUploadedMedia(filePath) {
   } finally {
     await handle.close();
   }
+}
+
+function sourceMetadata(metadata) {
+  const video = metadata.streams?.find((stream) => stream.codec_type === 'video');
+  return {
+    video,
+    durationSec: finiteNumber(metadata.format?.duration),
+    width: finiteNumber(video?.width),
+    height: finiteNumber(video?.height),
+    fps: parseFrameRate(video?.avg_frame_rate || video?.r_frame_rate),
+    codec: video?.codec_name || video?.codec_long_name || '',
+    rotation: readRotation(video)
+  };
+}
+
+function parseFrameRate(raw) {
+  if (!raw || raw === '0/0') return null;
+  const [numerator, denominator] = String(raw).split('/').map(Number);
+  if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0) {
+    return numerator / denominator;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function readRotation(stream) {
+  const tagged = Number(stream?.tags?.rotate);
+  if (Number.isFinite(tagged)) return tagged;
+
+  const sideDataRotation = stream?.side_data_list?.find((item) => Number.isFinite(Number(item.rotation)));
+  if (sideDataRotation) return Number(sideDataRotation.rotation);
+
+  return 0;
+}
+
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function assertLocalBinding() {

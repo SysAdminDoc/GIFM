@@ -81,6 +81,7 @@ try {
   await assertMalformedMultipart();
   await assertTooLargeUpload();
   await assertUnsupportedContent();
+  await assertProbeMetadata();
   await assertNoVideoJob();
   await assertQueueAndCancel();
 
@@ -141,6 +142,22 @@ async function assertUnsupportedContent() {
   form.set('settings', JSON.stringify(validSettings()));
   const response = await fetch(`${baseUrl}/api/jobs`, { method: 'POST', body: form });
   await expectApiError(response, 415, 'UNSUPPORTED_MEDIA_CONTENT');
+}
+
+async function assertProbeMetadata() {
+  const fileBytes = await fs.readFile(samplePath);
+  const form = new FormData();
+  form.set('media', new File([fileBytes], 'sample.mp4', { type: 'video/mp4' }));
+
+  const response = await fetch(`${baseUrl}/api/probe`, { method: 'POST', body: form });
+  if (!response.ok) {
+    throw new Error(`Probe failed: ${response.status} ${await response.text()}`);
+  }
+
+  const metadata = await response.json();
+  if (!metadata.durationSec || !metadata.width || !metadata.height || !metadata.codec) {
+    throw new Error(`Probe metadata incomplete: ${JSON.stringify(metadata, null, 2)}`);
+  }
 }
 
 async function assertNoVideoJob() {

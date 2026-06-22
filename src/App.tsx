@@ -83,6 +83,15 @@ type Job = {
   settings: Settings;
 };
 
+type SourceMeta = {
+  durationSec: number | null;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  codec: string;
+  rotation: number;
+};
+
 type ApiErrorPayload = {
   error?: string | {
     code?: string;
@@ -164,6 +173,9 @@ function GifmApp() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [sourceMeta, setSourceMeta] = useState<SourceMeta | null>(null);
+  const [probeBusy, setProbeBusy] = useState(false);
+  const [previewTime, setPreviewTime] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -175,6 +187,42 @@ function GifmApp() {
     const url = URL.createObjectURL(file);
     setObjectUrl(url);
     return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  useEffect(() => {
+    if (!file) {
+      setSourceMeta(null);
+      setPreviewTime(0);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const probe = async () => {
+      setProbeBusy(true);
+      try {
+        const body = new FormData();
+        body.set('media', file);
+        const response = await fetch('/api/probe', { method: 'POST', body, signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(await readApiError(response, `Probe failed (${response.status})`));
+        }
+
+        const metadata = (await response.json()) as SourceMeta;
+        setSourceMeta(metadata);
+        if (metadata.durationSec && metadata.durationSec > 0) {
+          setSettings((current) => clampTrimToDuration(current, metadata.durationSec ?? current.durationSec));
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setSourceMeta(null);
+        setNotice(error instanceof Error ? error.message : 'Probe failed');
+      } finally {
+        if (!controller.signal.aborted) setProbeBusy(false);
+      }
+    };
+
+    void probe();
+    return () => controller.abort();
   }, [file]);
 
   useEffect(() => {
@@ -333,6 +381,14 @@ function GifmApp() {
             <StatusTile label="Queue" value={queueLabel(job)} tone={job?.status === 'queued' ? 'amber' : 'muted'} />
           </div>
 
+          <TrimTimeline
+            settings={settings}
+            setSettings={setSettings}
+            sourceMeta={sourceMeta}
+            probeBusy={probeBusy}
+            previewTime={previewTime}
+          />
+
           <div className="action-row">
             <button type="submit" className="primary-button" disabled={!canStart}>
               {job?.status === 'running' || job?.status === 'queued' ? (
@@ -376,6 +432,7 @@ function GifmApp() {
           job={job}
           outputFit={outputFit}
           onReveal={revealOutput}
+          onPreviewTime={setPreviewTime}
         />
       </form>
     </main>
@@ -546,18 +603,109 @@ function ToggleField({
   );
 }
 
+function TrimTimeline({
+  settings,
+  setSettings,
+  sourceMeta,
+  probeBusy,
+  previewTime
+}: {
+  settings: Settings;
+  setSettings: React.Dispatch<React.SetStateAction<Settings>>;
+  sourceMeta: SourceMeta | null;
+  probeBusy: boolean;
+  previewTime: number;
+}) {
+  const duration = Math.max(0.5, sourceMeta?.durationSec ?? settings.startSec + settings.durationSec);
+  const start = clampNumber(settings.startSec, 0, Math.max(0, duration - 0.5));
+  const end = clampNumber(settings.startSec + settings.durationSec, start + 0.5, duration);
+
+  const setStart = (value: number) => {
+    setSettings((current) => {
+      const currentEnd = Math.min(duration, current.startSec + current.durationSec);
+      const nextStart = clampNumber(value, 0, Math.max(0, currentEnd - 0.5));
+      return { ...current, startSec: Number(nextStart.toFixed(2)), durationSec: Number((currentEnd - nextStart).toFixed(2)) };
+    });
+  };
+
+  const setEnd = (value: number) => {
+    setSettings((current) => {
+      const nextEnd = clampNumber(value, current.startSec + 0.5, duration);
+      return { ...current, durationSec: Number((nextEnd - current.startSec).toFixed(2)) };
+    });
+  };
+
+  return (
+    <section className="trim-panel" aria-label="Trim timeline">
+      <div className="trim-head">
+        <strong>{probeBusy ? 'Probing source' : 'Source trim'}</strong>
+        <span>
+          {formatSeconds(start)} - {formatSeconds(end)} / {formatSeconds(duration)}
+        </span>
+      </div>
+      <div className="range-stack">
+        <input
+          type="range"
+          min={0}
+          max={duration}
+          step={0.05}
+          value={start}
+          onChange={(event) => setStart(Number(event.currentTarget.value))}
+          aria-label="Trim start"
+        />
+        <input
+          type="range"
+          min={0}
+          max={duration}
+          step={0.05}
+          value={end}
+          onChange={(event) => setEnd(Number(event.currentTarget.value))}
+          aria-label="Trim end"
+        />
+      </div>
+      <div className="trim-actions">
+        <button type="button" className="secondary-button" disabled={!sourceMeta} onClick={() => setStart(previewTime)}>
+          Use current start
+        </button>
+        <button type="button" className="secondary-button" disabled={!sourceMeta} onClick={() => setEnd(previewTime)}>
+          Use current end
+        </button>
+      </div>
+      <div className="metadata-grid" aria-label="Source metadata">
+        <span>
+          Duration <strong>{sourceMeta?.durationSec ? formatSeconds(sourceMeta.durationSec) : '-'}</strong>
+        </span>
+        <span>
+          Size <strong>{sourceMeta?.width && sourceMeta.height ? `${sourceMeta.width}x${sourceMeta.height}` : '-'}</strong>
+        </span>
+        <span>
+          FPS <strong>{sourceMeta?.fps ? sourceMeta.fps.toFixed(2) : '-'}</strong>
+        </span>
+        <span>
+          Codec <strong>{sourceMeta?.codec || '-'}</strong>
+        </span>
+        <span>
+          Rotation <strong>{sourceMeta ? `${sourceMeta.rotation} deg` : '-'}</strong>
+        </span>
+      </div>
+    </section>
+  );
+}
+
 function PreviewPanel({
   file,
   objectUrl,
   job,
   outputFit,
-  onReveal
+  onReveal,
+  onPreviewTime
 }: {
   file: File | null;
   objectUrl: string;
   job: Job | null;
   outputFit: boolean;
   onReveal: () => void;
+  onPreviewTime: (seconds: number) => void;
 }) {
   const isGif = file?.type === 'image/gif' || file?.name.toLowerCase().endsWith('.gif');
 
@@ -575,7 +723,7 @@ function PreviewPanel({
         {objectUrl && isGif ? (
           <img src={objectUrl} alt="Selected GIF preview" />
         ) : objectUrl ? (
-          <video src={objectUrl} controls muted playsInline />
+          <video src={objectUrl} controls muted playsInline onTimeUpdate={(event) => onPreviewTime(event.currentTarget.currentTime)} />
         ) : (
           <div className="empty-preview">
             <Video aria-hidden="true" />
@@ -744,4 +892,27 @@ function queueLabel(job: Job | null) {
   if (job.status === 'cancelled') return 'Cancelled';
   if (job.status === 'failed') return 'Failed';
   return 'Done';
+}
+
+function clampTrimToDuration(settings: Settings, durationSec: number): Settings {
+  const startSec = clampNumber(settings.startSec, 0, Math.max(0, durationSec - 0.5));
+  const duration = clampNumber(settings.durationSec, 0.5, Math.max(0.5, durationSec - startSec));
+  return {
+    ...settings,
+    startSec: Number(startSec.toFixed(2)),
+    durationSec: Number(duration.toFixed(2))
+  };
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  const number = Number.isFinite(value) ? value : min;
+  return Math.min(max, Math.max(min, number));
+}
+
+function formatSeconds(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0.00s';
+  if (seconds < 60) return `${seconds.toFixed(2)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds - minutes * 60;
+  return `${minutes}:${rest.toFixed(0).padStart(2, '0')}`;
 }

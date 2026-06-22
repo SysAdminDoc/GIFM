@@ -426,10 +426,76 @@ button:disabled {
 .progress-panel,
 .log-panel,
 .output-box,
-.attempt-box {
+.attempt-box,
+.trim-panel {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-soft);
+}
+
+.trim-panel {
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+}
+
+.trim-head,
+.trim-actions {
+  display: flex;
+  align-items: center;
+}
+
+.trim-head {
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted-strong);
+}
+
+.trim-head span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.range-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.range-stack input {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+
+.trim-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trim-actions .secondary-button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.metadata-grid span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.metadata-grid strong {
+  overflow: hidden;
+  color: var(--muted-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .progress-panel {
@@ -680,6 +746,10 @@ button:disabled {
 
   .attempt-row {
     grid-template-columns: 34px 1fr 1fr;
+  }
+
+  .metadata-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .attempt-row span:nth-child(4),
