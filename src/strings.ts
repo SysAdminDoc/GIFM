@@ -4,7 +4,13 @@ export const STRINGS = {
     subtitle: (version: string) => `v${version} local GIF maker`,
     ready: 'Ready for video or GIF',
     sourceSize: (size: string) => `${size} source`,
-    filesSelected: (count: number) => `${count} files selected`
+    filesSelected: (count: number) => `${count} files selected`,
+    runtimeAria: 'Local runtime status',
+    localOnly: 'Local only',
+    ffmpegReady: 'FFmpeg ready',
+    ffmpegUnavailable: 'FFmpeg unavailable',
+    runtimePending: 'Checking runtime',
+    targetStatus: (label: string, size: string) => label === 'Custom' ? `Custom target ${size}` : `${label} target`
   },
   errors: {
     fatalTitle: 'GIFM stopped rendering',
@@ -59,6 +65,24 @@ export const STRINGS = {
     delete: 'Delete'
   },
   settings: {
+    sections: {
+      target: {
+        title: 'Target profile',
+        description: 'Choose the Discord ceiling before tuning quality.'
+      },
+      clip: {
+        title: 'Clip and output',
+        description: 'Set dimensions, timing, and frame rate.'
+      },
+      encoding: {
+        title: 'Encoding strategy',
+        description: 'Control palette quality and fitting behavior.'
+      },
+      presets: {
+        title: 'Saved presets',
+        description: 'Store repeatable Discord export setups.'
+      }
+    },
     width: 'Width',
     fps: 'FPS',
     start: 'Start',
@@ -108,7 +132,7 @@ export const STRINGS = {
     workspaceAria: 'Input and encoding',
     fileAria: 'Choose video or GIF file',
     heading: 'Drop video or GIF',
-    description: 'MP4, MOV, WebM, AVI, MKV, and existing GIF files are processed locally with FFmpeg.',
+    description: 'MP4, MOV, WebM, AVI, MKV, and GIF files stay on this machine while GIFM probes, previews, and fits them locally.',
     browse: 'Browse',
     sourceRatio: 'Source ratio',
     queue: 'Queue',
@@ -141,7 +165,8 @@ export const STRINGS = {
     title: 'Preview',
     noFile: 'No file selected',
     selectedGifAlt: 'Selected GIF preview',
-    empty: 'Select a video or GIF to preview it here.'
+    emptyTitle: 'Preview is ready',
+    empty: 'Select a video or GIF to inspect the clip before encoding.'
   },
   output: {
     aria: 'Output',
@@ -155,7 +180,8 @@ export const STRINGS = {
     copyAltText: 'Copy alt text',
     failedRecovery: 'Adjust settings and press Start encoding again, or reset the selection.',
     cancelledRecovery: 'The job was cancelled. Press Start encoding to run it again.',
-    empty: 'Finished GIFs appear here with exact byte size and download actions.',
+    emptyTitle: 'No export yet',
+    empty: 'Finished GIFs appear here with exact byte size, fit status, and save actions.',
     errorCode: (code: string) => `Error code: ${code}`,
     fitsProfile: (profileLabel: string, description: string) => `Fits ${profileLabel}. ${description}`,
     overProfile: (profileLabel: string, lever: string) => `Over ${profileLabel}. Try ${lever}.`,
@@ -174,13 +200,15 @@ export const STRINGS = {
     defaultStrategy: 'standard',
     running: 'running',
     rejected: 'rejected',
-    empty: 'No attempts yet.'
+    emptyTitle: 'Compression trace',
+    empty: 'Each fit attempt will show the width, FPS, palette, strategy, and resulting size.'
   },
   recent: {
     aria: 'Recent outputs',
     title: 'Recent outputs',
     clear: 'Clear',
-    empty: 'No recent outputs.'
+    emptyTitle: 'Session history',
+    empty: 'Completed GIFs from this session stay here for quick download or reveal.'
   },
   batch: {
     aria: 'Batch queue',
@@ -200,7 +228,8 @@ export const STRINGS = {
   log: {
     aria: 'Log',
     title: 'Log',
-    empty: 'Waiting for an encode job.'
+    emptyTitle: 'Encoder log',
+    empty: 'FFmpeg output appears here once an encode starts.'
   },
   diagnostics: {
     aria: 'Diagnostics',

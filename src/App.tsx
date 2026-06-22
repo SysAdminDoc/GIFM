@@ -396,6 +396,7 @@ function GifmApp() {
   }, [batchJobs]);
 
   const targetBytes = useMemo(() => settings.targetMb * 1024 * 1024, [settings.targetMb]);
+  const activeProfile = useMemo(() => profileFor(settings.targetPreset), [settings.targetPreset]);
   const originalRatio = useMemo(() => {
     if (!file) return 0;
     return file.size / targetBytes;
@@ -570,9 +571,25 @@ function GifmApp() {
             <p>{STRINGS.app.subtitle(VERSION)}</p>
           </div>
         </div>
-        <div className="topbar-status" aria-live="polite">
-          <Gauge aria-hidden="true" />
-          <span>{batchFiles.length > 1 ? STRINGS.app.filesSelected(batchFiles.length) : file ? STRINGS.app.sourceSize(formatBytes(file.size)) : STRINGS.app.ready}</span>
+        <div className="topbar-meta" aria-live="polite">
+          <div className="topbar-status">
+            <Gauge aria-hidden="true" />
+            <span>{batchFiles.length > 1 ? STRINGS.app.filesSelected(batchFiles.length) : file ? STRINGS.app.sourceSize(formatBytes(file.size)) : STRINGS.app.ready}</span>
+          </div>
+          <div className="trust-strip" aria-label={STRINGS.app.runtimeAria}>
+            <span className="trust-chip">
+              <CheckCircle2 aria-hidden="true" />
+              {STRINGS.app.localOnly}
+            </span>
+            <span className="trust-chip">
+              <Terminal aria-hidden="true" />
+              {health ? health.ffmpeg.available ? STRINGS.app.ffmpegReady : STRINGS.app.ffmpegUnavailable : STRINGS.app.runtimePending}
+            </span>
+            <span className="trust-chip">
+              <Gauge aria-hidden="true" />
+              {STRINGS.app.targetStatus(activeProfile.label, formatBytes(targetBytes))}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -732,136 +749,159 @@ function SettingsPanel({
         </div>
       </div>
 
-      <div className="preset-grid" role="group" aria-label={STRINGS.target.ariaPresetGroup}>
-        {TARGET_PROFILES.map((profile) => (
-          <button
-            key={profile.id}
-            type="button"
-            className={settings.targetPreset === profile.id ? 'selected' : ''}
-            onClick={() => setPreset(profile.id)}
-          >
-            {profile.label}
-          </button>
-        ))}
-      </div>
+      <SettingsSection title={STRINGS.settings.sections.target.title} description={STRINGS.settings.sections.target.description}>
+        <div className="preset-grid" role="group" aria-label={STRINGS.target.ariaPresetGroup}>
+          {TARGET_PROFILES.map((profile) => (
+            <button
+              key={profile.id}
+              type="button"
+              className={settings.targetPreset === profile.id ? 'selected' : ''}
+              onClick={() => setPreset(profile.id)}
+            >
+              {profile.label}
+            </button>
+          ))}
+        </div>
 
-      <NumberField
-        label={STRINGS.target.sizeLabel}
-        value={settings.targetMb}
-        min={0.05}
-        max={500}
-        step={0.01}
-        suffix={STRINGS.target.customUnit}
-        onChange={(value) => {
-          setSettings((current) => ({ ...current, targetMb: value, targetPreset: 'custom' }));
-        }}
-      />
-      <p className="profile-note">{activeProfile.description}</p>
+        <NumberField
+          label={STRINGS.target.sizeLabel}
+          value={settings.targetMb}
+          min={0.05}
+          max={500}
+          step={0.01}
+          suffix={STRINGS.target.customUnit}
+          onChange={(value) => {
+            setSettings((current) => ({ ...current, targetMb: value, targetPreset: 'custom' }));
+          }}
+        />
+        <p className="profile-note">{activeProfile.description}</p>
+      </SettingsSection>
 
-      <div className="preset-manager">
+      <SettingsSection title={STRINGS.settings.sections.clip.title} description={STRINGS.settings.sections.clip.description}>
+        <NumberField label={STRINGS.settings.width} value={settings.width} min={160} max={1280} step={20} suffix={STRINGS.settings.units.px} onChange={(value) => update('width', value)} />
+        <NumberField label={STRINGS.settings.fps} value={settings.fps} min={5} max={30} step={1} suffix={STRINGS.settings.units.fps} onChange={(value) => update('fps', value)} />
+        <NumberField label={STRINGS.settings.start} value={settings.startSec} min={0} max={7200} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('startSec', value)} />
+        <NumberField label={STRINGS.settings.duration} value={settings.durationSec} min={0.5} max={60} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('durationSec', value)} />
+      </SettingsSection>
+
+      <SettingsSection title={STRINGS.settings.sections.encoding.title} description={STRINGS.settings.sections.encoding.description}>
+        <NumberField label={STRINGS.settings.palette} value={settings.colors} min={16} max={256} step={8} suffix={STRINGS.settings.units.colors} onChange={(value) => update('colors', value)} />
+
         <label className="select-field">
-          <span>{STRINGS.presets.savedLabel}</span>
-          <select value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.currentTarget.value)}>
-            <option value="">{STRINGS.presets.choose}</option>
-            {savedPresets.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {preset.name}
-              </option>
-            ))}
+          <span>{STRINGS.settings.dither}</span>
+          <select value={settings.dither} onChange={(event) => update('dither', event.target.value as DitherMode)}>
+            <option value="sierra2_4a">{STRINGS.settings.ditherOptions.sierra}</option>
+            <option value="bayer">{STRINGS.settings.ditherOptions.bayer}</option>
+            <option value="floyd_steinberg">{STRINGS.settings.ditherOptions.floydSteinberg}</option>
+            <option value="none">{STRINGS.settings.ditherOptions.none}</option>
           </select>
         </label>
-        <div className="preset-actions">
-          <input
-            type="text"
-            value={presetName}
-            maxLength={32}
-            placeholder={STRINGS.presets.namePlaceholder}
-            aria-label={STRINGS.presets.namePlaceholder}
-            onChange={(event) => setPresetName(event.currentTarget.value)}
-          />
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => {
-              onSavePreset(presetName);
-              setPresetName('');
-            }}
-          >
-            {STRINGS.presets.save}
-          </button>
-          <button type="button" className="secondary-button" disabled={!selectedPresetId} onClick={() => onLoadPreset(selectedPresetId)}>
-            {STRINGS.presets.load}
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={!selectedPresetId}
-            onClick={() => {
-              onDeletePreset(selectedPresetId);
-              setSelectedPresetId('');
-            }}
-          >
-            {STRINGS.presets.delete}
-          </button>
+
+        <label className="select-field">
+          <span>{STRINGS.settings.paletteMode}</span>
+          <select value={settings.paletteMode} onChange={(event) => update('paletteMode', event.target.value as PaletteMode)}>
+            <option value="diff">{STRINGS.settings.paletteModeOptions.diff}</option>
+            <option value="full">{STRINGS.settings.paletteModeOptions.full}</option>
+            <option value="single">{STRINGS.settings.paletteModeOptions.single}</option>
+          </select>
+        </label>
+
+        <label className="select-field">
+          <span>{STRINGS.settings.encoder}</span>
+          <select value={settings.encoderBackend} onChange={(event) => update('encoderBackend', event.target.value as EncoderBackend)}>
+            <option value="ffmpeg">{STRINGS.settings.encoderOptions.ffmpeg}</option>
+            <option value="gifski" disabled={!health?.gifski?.available}>{STRINGS.settings.encoderOptions.gifski}</option>
+          </select>
+        </label>
+        <p className="profile-note">
+          {settings.encoderBackend === 'gifski'
+            ? STRINGS.settings.encoderNotes.gifski
+            : STRINGS.settings.encoderNotes.ffmpeg}
+        </p>
+
+        <ToggleField
+          label={STRINGS.settings.autoFit.label}
+          description={STRINGS.settings.autoFit.description}
+          checked={settings.autoFit}
+          onChange={(checked) => update('autoFit', checked)}
+        />
+        <ToggleField
+          label={STRINGS.settings.allowTrim.label}
+          description={STRINGS.settings.allowTrim.description}
+          checked={settings.allowTrim}
+          onChange={(checked) => update('allowTrim', checked)}
+        />
+      </SettingsSection>
+
+      <SettingsSection title={STRINGS.settings.sections.presets.title} description={STRINGS.settings.sections.presets.description}>
+        <div className="preset-manager">
+          <label className="select-field">
+            <span>{STRINGS.presets.savedLabel}</span>
+            <select value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.currentTarget.value)}>
+              <option value="">{STRINGS.presets.choose}</option>
+              {savedPresets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="preset-actions">
+            <input
+              type="text"
+              value={presetName}
+              maxLength={32}
+              placeholder={STRINGS.presets.namePlaceholder}
+              aria-label={STRINGS.presets.namePlaceholder}
+              onChange={(event) => setPresetName(event.currentTarget.value)}
+            />
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                onSavePreset(presetName);
+                setPresetName('');
+              }}
+            >
+              {STRINGS.presets.save}
+            </button>
+            <button type="button" className="secondary-button" disabled={!selectedPresetId} onClick={() => onLoadPreset(selectedPresetId)}>
+              {STRINGS.presets.load}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={!selectedPresetId}
+              onClick={() => {
+                onDeletePreset(selectedPresetId);
+                setSelectedPresetId('');
+              }}
+            >
+              {STRINGS.presets.delete}
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div className="rule" />
-
-      <NumberField label={STRINGS.settings.width} value={settings.width} min={160} max={1280} step={20} suffix={STRINGS.settings.units.px} onChange={(value) => update('width', value)} />
-      <NumberField label={STRINGS.settings.fps} value={settings.fps} min={5} max={30} step={1} suffix={STRINGS.settings.units.fps} onChange={(value) => update('fps', value)} />
-      <NumberField label={STRINGS.settings.start} value={settings.startSec} min={0} max={7200} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('startSec', value)} />
-      <NumberField label={STRINGS.settings.duration} value={settings.durationSec} min={0.5} max={60} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('durationSec', value)} />
-
-      <div className="rule" />
-
-      <NumberField label={STRINGS.settings.palette} value={settings.colors} min={16} max={256} step={8} suffix={STRINGS.settings.units.colors} onChange={(value) => update('colors', value)} />
-
-      <label className="select-field">
-        <span>{STRINGS.settings.dither}</span>
-        <select value={settings.dither} onChange={(event) => update('dither', event.target.value as DitherMode)}>
-          <option value="sierra2_4a">{STRINGS.settings.ditherOptions.sierra}</option>
-          <option value="bayer">{STRINGS.settings.ditherOptions.bayer}</option>
-          <option value="floyd_steinberg">{STRINGS.settings.ditherOptions.floydSteinberg}</option>
-          <option value="none">{STRINGS.settings.ditherOptions.none}</option>
-        </select>
-      </label>
-
-      <label className="select-field">
-        <span>{STRINGS.settings.paletteMode}</span>
-        <select value={settings.paletteMode} onChange={(event) => update('paletteMode', event.target.value as PaletteMode)}>
-          <option value="diff">{STRINGS.settings.paletteModeOptions.diff}</option>
-          <option value="full">{STRINGS.settings.paletteModeOptions.full}</option>
-          <option value="single">{STRINGS.settings.paletteModeOptions.single}</option>
-        </select>
-      </label>
-
-      <label className="select-field">
-        <span>{STRINGS.settings.encoder}</span>
-        <select value={settings.encoderBackend} onChange={(event) => update('encoderBackend', event.target.value as EncoderBackend)}>
-          <option value="ffmpeg">{STRINGS.settings.encoderOptions.ffmpeg}</option>
-          <option value="gifski" disabled={!health?.gifski?.available}>{STRINGS.settings.encoderOptions.gifski}</option>
-        </select>
-      </label>
-      <p className="profile-note">
-        {settings.encoderBackend === 'gifski'
-          ? STRINGS.settings.encoderNotes.gifski
-          : STRINGS.settings.encoderNotes.ffmpeg}
-      </p>
-
-      <ToggleField
-        label={STRINGS.settings.autoFit.label}
-        description={STRINGS.settings.autoFit.description}
-        checked={settings.autoFit}
-        onChange={(checked) => update('autoFit', checked)}
-      />
-      <ToggleField
-        label={STRINGS.settings.allowTrim.label}
-        description={STRINGS.settings.allowTrim.description}
-        checked={settings.allowTrim}
-        onChange={(checked) => update('allowTrim', checked)}
-      />
+      </SettingsSection>
     </aside>
+  );
+}
+
+function SettingsSection({
+  title,
+  description,
+  children
+}: PropsWithChildren<{
+  title: string;
+  description: string;
+}>) {
+  return (
+    <section className="settings-section">
+      <div className="settings-section-head">
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -1017,7 +1057,7 @@ function TrimTimeline({
   };
 
   return (
-    <section className="trim-panel" aria-label={STRINGS.trim.aria}>
+    <section className={`trim-panel${probeBusy ? ' is-loading' : ''}`} aria-label={STRINGS.trim.aria} aria-busy={probeBusy}>
       <div className="trim-head">
         <strong>{probeBusy ? STRINGS.trim.probing : STRINGS.trim.title}</strong>
         <span>
@@ -1124,10 +1164,7 @@ function PreviewPanel({
         ) : objectUrl ? (
           <video src={objectUrl} controls muted playsInline onTimeUpdate={(event) => onPreviewTime(event.currentTarget.currentTime)} />
         ) : (
-          <div className="empty-preview">
-            <Video aria-hidden="true" />
-            <span>{STRINGS.preview.empty}</span>
-          </div>
+          <EmptyState icon={<Video aria-hidden="true" />} title={STRINGS.preview.emptyTitle} body={STRINGS.preview.empty} />
         )}
       </div>
 
@@ -1176,7 +1213,7 @@ function PreviewPanel({
         ) : job?.status === 'cancelled' ? (
           <p className="muted-text">{STRINGS.output.cancelledRecovery}</p>
         ) : (
-          <p className="muted-text">{STRINGS.output.empty}</p>
+          <EmptyState icon={<FileDown aria-hidden="true" />} title={STRINGS.output.emptyTitle} body={STRINGS.output.empty} compact />
         )}
       </section>
 
@@ -1194,7 +1231,9 @@ function PreviewPanel({
               {attempt.rejected ? <span className="attempt-rejected">{STRINGS.attempts.rejected}</span> : null}
             </div>
           ))}
-          {!job?.attempts.length && <p className="muted-text">{STRINGS.attempts.empty}</p>}
+          {!job?.attempts.length && (
+            <EmptyState icon={<Wand2 aria-hidden="true" />} title={STRINGS.attempts.emptyTitle} body={STRINGS.attempts.empty} compact />
+          )}
         </div>
       </section>
 
@@ -1224,10 +1263,36 @@ function PreviewPanel({
               </div>
             </div>
           ))}
-          {!recentOutputs.length && <p className="muted-text">{STRINGS.recent.empty}</p>}
+          {!recentOutputs.length && (
+            <EmptyState icon={<ImageIcon aria-hidden="true" />} title={STRINGS.recent.emptyTitle} body={STRINGS.recent.empty} compact />
+          )}
         </div>
       </section>
     </aside>
+  );
+}
+
+function EmptyState({
+  icon,
+  title,
+  body,
+  compact = false
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`empty-state${compact ? ' compact' : ''}`}>
+      <span className="empty-state-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span>
+        <strong>{title}</strong>
+        <small>{body}</small>
+      </span>
+    </div>
   );
 }
 
@@ -1270,13 +1335,20 @@ function ProgressPanel({ job }: { job: Job | null }) {
 }
 
 function LogPanel({ job }: { job: Job | null }) {
+  const hasLogs = Boolean(job?.logs.length);
   return (
     <section className="log-panel" aria-label={STRINGS.log.aria}>
       <div className="output-title">
         <Terminal aria-hidden="true" />
         <h3>{STRINGS.log.title}</h3>
       </div>
-      <pre>{job?.logs.length ? job.logs.join('\n') : STRINGS.log.empty}</pre>
+      {hasLogs ? (
+        <pre>{job?.logs.join('\n')}</pre>
+      ) : (
+        <div className="log-empty">
+          <EmptyState icon={<Terminal aria-hidden="true" />} title={STRINGS.log.emptyTitle} body={STRINGS.log.empty} compact />
+        </div>
+      )}
     </section>
   );
 }

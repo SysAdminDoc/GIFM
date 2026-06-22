@@ -16,6 +16,7 @@
 - Added an optional user-provided gifski encoder backend with health diagnostics and licensing notes.
 - Centralized the default English UI copy in a typed string catalog and added a UI smoke test for render coverage.
 - Added browser-side source metadata/frame preflight before upload with FFprobe fallback.
+- Refined the app hierarchy with local runtime trust cues, grouped settings, stronger empty states, calmer disabled/loading states, and mobile-first workflow ordering.
 - Expanded the smoke test to cover malformed multipart uploads, upload size limits, unsupported content, no-video media, and the successful GIF path.
 - Expanded the smoke test to cover queued and running job cancellation.
 
