@@ -1,0 +1,70 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const rootDir = path.resolve(__dirname, '..');
+const packageJson = JSON.parse(await fs.readFile(path.join(rootDir, 'package.json'), 'utf8'));
+const releaseRoot = path.join(rootDir, 'release');
+const packageName = `GIFM-v${packageJson.version}-win-x64`;
+const portableDir = path.join(releaseRoot, packageName);
+const zipPath = `${portableDir}.zip`;
+
+if (process.platform !== 'win32') {
+  throw new Error('The portable package currently targets Windows because it includes a start-gifm.cmd launcher.');
+}
+
+await fs.rm(portableDir, { recursive: true, force: true });
+await fs.rm(zipPath, { force: true });
+await fs.mkdir(path.join(portableDir, 'node'), { recursive: true });
+
+await Promise.all([
+  fs.cp(path.join(rootDir, 'dist'), path.join(portableDir, 'dist'), { recursive: true }),
+  fs.cp(path.join(rootDir, 'server'), path.join(portableDir, 'server'), { recursive: true }),
+  fs.cp(path.join(rootDir, 'node_modules'), path.join(portableDir, 'node_modules'), { recursive: true }),
+  fs.copyFile(path.join(rootDir, 'package.json'), path.join(portableDir, 'package.json')),
+  fs.copyFile(path.join(rootDir, 'package-lock.json'), path.join(portableDir, 'package-lock.json')),
+  fs.copyFile(process.execPath, path.join(portableDir, 'node', 'node.exe'))
+]);
+
+await fs.writeFile(
+  path.join(portableDir, 'start-gifm.cmd'),
+  [
+    '@echo off',
+    'setlocal',
+    'cd /d "%~dp0"',
+    'set GIFM_PORT=4174',
+    'set GIFM_HOST=127.0.0.1',
+    'start "" "http://127.0.0.1:4174"',
+    '".\\node\\node.exe" ".\\server\\index.js"',
+    'pause'
+  ].join('\r\n')
+);
+
+await run('powershell', [
+  '-NoProfile',
+  '-Command',
+  `Compress-Archive -Path '${portableDir}' -DestinationPath '${zipPath}' -Force`
+]);
+
+console.log(`Portable package: ${portableDir}`);
+console.log(`Portable ZIP: ${zipPath}`);
+
+function run(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { windowsHide: true });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr || `${command} exited with ${code}`));
+        return;
+      }
+      resolve();
+    });
+  });
+}

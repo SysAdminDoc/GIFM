@@ -38,12 +38,23 @@ npm run preview
 
 `npm run preview` serves the built app and API from `http://127.0.0.1:4174`.
 
+## Portable Windows Package
+
+```powershell
+npm run package:portable
+npm run package:smoke
+```
+
+The portable artifact is written to `release/GIFM-v<version>-win-x64/` and zipped beside it. It includes the built client, Express server, current Node runtime, `node_modules`, bundled FFmpeg/FFprobe modules, and `start-gifm.cmd`. To update a portable copy, replace the folder with a newly generated package.
+
 ## Verify
 
 ```powershell
 npm run typecheck
 npm run build
 npm run test:smoke
+npm run package:portable
+npm run package:smoke
 ```
 
 The smoke test generates a small local MP4, uploads it to GIFM, waits for the job to finish, downloads the result, validates the GIF header, and checks that the file fits the configured byte target.
