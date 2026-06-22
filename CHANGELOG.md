@@ -12,6 +12,7 @@
 - Added visible focus states, reduced-motion handling, ARIA progress semantics, and an output alt-text helper.
 - Added runtime diagnostics with FFmpeg/FFprobe versions, platform info, output estimate, latest FFmpeg command, and JSON export.
 - Added Windows portable packaging and smoke testing scripts.
+- Added configurable `GIFM_OUTPUT_DIR` and a browser Save as action with download fallback.
 - Expanded the smoke test to cover malformed multipart uploads, upload size limits, unsupported content, no-video media, and the successful GIF path.
 - Expanded the smoke test to cover queued and running job cancellation.
 

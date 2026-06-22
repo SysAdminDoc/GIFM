@@ -144,6 +144,22 @@ type BatchJob = {
   error?: string;
 };
 
+type SavePickerWindow = Window & {
+  showSaveFilePicker?: (options: {
+    id?: string;
+    suggestedName?: string;
+    types?: Array<{
+      description: string;
+      accept: Record<string, string[]>;
+    }>;
+  }) => Promise<{
+    createWritable: () => Promise<{
+      write: (data: Blob) => Promise<void>;
+      close: () => Promise<void>;
+    }>;
+  }>;
+};
+
 type ApiErrorPayload = {
   error?: string | {
     code?: string;
@@ -460,6 +476,21 @@ function GifmApp() {
     setNotice(response.ok ? 'Output location opened' : await readApiError(response, 'Could not open output location'));
   };
 
+  const saveOutputAs = async (targetJob: Job) => {
+    if (!targetJob.downloadUrl) return;
+
+    try {
+      await saveJobOutput(targetJob);
+      setNotice('GIF saved');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setNotice('Save cancelled');
+        return;
+      }
+      setNotice(error instanceof Error ? error.message : 'Save failed');
+    }
+  };
+
   const cancelEncoding = async () => {
     if (!job || !canCancel) return;
 
@@ -622,7 +653,7 @@ function GifmApp() {
           </div>
 
           <ProgressPanel job={job} />
-          <BatchQueue jobs={batchJobs} onSelectJob={setJob} onRevealJob={revealRecentOutput} onCancelJob={cancelBatchJob} />
+          <BatchQueue jobs={batchJobs} onSelectJob={setJob} onRevealJob={revealRecentOutput} onSaveAs={saveOutputAs} onCancelJob={cancelBatchJob} />
           <LogPanel job={job} />
           <DiagnosticsPanel health={health} sourceMeta={sourceMeta} settings={settings} job={job} />
         </section>
@@ -633,6 +664,7 @@ function GifmApp() {
           job={job}
           outputFit={outputFit}
           onReveal={revealOutput}
+          onSaveAs={saveOutputAs}
           onPreviewTime={setPreviewTime}
           recentOutputs={recentOutputs}
           onRevealRecent={revealRecentOutput}
@@ -869,11 +901,13 @@ function BatchQueue({
   jobs,
   onSelectJob,
   onRevealJob,
+  onSaveAs,
   onCancelJob
 }: {
   jobs: BatchJob[];
   onSelectJob: (job: Job) => void;
   onRevealJob: (id: string) => void;
+  onSaveAs: (job: Job) => void;
   onCancelJob: (id: string) => void;
 }) {
   if (!jobs.length) return null;
@@ -903,6 +937,9 @@ function BatchQueue({
                     </a>
                     <button type="button" className="secondary-button" onClick={() => onRevealJob(itemJob.id)}>
                       Open
+                    </button>
+                    <button type="button" className="secondary-button" onClick={() => onSaveAs(itemJob)}>
+                      Save as
                     </button>
                   </>
                 ) : canCancelItem ? (
@@ -1014,6 +1051,7 @@ function PreviewPanel({
   job,
   outputFit,
   onReveal,
+  onSaveAs,
   onPreviewTime,
   recentOutputs,
   onRevealRecent,
@@ -1024,6 +1062,7 @@ function PreviewPanel({
   job: Job | null;
   outputFit: boolean;
   onReveal: () => void;
+  onSaveAs: (job: Job) => void;
   onPreviewTime: (seconds: number) => void;
   recentOutputs: RecentOutput[];
   onRevealRecent: (id: string) => void;
@@ -1083,6 +1122,10 @@ function PreviewPanel({
               <button type="button" className="secondary-button" onClick={onReveal}>
                 <MonitorDown aria-hidden="true" />
                 Open output
+              </button>
+              <button type="button" className="secondary-button" onClick={() => onSaveAs(job)}>
+                <Download aria-hidden="true" />
+                Save as
               </button>
             </div>
             <label className="alt-field">
@@ -1334,6 +1377,45 @@ async function fetchJob(id: string) {
     throw new Error(await readApiError(response, `Status check failed (${response.status})`));
   }
   return response.json() as Promise<Job>;
+}
+
+async function saveJobOutput(job: Job) {
+  if (!job.downloadUrl) throw new Error('Output is not available.');
+  const response = await fetch(job.downloadUrl);
+  if (!response.ok) {
+    throw new Error(await readApiError(response, 'Download failed'));
+  }
+
+  const blob = await response.blob();
+  const suggestedName = `${safeFileBase(job.inputName)}-gifm.gif`;
+  const saveWindow = window as SavePickerWindow;
+  if (!saveWindow.showSaveFilePicker) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = suggestedName;
+    link.click();
+    URL.revokeObjectURL(url);
+    return;
+  }
+
+  const handle = await saveWindow.showSaveFilePicker({
+    id: 'gifm-output',
+    suggestedName,
+    types: [
+      {
+        description: 'GIF image',
+        accept: { 'image/gif': ['.gif'] }
+      }
+    ]
+  });
+  const writable = await handle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+function safeFileBase(inputName: string) {
+  return inputName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'gifm-output';
 }
 
 function batchStatus(item: BatchJob) {

@@ -19,6 +19,7 @@ GIFM v0.1.0 is a local GIF maker and compressor for Discord-ready animated GIFs.
 - Persisted settings, named presets, and recent outputs in browser storage.
 - Keyboard-visible focus states, reduced-motion support, ARIA progress, and an output alt-text helper.
 - Diagnostics panel with FFmpeg/FFprobe versions, platform info, source estimate, latest FFmpeg command, and copy/download JSON bundle.
+- Save-as output flow using the browser file picker when available, with download fallback.
 
 ## Run Locally
 
@@ -74,6 +75,7 @@ $env:GIFM_MAX_UPLOAD_MB = "2048"
 $env:GIFM_DATA_MAX_MB = "5120"
 $env:GIFM_DATA_MAX_AGE_HOURS = "24"
 $env:GIFM_MAX_CONCURRENT_JOBS = "1"
+$env:GIFM_OUTPUT_DIR = "D:\GIFM-output"
 npm run dev
 ```
 

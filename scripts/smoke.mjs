@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const smokeDir = path.join(rootDir, 'data', 'smoke');
+const smokeOutputDir = path.join(rootDir, 'data', 'smoke-output');
 const samplePath = path.join(smokeDir, 'sample.mp4');
 const longSamplePath = path.join(smokeDir, 'long-sample.mp4');
 const audioOnlyPath = path.join(smokeDir, 'audio-only.mp4');
@@ -14,6 +15,8 @@ const port = 4184;
 const baseUrl = `http://127.0.0.1:${port}`;
 
 await fs.mkdir(smokeDir, { recursive: true });
+await fs.rm(smokeOutputDir, { recursive: true, force: true });
+await fs.mkdir(smokeOutputDir, { recursive: true });
 await run(ffmpegPath, [
   '-hide_banner',
   '-f',
@@ -62,7 +65,8 @@ const server = spawn(process.execPath, ['server/index.js'], {
     GIFM_PORT: String(port),
     GIFM_MAX_UPLOAD_MB: '16',
     GIFM_DATA_MAX_MB: '64',
-    GIFM_MAX_CONCURRENT_JOBS: '1'
+    GIFM_MAX_CONCURRENT_JOBS: '1',
+    GIFM_OUTPUT_DIR: smokeOutputDir
   },
   windowsHide: true,
   stdio: ['ignore', 'pipe', 'pipe']
@@ -113,6 +117,10 @@ try {
   }
   if (!job.attempts.every((attempt) => typeof attempt.strategy === 'string' && attempt.strategy.includes('transparency'))) {
     throw new Error(`Attempt strategy metadata missing: ${JSON.stringify(job.attempts, null, 2)}`);
+  }
+  const outputFiles = await fs.readdir(smokeOutputDir);
+  if (!outputFiles.some((name) => name.endsWith('.gif'))) {
+    throw new Error(`Expected smoke GIF in custom output directory, found ${JSON.stringify(outputFiles)}`);
   }
 
   console.log(`Smoke passed: ${gifBytes.length} bytes, ${job.attempts.length} attempt(s).`);
