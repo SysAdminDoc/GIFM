@@ -16,6 +16,7 @@ const ALLOW_REMOTE = process.env.GIFM_ALLOW_REMOTE === '1';
 const MAX_UPLOAD_BYTES = parseByteLimit(process.env.GIFM_MAX_UPLOAD_BYTES, process.env.GIFM_MAX_UPLOAD_MB, 2 * 1024 * 1024 * 1024);
 const DATA_MAX_BYTES = parseByteLimit(process.env.GIFM_DATA_MAX_BYTES, process.env.GIFM_DATA_MAX_MB, 5 * 1024 * 1024 * 1024);
 const DATA_MAX_AGE_MS = parseHours(process.env.GIFM_DATA_MAX_AGE_HOURS, 24) * 60 * 60 * 1000;
+const MAX_CONCURRENT_JOBS = Math.max(1, Math.round(Number(process.env.GIFM_MAX_CONCURRENT_JOBS ?? 1)));
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const dataDir = path.join(rootDir, 'data');
@@ -25,6 +26,8 @@ const workDir = path.join(dataDir, 'work');
 const distDir = path.join(rootDir, 'dist');
 const ffprobePath = ffprobeStatic.path;
 const jobs = new Map();
+const jobQueue = [];
+let runningJobs = 0;
 const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
 
 await Promise.all([uploadDir, outputDir, workDir].map((dir) => fs.mkdir(dir, { recursive: true })));
@@ -78,7 +81,8 @@ app.get('/api/health', (_request, response) => {
     remoteAllowed: ALLOW_REMOTE,
     maxUploadBytes: MAX_UPLOAD_BYTES,
     dataMaxBytes: DATA_MAX_BYTES,
-    dataMaxAgeHours: Math.round(DATA_MAX_AGE_MS / 60 / 60 / 1000)
+    dataMaxAgeHours: Math.round(DATA_MAX_AGE_MS / 60 / 60 / 1000),
+    maxConcurrentJobs: MAX_CONCURRENT_JOBS
   });
 });
 
@@ -113,6 +117,7 @@ app.post('/api/jobs', runUpload, async (request, response, next) => {
       status: 'queued',
       progress: 0,
       stage: 'Queued',
+      queuePosition: 0,
       inputPath: request.file.path,
       inputName: request.file.originalname,
       inputSize: request.file.size,
@@ -132,9 +137,8 @@ app.post('/api/jobs', runUpload, async (request, response, next) => {
     };
 
     jobs.set(id, job);
+    enqueueJob(job);
     response.status(202).json(publicJob(job));
-
-    processJob(job).catch((error) => failJob(job, error));
   } catch (error) {
     if (request.file?.path) await removeFile(request.file.path);
     next(error);
@@ -148,6 +152,21 @@ app.get('/api/jobs/:id', (request, response) => {
     return;
   }
   response.json(publicJob(job));
+});
+
+app.post('/api/jobs/:id/cancel', async (request, response, next) => {
+  try {
+    const job = jobs.get(request.params.id);
+    if (!job) {
+      sendApiError(response, new ApiError(404, 'JOB_NOT_FOUND', 'Job not found.'));
+      return;
+    }
+
+    await cancelJob(job);
+    response.json(publicJob(job));
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get('/api/jobs/:id/download', (request, response) => {
@@ -193,12 +212,16 @@ app.listen(PORT, HOST, () => {
 });
 
 async function processJob(job) {
+  checkCancelled(job);
   job.status = 'running';
   job.stage = 'Probing media';
+  job.queuePosition = 0;
+  job.startedAt = new Date().toISOString();
   job.progress = 2;
   log(job, `Input: ${job.inputName} (${formatBytes(job.inputSize)})`);
 
-  const metadata = await ffprobe(job.inputPath);
+  const metadata = await ffprobe(job.inputPath, job);
+  checkCancelled(job);
   const sourceDuration = Number(metadata.format?.duration);
   const videoStream = metadata.streams?.find((stream) => stream.codec_type === 'video');
 
@@ -221,6 +244,7 @@ async function processJob(job) {
   let lastOutputPath = '';
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    checkCancelled(job);
     const attemptWorkDir = path.join(workDir, job.id);
     await fs.mkdir(attemptWorkDir, { recursive: true });
     const palettePath = path.join(attemptWorkDir, `palette-${attempt}-001.png`);
@@ -250,6 +274,7 @@ async function processJob(job) {
       26,
       durationSec
     );
+    checkCancelled(job);
 
     job.stage = `Attempt ${attempt}: encode`;
     const dither = ditherFilter(job.settings.dither);
@@ -273,6 +298,7 @@ async function processJob(job) {
       95,
       durationSec
     );
+    checkCancelled(job);
 
     const stat = await fs.stat(outputPath);
     attemptRecord.outputBytes = stat.size;
@@ -320,6 +346,7 @@ async function processJob(job) {
   }
 
   const finalStat = await fs.stat(lastOutputPath);
+  checkCancelled(job);
   job.outputPath = lastOutputPath;
   job.outputBytes = finalStat.size;
   job.downloadUrl = `/api/jobs/${job.id}/download`;
@@ -352,6 +379,136 @@ function runUpload(request, response, next) {
     }
     next();
   });
+}
+
+function enqueueJob(job) {
+  jobQueue.push(job.id);
+  updateQueuePositions();
+  log(job, `Queued at position ${job.queuePosition}`);
+  pumpJobQueue();
+}
+
+function pumpJobQueue() {
+  while (runningJobs < MAX_CONCURRENT_JOBS && jobQueue.length > 0) {
+    const id = jobQueue.shift();
+    const job = jobs.get(id);
+    if (!job || job.status !== 'queued') continue;
+
+    runningJobs += 1;
+    updateQueuePositions();
+    void runQueuedJob(job);
+  }
+}
+
+async function runQueuedJob(job) {
+  try {
+    await processJob(job);
+  } catch (error) {
+    if (!isTerminalStatus(job.status)) {
+      if (isCancellationError(error) || job.cancelRequested) {
+        await finalizeCancelled(job);
+      } else {
+        await failJob(job, error);
+      }
+    }
+  } finally {
+    if (job.status === 'cancelled') {
+      await cleanupInput(job);
+      await cleanupWork(job.id);
+      await enforceDataRetention();
+    }
+    runningJobs = Math.max(0, runningJobs - 1);
+    job.activeChild = undefined;
+    updateQueuePositions();
+    pumpJobQueue();
+  }
+}
+
+function updateQueuePositions() {
+  jobQueue.forEach((id, index) => {
+    const job = jobs.get(id);
+    if (job?.status === 'queued') {
+      job.queuePosition = index + 1;
+      job.stage = `Queued #${job.queuePosition}`;
+    }
+  });
+}
+
+async function cancelJob(job) {
+  if (isTerminalStatus(job.status)) return;
+
+  job.cancelRequested = true;
+  if (job.status === 'queued') {
+    removeQueuedJob(job.id);
+    updateQueuePositions();
+    await finalizeCancelled(job);
+    return;
+  }
+
+  job.stage = 'Cancelling';
+  killActiveChild(job);
+  await finalizeCancelled(job);
+}
+
+function removeQueuedJob(id) {
+  const index = jobQueue.indexOf(id);
+  if (index >= 0) jobQueue.splice(index, 1);
+}
+
+async function finalizeCancelled(job) {
+  if (job.status === 'cancelled') return;
+
+  job.status = 'cancelled';
+  job.stage = 'Cancelled';
+  job.queuePosition = 0;
+  job.error = undefined;
+  job.errorCode = 'JOB_CANCELLED';
+  job.completedAt = new Date().toISOString();
+  log(job, 'Cancelled by user.');
+  await cleanupWork(job.id);
+  await cleanupInput(job);
+  await enforceDataRetention();
+}
+
+function isTerminalStatus(status) {
+  return status === 'complete' || status === 'failed' || status === 'cancelled';
+}
+
+function checkCancelled(job) {
+  if (job.cancelRequested || job.status === 'cancelled') {
+    throw cancelError();
+  }
+}
+
+function cancelError() {
+  return new ApiError(499, 'JOB_CANCELLED', 'Job was cancelled.');
+}
+
+function isCancellationError(error) {
+  return error instanceof ApiError && error.code === 'JOB_CANCELLED';
+}
+
+function trackChild(job, child) {
+  if (job) job.activeChild = child;
+}
+
+function clearTrackedChild(job, child) {
+  if (job?.activeChild === child) {
+    job.activeChild = undefined;
+  }
+}
+
+function killActiveChild(job) {
+  const child = job.activeChild;
+  if (!child || child.killed) return;
+
+  child.kill('SIGTERM');
+  const killTimer = setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL');
+    }
+  }, 2500);
+  killTimer.unref?.();
 }
 
 function securityHeaders(_request, response, next) {
@@ -450,8 +607,9 @@ function isLoopbackHost(host) {
 
 async function failJob(job, error) {
   const apiError = normalizeError(error);
-  job.status = 'error';
+  job.status = 'failed';
   job.stage = 'Failed';
+  job.queuePosition = 0;
   job.error = apiError.message;
   job.errorCode = apiError.code;
   job.completedAt = new Date().toISOString();
@@ -463,13 +621,21 @@ async function failJob(job, error) {
 
 async function cleanupInput(job) {
   if (!job.inputPath) return;
-  await removeFile(job.inputPath);
-  job.inputPath = '';
+  const removed = await removeFile(job.inputPath);
+  if (removed) job.inputPath = '';
 }
 
 async function removeFile(filePath) {
-  if (!filePath) return;
-  await fs.rm(filePath, { force: true });
+  if (!filePath) return true;
+
+  try {
+    await fs.rm(filePath, { force: true });
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return true;
+    if (error?.code === 'EBUSY' || error?.code === 'EPERM') return false;
+    throw error;
+  }
 }
 
 async function enforceDataRetention(extraProtected = new Set()) {
@@ -634,11 +800,12 @@ function ditherFilter(mode) {
   return 'dither=sierra2_4a';
 }
 
-function ffprobe(inputPath) {
+function ffprobe(inputPath, job) {
   return new Promise((resolve, reject) => {
     const child = spawn(ffprobePath, ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', inputPath], {
       windowsHide: true
     });
+    trackChild(job, child);
     let stdout = '';
     let stderr = '';
 
@@ -648,8 +815,17 @@ function ffprobe(inputPath) {
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString();
     });
-    child.on('error', reject);
+    child.on('error', (error) => {
+      clearTrackedChild(job, child);
+      reject(error);
+    });
     child.on('close', (code) => {
+      clearTrackedChild(job, child);
+      if (job?.cancelRequested || job?.status === 'cancelled') {
+        reject(cancelError());
+        return;
+      }
+
       if (code !== 0) {
         reject(new Error(stderr.trim() || `ffprobe exited with code ${code}`));
         return;
@@ -661,7 +837,13 @@ function ffprobe(inputPath) {
 
 function runFfmpeg(args, job, stage, progressStart, progressEnd, durationSec) {
   return new Promise((resolve, reject) => {
+    if (job.cancelRequested || job.status === 'cancelled') {
+      reject(cancelError());
+      return;
+    }
+
     const child = spawn(ffmpegPath, ['-hide_banner', ...args], { windowsHide: true });
+    trackChild(job, child);
     let stderr = '';
 
     child.stderr.on('data', (chunk) => {
@@ -683,8 +865,17 @@ function runFfmpeg(args, job, stage, progressStart, progressEnd, durationSec) {
       }
     });
 
-    child.on('error', reject);
+    child.on('error', (error) => {
+      clearTrackedChild(job, child);
+      reject(error);
+    });
     child.on('close', (code) => {
+      clearTrackedChild(job, child);
+      if (job.cancelRequested || job.status === 'cancelled') {
+        reject(cancelError());
+        return;
+      }
+
       if (code !== 0) {
         reject(new Error(stderr.trim().split(/\r?\n/).slice(-8).join('\n') || `ffmpeg exited with code ${code}`));
         return;
@@ -707,6 +898,7 @@ function publicJob(job) {
     status: job.status,
     progress: job.progress,
     stage: job.stage,
+    queuePosition: job.queuePosition,
     inputName: job.inputName,
     inputSize: job.inputSize,
     outputBytes: job.outputBytes,

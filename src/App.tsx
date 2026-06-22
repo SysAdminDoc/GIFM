@@ -49,7 +49,7 @@ type Settings = {
   allowTrim: boolean;
 };
 
-type JobStatus = 'queued' | 'running' | 'complete' | 'error';
+type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
 
 type Attempt = {
   attempt: number;
@@ -65,6 +65,7 @@ type Job = {
   status: JobStatus;
   progress: number;
   stage: string;
+  queuePosition?: number;
   inputName: string;
   inputSize: number;
   outputBytes?: number;
@@ -161,7 +162,7 @@ function GifmApp() {
   }, [file]);
 
   useEffect(() => {
-    if (!job || job.status === 'complete' || job.status === 'error') {
+    if (!job || isTerminalJob(job)) {
       return undefined;
     }
 
@@ -189,6 +190,7 @@ function GifmApp() {
 
   const outputFit = job?.outputBytes ? job.outputBytes <= job.targetBytes : false;
   const canStart = Boolean(file) && !busy && job?.status !== 'running' && job?.status !== 'queued';
+  const canCancel = job?.status === 'queued' || job?.status === 'running';
 
   const chooseFile = useCallback((nextFile?: File) => {
     if (!nextFile) return;
@@ -248,6 +250,20 @@ function GifmApp() {
     setNotice(response.ok ? 'Output location opened' : await readApiError(response, 'Could not open output location'));
   };
 
+  const cancelEncoding = async () => {
+    if (!job || !canCancel) return;
+
+    const response = await fetch(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
+    if (!response.ok) {
+      setNotice(await readApiError(response, 'Cancel failed'));
+      return;
+    }
+
+    const nextJob = (await response.json()) as Job;
+    setJob(nextJob);
+    setNotice('Job cancelled');
+  };
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -298,7 +314,7 @@ function GifmApp() {
             <StatusTile label="Target" value={formatBytes(targetBytes)} tone="cyan" />
             <StatusTile label="Source ratio" value={file ? formatRatio(originalRatio) : '-'} tone="amber" />
             <StatusTile label="Auto fit" value={settings.autoFit ? 'On' : 'Off'} tone={settings.autoFit ? 'lime' : 'muted'} />
-            <StatusTile label="Attempts" value={String(job?.attempts.length ?? 0)} tone="muted" />
+            <StatusTile label="Queue" value={queueLabel(job)} tone={job?.status === 'queued' ? 'amber' : 'muted'} />
           </div>
 
           <div className="action-row">
@@ -310,6 +326,12 @@ function GifmApp() {
               )}
               Start encoding
             </button>
+            {canCancel ? (
+              <button type="button" className="secondary-button" onClick={cancelEncoding}>
+                <AlertTriangle aria-hidden="true" />
+                Cancel
+              </button>
+            ) : null}
             <button
               type="button"
               className="secondary-button"
@@ -577,12 +599,14 @@ function PreviewPanel({
               </button>
             </div>
           </>
-        ) : job?.status === 'error' ? (
+        ) : job?.status === 'failed' ? (
           <>
             <p className="error-text">{job.error}</p>
             {job.errorCode ? <p className="muted-text">Error code: {job.errorCode}</p> : null}
             <p className="muted-text">Adjust settings and press Start encoding again, or reset the selection.</p>
           </>
+        ) : job?.status === 'cancelled' ? (
+          <p className="muted-text">The job was cancelled. Press Start encoding to run it again.</p>
         ) : (
           <p className="muted-text">Finished GIFs appear here with exact byte size and download actions.</p>
         )}
@@ -672,4 +696,17 @@ async function readApiError(response: Response, fallback: string) {
   const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
   if (typeof payload?.error === 'string') return payload.error;
   return payload?.error?.message ?? fallback;
+}
+
+function isTerminalJob(job: Job) {
+  return job.status === 'complete' || job.status === 'failed' || job.status === 'cancelled';
+}
+
+function queueLabel(job: Job | null) {
+  if (!job) return '-';
+  if (job.status === 'queued') return `#${job.queuePosition ?? 1}`;
+  if (job.status === 'running') return 'Running';
+  if (job.status === 'cancelled') return 'Cancelled';
+  if (job.status === 'failed') return 'Failed';
+  return 'Done';
 }

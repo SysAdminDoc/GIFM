@@ -3,7 +3,9 @@
 ## Unreleased
 
 - Added upload validation, typed API errors, local-only host guardrails, disk retention limits, and failed-job cleanup.
+- Added a cancellable job queue with configurable concurrency and queue positions.
 - Expanded the smoke test to cover malformed multipart uploads, upload size limits, unsupported content, no-video media, and the successful GIF path.
+- Expanded the smoke test to cover queued and running job cancellation.
 
 ## v0.1.0 - 2026-06-22
 

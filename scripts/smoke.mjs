@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const smokeDir = path.join(rootDir, 'data', 'smoke');
 const samplePath = path.join(smokeDir, 'sample.mp4');
+const longSamplePath = path.join(smokeDir, 'long-sample.mp4');
 const audioOnlyPath = path.join(smokeDir, 'audio-only.mp4');
 const port = 4184;
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -31,6 +32,19 @@ await run(ffmpegPath, [
   '-f',
   'lavfi',
   '-i',
+  'testsrc2=size=640x360:rate=30',
+  '-t',
+  '18',
+  '-pix_fmt',
+  'yuv420p',
+  '-y',
+  longSamplePath
+]);
+await run(ffmpegPath, [
+  '-hide_banner',
+  '-f',
+  'lavfi',
+  '-i',
   'sine=frequency=880:sample_rate=44100',
   '-t',
   '1',
@@ -43,7 +57,13 @@ await run(ffmpegPath, [
 
 const server = spawn(process.execPath, ['server/index.js'], {
   cwd: rootDir,
-  env: { ...process.env, GIFM_PORT: String(port), GIFM_MAX_UPLOAD_MB: '1', GIFM_DATA_MAX_MB: '32' },
+  env: {
+    ...process.env,
+    GIFM_PORT: String(port),
+    GIFM_MAX_UPLOAD_MB: '16',
+    GIFM_DATA_MAX_MB: '64',
+    GIFM_MAX_CONCURRENT_JOBS: '1'
+  },
   windowsHide: true,
   stdio: ['ignore', 'pipe', 'pipe']
 });
@@ -62,6 +82,7 @@ try {
   await assertTooLargeUpload();
   await assertUnsupportedContent();
   await assertNoVideoJob();
+  await assertQueueAndCancel();
 
   const fileBytes = await fs.readFile(samplePath);
   const form = new FormData();
@@ -105,7 +126,7 @@ async function assertMalformedMultipart() {
 
 async function assertTooLargeUpload() {
   const form = new FormData();
-  form.set('media', new File([Buffer.alloc(2 * 1024 * 1024)], 'large.mp4', { type: 'video/mp4' }));
+  form.set('media', new File([Buffer.alloc(17 * 1024 * 1024)], 'large.mp4', { type: 'video/mp4' }));
   form.set('settings', JSON.stringify(validSettings()));
   const response = await fetch(`${baseUrl}/api/jobs`, { method: 'POST', body: form });
   await expectApiError(response, 413, 'UPLOAD_TOO_LARGE');
@@ -132,9 +153,53 @@ async function assertNoVideoJob() {
 
   const started = await response.json();
   const job = await waitForJob(started.id, 20000);
-  if (job.status !== 'error' || job.errorCode !== 'NO_VIDEO_STREAM') {
+  if (job.status !== 'failed' || job.errorCode !== 'NO_VIDEO_STREAM') {
     throw new Error(`Expected no-video job error, got ${JSON.stringify(job, null, 2)}`);
   }
+}
+
+async function assertQueueAndCancel() {
+  const bytes = await fs.readFile(longSamplePath);
+  const first = await startMediaJob(bytes, 'long-a.mp4', slowSettings());
+  await waitForStatus(first.id, ['running'], 10000);
+
+  const second = await startMediaJob(bytes, 'long-b.mp4', slowSettings());
+  if (second.status !== 'queued' || second.queuePosition !== 1) {
+    throw new Error(`Expected second job queued at #1, got ${JSON.stringify(second, null, 2)}`);
+  }
+
+  const cancelledQueued = await cancelJob(second.id);
+  if (cancelledQueued.status !== 'cancelled') {
+    throw new Error(`Expected queued job cancellation, got ${JSON.stringify(cancelledQueued, null, 2)}`);
+  }
+
+  const cancelledRunning = await cancelJob(first.id);
+  if (cancelledRunning.status !== 'cancelled') {
+    throw new Error(`Expected running job cancellation, got ${JSON.stringify(cancelledRunning, null, 2)}`);
+  }
+
+  await waitForStatus(first.id, ['cancelled'], 10000);
+}
+
+async function startMediaJob(bytes, name, settings) {
+  const form = new FormData();
+  form.set('media', new File([bytes], name, { type: 'video/mp4' }));
+  form.set('settings', JSON.stringify(settings));
+
+  const response = await fetch(`${baseUrl}/api/jobs`, { method: 'POST', body: form });
+  if (!response.ok) {
+    throw new Error(`Failed to start ${name}: ${response.status} ${await response.text()}`);
+  }
+
+  return response.json();
+}
+
+async function cancelJob(id) {
+  const response = await fetch(`${baseUrl}/api/jobs/${id}/cancel`, { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(`Failed to cancel ${id}: ${response.status} ${await response.text()}`);
+  }
+  return response.json();
 }
 
 async function expectApiError(response, status, code) {
@@ -151,10 +216,24 @@ async function waitForJob(id, timeoutMs) {
     await delay(800);
     const response = await fetch(`${baseUrl}/api/jobs/${id}`);
     job = await response.json();
-    if (['complete', 'error'].includes(job.status)) return job;
+    if (['complete', 'failed', 'cancelled'].includes(job.status)) return job;
   }
 
   throw new Error(`Job did not finish before timeout: ${JSON.stringify(job, null, 2)}\n${serverLog}`);
+}
+
+async function waitForStatus(id, statuses, timeoutMs) {
+  let job = null;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await delay(200);
+    const response = await fetch(`${baseUrl}/api/jobs/${id}`);
+    job = await response.json();
+    if (statuses.includes(job.status)) return job;
+    if (['complete', 'failed', 'cancelled'].includes(job.status) && !statuses.includes(job.status)) break;
+  }
+
+  throw new Error(`Job did not reach ${statuses.join('/')} before timeout: ${JSON.stringify(job, null, 2)}\n${serverLog}`);
 }
 
 function validSettings() {
@@ -169,6 +248,22 @@ function validSettings() {
     dither: 'sierra2_4a',
     paletteMode: 'diff',
     autoFit: true,
+    allowTrim: false
+  };
+}
+
+function slowSettings() {
+  return {
+    targetPreset: 'custom',
+    targetMb: 1,
+    width: 640,
+    fps: 30,
+    startSec: 0,
+    durationSec: 18,
+    colors: 256,
+    dither: 'sierra2_4a',
+    paletteMode: 'full',
+    autoFit: false,
     allowTrim: false
   };
 }
