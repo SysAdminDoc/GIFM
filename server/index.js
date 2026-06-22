@@ -13,6 +13,7 @@ const VERSION = '0.1.0';
 const PORT = Number(process.env.GIFM_PORT ?? process.env.PORT ?? 4174);
 const HOST = process.env.GIFM_HOST ?? '127.0.0.1';
 const ALLOW_REMOTE = process.env.GIFM_ALLOW_REMOTE === '1';
+const GIFSKI_PATH = process.env.GIFM_GIFSKI_PATH ? path.resolve(process.env.GIFM_GIFSKI_PATH) : '';
 const MAX_UPLOAD_BYTES = parseByteLimit(process.env.GIFM_MAX_UPLOAD_BYTES, process.env.GIFM_MAX_UPLOAD_MB, 2 * 1024 * 1024 * 1024);
 const DATA_MAX_BYTES = parseByteLimit(process.env.GIFM_DATA_MAX_BYTES, process.env.GIFM_DATA_MAX_MB, 5 * 1024 * 1024 * 1024);
 const DATA_MAX_AGE_MS = parseHours(process.env.GIFM_DATA_MAX_AGE_HOURS, 24) * 60 * 60 * 1000;
@@ -86,6 +87,7 @@ app.get('/api/health', (_request, response) => {
     version: VERSION,
     ffmpeg: runtimeInfo.ffmpeg,
     ffprobe: runtimeInfo.ffprobe,
+    gifski: runtimeInfo.gifski,
     platform: runtimeInfo.platform,
     host: HOST,
     remoteAllowed: ALLOW_REMOTE,
@@ -308,51 +310,14 @@ async function processJob(job) {
 
     const attemptRecord = { attempt, width, fps, colors, durationSec, strategy, dedupeFrames, frameDropModulo };
     job.attempts.push(attemptRecord);
-    job.stage = `Attempt ${attempt}: palette`;
+    job.stage = job.settings.encoderBackend === 'gifski' ? `Attempt ${attempt}: gifski` : `Attempt ${attempt}: palette`;
     log(job, `Attempt ${attempt}: ${width}px, ${fps} fps, ${colors} colors, ${durationSec.toFixed(2)} sec, ${strategy}`);
 
-    await runFfmpeg(
-      [
-        ...trimArgs(startSec, durationSec),
-        '-i',
-        job.inputPath,
-        '-vf',
-        `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
-        '-frames:v',
-        '1',
-        '-y',
-        palettePattern
-      ],
-      job,
-      `Attempt ${attempt}: palette`,
-      5,
-      26,
-      durationSec
-    );
-    checkCancelled(job);
-
-    job.stage = `Attempt ${attempt}: encode`;
-    const dither = ditherFilter(job.settings.dither);
-    await runFfmpeg(
-      [
-        ...trimArgs(startSec, durationSec),
-        '-i',
-        job.inputPath,
-        '-i',
-        palettePath,
-        '-lavfi',
-        `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
-        '-loop',
-        '0',
-        '-y',
-        outputPath
-      ],
-      job,
-      `Attempt ${attempt}: encode`,
-      26,
-      95,
-      durationSec
-    );
+    if (job.settings.encoderBackend === 'gifski') {
+      await encodeWithGifski({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo });
+    } else {
+      await encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, outputPath, startSec, durationSec, width, fps, colors, dedupeFrames, frameDropModulo });
+    }
     checkCancelled(job);
 
     const stat = await fs.stat(outputPath);
@@ -496,6 +461,7 @@ async function runQueuedJob(job) {
     }
     runningJobs = Math.max(0, runningJobs - 1);
     job.activeChild = undefined;
+    job.activeChildren?.clear();
     updateQueuePositions();
     pumpJobQueue();
   }
@@ -566,19 +532,29 @@ function isCancellationError(error) {
 }
 
 function trackChild(job, child) {
-  if (job) job.activeChild = child;
+  if (!job) return;
+  if (!job.activeChildren) job.activeChildren = new Set();
+  job.activeChildren.add(child);
+  job.activeChild = child;
 }
 
 function clearTrackedChild(job, child) {
-  if (job?.activeChild === child) {
-    job.activeChild = undefined;
+  if (!job) return;
+  job.activeChildren?.delete(child);
+  if (job.activeChild === child) {
+    job.activeChild = job.activeChildren?.values().next().value;
   }
 }
 
 function killActiveChild(job) {
-  const child = job.activeChild;
-  if (!child || child.killed) return;
+  const children = job.activeChildren?.size ? [...job.activeChildren] : job.activeChild ? [job.activeChild] : [];
+  for (const child of children) {
+    killChild(child);
+  }
+}
 
+function killChild(child) {
+  if (!child || child.killed) return;
   child.kill('SIGTERM');
   const killTimer = setTimeout(() => {
     if (child.exitCode === null && child.signalCode === null) {
@@ -862,6 +838,7 @@ function parseSettings(raw) {
     colors: clamp(Number(parsed.colors ?? 96), 16, 256),
     dither: ['sierra2_4a', 'bayer', 'floyd_steinberg', 'none'].includes(parsed.dither) ? parsed.dither : 'sierra2_4a',
     paletteMode: ['diff', 'full', 'single'].includes(parsed.paletteMode) ? parsed.paletteMode : 'diff',
+    encoderBackend: parsed.encoderBackend === 'gifski' ? 'gifski' : 'ffmpeg',
     autoFit: Boolean(parsed.autoFit ?? true),
     allowTrim: Boolean(parsed.allowTrim ?? false)
   };
@@ -994,6 +971,78 @@ function ffprobe(inputPath, job) {
   });
 }
 
+async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, outputPath, startSec, durationSec, width, fps, colors, dedupeFrames, frameDropModulo }) {
+  await runFfmpeg(
+    [
+      ...trimArgs(startSec, durationSec),
+      '-i',
+      job.inputPath,
+      '-vf',
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
+      '-frames:v',
+      '1',
+      '-y',
+      palettePattern
+    ],
+    job,
+    `Attempt ${attempt}: palette`,
+    5,
+    26,
+    durationSec
+  );
+  checkCancelled(job);
+
+  job.stage = `Attempt ${attempt}: encode`;
+  const dither = ditherFilter(job.settings.dither);
+  await runFfmpeg(
+    [
+      ...trimArgs(startSec, durationSec),
+      '-i',
+      job.inputPath,
+      '-i',
+      palettePath,
+      '-lavfi',
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
+      '-loop',
+      '0',
+      '-y',
+      outputPath
+    ],
+    job,
+    `Attempt ${attempt}: encode`,
+    26,
+    95,
+    durationSec
+  );
+}
+
+async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo }) {
+  if (!runtimeInfo.gifski.available) {
+    throw new ApiError(400, 'GIFSKI_UNAVAILABLE', 'Set GIFM_GIFSKI_PATH to use the gifski encoder backend.');
+  }
+
+  await runFfmpegToGifski(
+    [
+      ...trimArgs(startSec, durationSec),
+      '-i',
+      job.inputPath,
+      '-vf',
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo }),
+      '-pix_fmt',
+      'yuv420p',
+      '-f',
+      'yuv4mpegpipe',
+      '-'
+    ],
+    ['--quality', '90', '--output', outputPath, '-'],
+    job,
+    `Attempt ${attempt}: gifski`,
+    5,
+    95,
+    durationSec
+  );
+}
+
 function runFfmpeg(args, job, stage, progressStart, progressEnd, durationSec) {
   return new Promise((resolve, reject) => {
     if (job.cancelRequested || job.status === 'cancelled') {
@@ -1046,6 +1095,116 @@ function runFfmpeg(args, job, stage, progressStart, progressEnd, durationSec) {
   });
 }
 
+function runFfmpegToGifski(ffmpegArgs, gifskiArgs, job, stage, progressStart, progressEnd, durationSec) {
+  return new Promise((resolve, reject) => {
+    if (job.cancelRequested || job.status === 'cancelled') {
+      reject(cancelError());
+      return;
+    }
+
+    const ffmpeg = spawn(ffmpegPath, ['-hide_banner', ...ffmpegArgs], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    });
+    const gifski = spawn(runtimeInfo.gifski.path, gifskiArgs, {
+      stdio: ['pipe', 'ignore', 'pipe'],
+      windowsHide: true
+    });
+    recordCommand(job, `${stage}: ffmpeg pipe`, ['-hide_banner', ...ffmpegArgs]);
+    recordCommand(job, stage, gifskiArgs, runtimeInfo.gifski.path);
+    trackChild(job, ffmpeg);
+    trackChild(job, gifski);
+
+    let ffmpegStderr = '';
+    let gifskiStderr = '';
+    let ffmpegDone = false;
+    let gifskiDone = false;
+    let ffmpegCode = 0;
+    let gifskiCode = 0;
+    let settled = false;
+
+    ffmpeg.stdout.pipe(gifski.stdin);
+    gifski.stdin.on('error', (error) => {
+      if (error?.code !== 'EPIPE') finish(error);
+    });
+
+    ffmpeg.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      ffmpegStderr += text;
+      const line = text.trim();
+      if (line) {
+        const compact = line.split(/\r?\n/).slice(-2).join(' | ');
+        if (/frame=|time=|speed=|Output|Input/.test(compact)) {
+          log(job, compact);
+        }
+      }
+
+      const seconds = parseFfmpegTime(text);
+      if (seconds !== null && durationSec > 0) {
+        const percent = Math.min(1, seconds / durationSec);
+        job.progress = Math.max(job.progress, progressStart + percent * (progressEnd - progressStart) * 0.65);
+        job.stage = stage;
+      }
+    });
+
+    gifski.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      gifskiStderr += text;
+      const line = text.trim();
+      if (line) log(job, line.split(/\r?\n/).slice(-2).join(' | '));
+    });
+
+    ffmpeg.on('error', finish);
+    gifski.on('error', finish);
+    ffmpeg.on('close', (code) => {
+      clearTrackedChild(job, ffmpeg);
+      ffmpegCode = code ?? 0;
+      ffmpegDone = true;
+      maybeResolve();
+    });
+    gifski.on('close', (code) => {
+      clearTrackedChild(job, gifski);
+      gifskiCode = code ?? 0;
+      gifskiDone = true;
+      maybeResolve();
+    });
+
+    function maybeResolve() {
+      if (!ffmpegDone || !gifskiDone || settled) return;
+      if (job.cancelRequested || job.status === 'cancelled') {
+        finish(cancelError());
+        return;
+      }
+
+      if (ffmpegCode !== 0) {
+        finish(new Error(ffmpegStderr.trim().split(/\r?\n/).slice(-8).join('\n') || `ffmpeg exited with code ${ffmpegCode}`));
+        return;
+      }
+
+      if (gifskiCode !== 0) {
+        finish(new Error(gifskiStderr.trim().split(/\r?\n/).slice(-8).join('\n') || `gifski exited with code ${gifskiCode}`));
+        return;
+      }
+
+      settled = true;
+      job.progress = Math.max(job.progress, progressEnd);
+      resolve();
+    }
+
+    function finish(error) {
+      if (settled) return;
+      settled = true;
+      ffmpeg.stdout.destroy();
+      gifski.stdin.destroy();
+      killChild(ffmpeg);
+      killChild(gifski);
+      clearTrackedChild(job, ffmpeg);
+      clearTrackedChild(job, gifski);
+      reject(error);
+    }
+  });
+}
+
 function parseFfmpegTime(text) {
   const match = text.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
   if (!match) return null;
@@ -1076,12 +1235,12 @@ function publicJob(job) {
   };
 }
 
-function recordCommand(job, stage, args) {
+function recordCommand(job, stage, args, tool = ffmpegPath) {
   job.commands.push({
     stage,
-    tool: ffmpegPath,
+    tool,
     args,
-    command: [ffmpegPath, ...args].map(commandToken).join(' ')
+    command: [tool, ...args].map(commandToken).join(' ')
   });
   if (job.commands.length > 20) job.commands.shift();
 }
@@ -1126,9 +1285,12 @@ async function cleanupWork(jobId) {
 }
 
 async function getRuntimeInfo() {
-  const [ffmpegVersion, ffprobeVersion] = await Promise.all([
+  const gifskiConfigured = Boolean(GIFSKI_PATH);
+  const gifskiAvailable = gifskiConfigured && existsSync(GIFSKI_PATH);
+  const [ffmpegVersion, ffprobeVersion, gifskiVersion] = await Promise.all([
     toolVersion(ffmpegPath),
-    toolVersion(ffprobePath)
+    toolVersion(ffprobePath),
+    gifskiAvailable ? toolVersion(GIFSKI_PATH) : Promise.resolve(gifskiConfigured ? 'missing' : 'not configured')
   ]);
 
   return {
@@ -1146,6 +1308,12 @@ async function getRuntimeInfo() {
       available: Boolean(ffprobePath),
       path: ffprobePath,
       version: ffprobeVersion
+    },
+    gifski: {
+      available: gifskiAvailable,
+      path: GIFSKI_PATH,
+      version: gifskiVersion,
+      license: 'gifski is AGPL-licensed unless you use a commercial license; GIFM does not bundle it.'
     }
   };
 }

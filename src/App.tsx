@@ -34,6 +34,7 @@ const VERSION = '0.1.0';
 type TargetPreset = 'free' | 'nitro-basic' | 'nitro' | 'emoji' | 'avatar' | 'custom';
 type DitherMode = 'sierra2_4a' | 'bayer' | 'floyd_steinberg' | 'none';
 type PaletteMode = 'diff' | 'full' | 'single';
+type EncoderBackend = 'ffmpeg' | 'gifski';
 
 type Settings = {
   targetPreset: TargetPreset;
@@ -45,6 +46,7 @@ type Settings = {
   colors: number;
   dither: DitherMode;
   paletteMode: PaletteMode;
+  encoderBackend: EncoderBackend;
   autoFit: boolean;
   allowTrim: boolean;
 };
@@ -112,6 +114,12 @@ type HealthInfo = {
     path: string;
     version: string;
   };
+  gifski: {
+    available: boolean;
+    path: string;
+    version: string;
+    license: string;
+  };
   platform: {
     os: string;
     arch: string;
@@ -177,6 +185,7 @@ const DEFAULT_SETTINGS: Settings = {
   colors: 96,
   dither: 'sierra2_4a',
   paletteMode: 'diff',
+  encoderBackend: 'ffmpeg',
   autoFit: true,
   allowTrim: false
 };
@@ -572,6 +581,7 @@ function GifmApp() {
           onSavePreset={savePreset}
           onLoadPreset={loadPreset}
           onDeletePreset={deletePreset}
+          health={health}
         />
 
         <section className="center-stage" aria-label="Input and encoding">
@@ -681,7 +691,8 @@ function SettingsPanel({
   savedPresets,
   onSavePreset,
   onLoadPreset,
-  onDeletePreset
+  onDeletePreset,
+  health
 }: {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
@@ -689,6 +700,7 @@ function SettingsPanel({
   onSavePreset: (name: string) => void;
   onLoadPreset: (id: string) => void;
   onDeletePreset: (id: string) => void;
+  health: HealthInfo | null;
 }) {
   const [presetName, setPresetName] = useState('');
   const [selectedPresetId, setSelectedPresetId] = useState('');
@@ -820,6 +832,19 @@ function SettingsPanel({
           <option value="single">Single palette</option>
         </select>
       </label>
+
+      <label className="select-field">
+        <span>Encoder</span>
+        <select value={settings.encoderBackend} onChange={(event) => update('encoderBackend', event.target.value as EncoderBackend)}>
+          <option value="ffmpeg">FFmpeg palette</option>
+          <option value="gifski" disabled={!health?.gifski?.available}>gifski</option>
+        </select>
+      </label>
+      <p className="profile-note">
+        {settings.encoderBackend === 'gifski'
+          ? 'Uses GIFM_GIFSKI_PATH. Confirm gifski licensing before redistributing output workflows.'
+          : 'Bundled FFmpeg palette encoder.'}
+      </p>
 
       <ToggleField
         label="Auto fit"
@@ -1284,6 +1309,7 @@ function DiagnosticsPanel({
       <div className="diagnostic-grid">
         <span>FFmpeg <strong>{health?.ffmpeg.version ?? 'Unknown'}</strong></span>
         <span>FFprobe <strong>{health?.ffprobe.version ?? 'Unknown'}</strong></span>
+        <span>Encoder <strong>{encoderHealthLabel(settings, health)}</strong></span>
         <span>Platform <strong>{health ? `${health.platform.os}/${health.platform.arch}` : 'Unknown'}</strong></span>
         <span>Estimate <strong>{sourceMeta ? formatBytes(estimateOutputBytes(settings, sourceMeta)) : '-'}</strong></span>
       </div>
@@ -1334,6 +1360,12 @@ function downloadDiagnosticJson(json: string) {
   link.download = `gifm-diagnostics-${Date.now()}.json`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function encoderHealthLabel(settings: Settings, health: HealthInfo | null) {
+  if (settings.encoderBackend === 'ffmpeg') return 'FFmpeg palette';
+  if (health?.gifski?.available) return `gifski ${health.gifski.version}`;
+  return 'gifski unavailable';
 }
 
 function formatRatio(ratio: number) {
@@ -1492,6 +1524,7 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     colors: clampNumber(Number(value.colors ?? DEFAULT_SETTINGS.colors), 16, 256),
     dither: isDitherMode(value.dither) ? value.dither : DEFAULT_SETTINGS.dither,
     paletteMode: isPaletteMode(value.paletteMode) ? value.paletteMode : DEFAULT_SETTINGS.paletteMode,
+    encoderBackend: isEncoderBackend(value.encoderBackend) ? value.encoderBackend : DEFAULT_SETTINGS.encoderBackend,
     autoFit: Boolean(value.autoFit ?? DEFAULT_SETTINGS.autoFit),
     allowTrim: Boolean(value.allowTrim ?? DEFAULT_SETTINGS.allowTrim)
   };
@@ -1503,6 +1536,10 @@ function isDitherMode(value: unknown): value is DitherMode {
 
 function isPaletteMode(value: unknown): value is PaletteMode {
   return value === 'diff' || value === 'full' || value === 'single';
+}
+
+function isEncoderBackend(value: unknown): value is EncoderBackend {
+  return value === 'ffmpeg' || value === 'gifski';
 }
 
 function readStorage<T>(key: string): T | null {

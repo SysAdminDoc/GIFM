@@ -13,6 +13,7 @@
 - Added runtime diagnostics with FFmpeg/FFprobe versions, platform info, output estimate, latest FFmpeg command, and JSON export.
 - Added Windows portable packaging and smoke testing scripts.
 - Added configurable `GIFM_OUTPUT_DIR` and a browser Save as action with download fallback.
+- Added an optional user-provided gifski encoder backend with health diagnostics and licensing notes.
 - Expanded the smoke test to cover malformed multipart uploads, upload size limits, unsupported content, no-video media, and the successful GIF path.
 - Expanded the smoke test to cover queued and running job cancellation.
 

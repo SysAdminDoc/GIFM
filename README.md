@@ -20,6 +20,7 @@ GIFM v0.1.0 is a local GIF maker and compressor for Discord-ready animated GIFs.
 - Keyboard-visible focus states, reduced-motion support, ARIA progress, and an output alt-text helper.
 - Diagnostics panel with FFmpeg/FFprobe versions, platform info, source estimate, latest FFmpeg command, and copy/download JSON bundle.
 - Save-as output flow using the browser file picker when available, with download fallback.
+- Optional user-provided gifski backend for higher-quality encodes while keeping GIFM's bundled FFmpeg path as the default.
 
 ## Run Locally
 
@@ -64,6 +65,17 @@ The smoke test generates a small local MP4, uploads it to GIFM, waits for the jo
 
 Generated GIFs are stored under `data/output/`. Uploaded sources, smoke artifacts, and temporary work files stay under `data/`; the directory is ignored by Git.
 
+## Optional gifski Backend
+
+GIFM does not bundle gifski. To enable it, install a gifski binary yourself and point GIFM at it before starting the app:
+
+```powershell
+$env:GIFM_GIFSKI_PATH = "C:\Tools\gifski.exe"
+npm run dev
+```
+
+The Encoder setting then exposes `gifski` beside the default FFmpeg palette encoder. gifski is AGPL-licensed unless you use a commercial license, so verify the license before redistributing any package that includes or depends on it.
+
 ## Local Safety Controls
 
 GIFM binds to `127.0.0.1` by default and rejects non-local hosts unless `GIFM_ALLOW_REMOTE=1` is set on a trusted network. Uploads are limited to 2 GB by default and are checked before FFmpeg runs.
@@ -76,6 +88,7 @@ $env:GIFM_DATA_MAX_MB = "5120"
 $env:GIFM_DATA_MAX_AGE_HOURS = "24"
 $env:GIFM_MAX_CONCURRENT_JOBS = "1"
 $env:GIFM_OUTPUT_DIR = "D:\GIFM-output"
+$env:GIFM_GIFSKI_PATH = "C:\Tools\gifski.exe"
 npm run dev
 ```
 

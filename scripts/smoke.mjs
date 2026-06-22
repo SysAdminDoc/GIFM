@@ -66,6 +66,7 @@ const server = spawn(process.execPath, ['server/index.js'], {
     GIFM_MAX_UPLOAD_MB: '16',
     GIFM_DATA_MAX_MB: '64',
     GIFM_MAX_CONCURRENT_JOBS: '1',
+    GIFM_GIFSKI_PATH: '',
     GIFM_OUTPUT_DIR: smokeOutputDir
   },
   windowsHide: true,
@@ -140,8 +141,11 @@ async function assertMalformedMultipart() {
 async function assertHealthDiagnostics() {
   const response = await fetch(`${baseUrl}/api/health`);
   const health = await response.json();
-  if (!health.ffmpeg?.path || !health.ffmpeg?.version || !health.ffprobe?.path || !health.platform?.node) {
+  if (!health.ffmpeg?.path || !health.ffmpeg?.version || !health.ffprobe?.path || !health.platform?.node || !health.gifski?.version) {
     throw new Error(`Health diagnostics incomplete: ${JSON.stringify(health, null, 2)}`);
+  }
+  if (health.gifski.available) {
+    throw new Error(`Smoke test should not enable gifski without GIFM_GIFSKI_PATH: ${JSON.stringify(health.gifski, null, 2)}`);
   }
 }
 
@@ -284,6 +288,7 @@ function validSettings() {
     colors: 64,
     dither: 'sierra2_4a',
     paletteMode: 'diff',
+    encoderBackend: 'ffmpeg',
     autoFit: true,
     allowTrim: false
   };
@@ -300,6 +305,7 @@ function slowSettings() {
     colors: 256,
     dither: 'sierra2_4a',
     paletteMode: 'full',
+    encoderBackend: 'ffmpeg',
     autoFit: false,
     allowTrim: false
   };
