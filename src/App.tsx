@@ -28,6 +28,7 @@ import {
   useRef,
   useState
 } from 'react';
+import { probeClientMedia } from './clientPreflight';
 import { STRINGS } from './strings';
 
 const VERSION = '0.1.0';
@@ -102,6 +103,8 @@ type SourceMeta = {
   fps: number | null;
   codec: string;
   rotation: number;
+  probeSource?: 'client' | 'server';
+  frameSampled?: boolean;
 };
 
 type HealthInfo = {
@@ -289,11 +292,21 @@ function GifmApp() {
       setPreviewTime(0);
       return undefined;
     }
+    if (!objectUrl) return undefined;
 
     const controller = new AbortController();
     const probe = async () => {
       setProbeBusy(true);
       try {
+        const clientMetadata = await probeClientMedia(file, objectUrl, controller.signal);
+        if (clientMetadata) {
+          setSourceMeta(clientMetadata);
+          if (clientMetadata.durationSec && clientMetadata.durationSec > 0) {
+            setSettings((current) => clampTrimToDuration(current, clientMetadata.durationSec ?? current.durationSec));
+          }
+          return;
+        }
+
         const body = new FormData();
         body.set('media', file);
         const response = await fetch('/api/probe', { method: 'POST', body, signal: controller.signal });
@@ -301,7 +314,7 @@ function GifmApp() {
           throw new Error(await readApiError(response, `${STRINGS.errors.probeFailed} (${response.status})`));
         }
 
-        const metadata = (await response.json()) as SourceMeta;
+        const metadata = { ...(await response.json()) as SourceMeta, probeSource: 'server' as const, frameSampled: false };
         setSourceMeta(metadata);
         if (metadata.durationSec && metadata.durationSec > 0) {
           setSettings((current) => clampTrimToDuration(current, metadata.durationSec ?? current.durationSec));
@@ -317,7 +330,7 @@ function GifmApp() {
 
     void probe();
     return () => controller.abort();
-  }, [file]);
+  }, [file, objectUrl]);
 
   useEffect(() => {
     if (!job || isTerminalJob(job)) {
@@ -396,6 +409,7 @@ function GifmApp() {
     const files = Array.from(nextFiles ?? []);
     const nextFile = files[0];
     if (!nextFile) return;
+    setObjectUrl('');
     setFile(nextFile);
     setBatchFiles(files);
     setBatchJobs([]);
@@ -1054,6 +1068,9 @@ function TrimTimeline({
         <span>
           {STRINGS.trim.rotation} <strong>{sourceMeta ? STRINGS.trim.degrees(sourceMeta.rotation) : STRINGS.diagnostics.emptyValue}</strong>
         </span>
+        <span>
+          {STRINGS.trim.probe} <strong>{sourceProbeLabel(sourceMeta)}</strong>
+        </span>
       </div>
     </section>
   );
@@ -1355,6 +1372,15 @@ function encoderHealthLabel(settings: Settings, health: HealthInfo | null) {
   if (settings.encoderBackend === 'ffmpeg') return STRINGS.settings.encoderOptions.ffmpeg;
   if (health?.gifski?.available) return `gifski ${health.gifski.version}`;
   return STRINGS.settings.encoderNotes.gifskiUnavailable;
+}
+
+function sourceProbeLabel(sourceMeta: SourceMeta | null) {
+  if (!sourceMeta) return STRINGS.diagnostics.emptyValue;
+  if (sourceMeta.probeSource === 'client') {
+    return sourceMeta.frameSampled ? STRINGS.trim.clientFrame : STRINGS.trim.clientMetadata;
+  }
+  if (sourceMeta.probeSource === 'server') return STRINGS.trim.serverProbe;
+  return STRINGS.diagnostics.emptyValue;
 }
 
 function formatRatio(ratio: number) {

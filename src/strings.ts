@@ -130,6 +130,10 @@ export const STRINGS = {
     fps: 'FPS',
     codec: 'Codec',
     rotation: 'Rotation',
+    probe: 'Probe',
+    clientMetadata: 'Client metadata',
+    clientFrame: 'Client frame',
+    serverProbe: 'Server probe',
     degrees: (value: number) => `${value} deg`
   },
   preview: {

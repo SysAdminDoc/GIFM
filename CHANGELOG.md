@@ -15,6 +15,7 @@
 - Added configurable `GIFM_OUTPUT_DIR` and a browser Save as action with download fallback.
 - Added an optional user-provided gifski encoder backend with health diagnostics and licensing notes.
 - Centralized the default English UI copy in a typed string catalog and added a UI smoke test for render coverage.
+- Added browser-side source metadata/frame preflight before upload with FFprobe fallback.
 - Expanded the smoke test to cover malformed multipart uploads, upload size limits, unsupported content, no-video media, and the successful GIF path.
 - Expanded the smoke test to cover queued and running job cancellation.
 
