@@ -92,6 +92,22 @@ type SourceMeta = {
   rotation: number;
 };
 
+type SavedPreset = {
+  id: string;
+  name: string;
+  settings: Settings;
+};
+
+type RecentOutput = {
+  id: string;
+  inputName: string;
+  outputBytes: number;
+  targetBytes: number;
+  profileLabel: string;
+  downloadUrl: string;
+  completedAt: string;
+};
+
 type ApiErrorPayload = {
   error?: string | {
     code?: string;
@@ -126,6 +142,10 @@ const TARGET_PROFILES: Array<{
   { id: 'avatar', label: 'Icon/avatar 10 MB', targetMb: 10, description: 'Square GIF guidance for avatars and server icons.' },
   { id: 'custom', label: 'Custom', targetMb: 10, description: 'Use a specific byte target.' }
 ];
+const SETTINGS_KEY = 'gifm:settings:v1';
+const PRESETS_KEY = 'gifm:presets:v1';
+const RECENTS_KEY = 'gifm:recents:v1';
+const MAX_RECENT_OUTPUTS = 8;
 
 class ErrorBoundary extends Component<PropsWithChildren, { error?: Error }> {
   state: { error?: Error } = {};
@@ -166,7 +186,9 @@ export function App() {
 }
 
 function GifmApp() {
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<Settings>(() => loadSettings());
+  const [savedPresets, setSavedPresets] = useState<SavedPreset[]>(() => loadPresets());
+  const [recentOutputs, setRecentOutputs] = useState<RecentOutput[]>(() => loadRecentOutputs());
   const [file, setFile] = useState<File | null>(null);
   const [objectUrl, setObjectUrl] = useState<string>('');
   const [job, setJob] = useState<Job | null>(null);
@@ -177,6 +199,18 @@ function GifmApp() {
   const [probeBusy, setProbeBusy] = useState(false);
   const [previewTime, setPreviewTime] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    writeStorage(SETTINGS_KEY, settings);
+  }, [settings]);
+
+  useEffect(() => {
+    writeStorage(PRESETS_KEY, savedPresets);
+  }, [savedPresets]);
+
+  useEffect(() => {
+    writeStorage(RECENTS_KEY, recentOutputs);
+  }, [recentOutputs]);
 
   useEffect(() => {
     if (!file) {
@@ -245,6 +279,12 @@ function GifmApp() {
 
     return () => window.clearInterval(interval);
   }, [job]);
+
+  useEffect(() => {
+    if (job?.status !== 'complete' || !job.downloadUrl || !job.outputBytes) return;
+    const recent = recentFromJob(job);
+    setRecentOutputs((current) => [recent, ...current.filter((item) => item.id !== recent.id)].slice(0, MAX_RECENT_OUTPUTS));
+  }, [job?.id, job?.status, job?.downloadUrl, job?.outputBytes]);
 
   const targetBytes = useMemo(() => settings.targetMb * 1024 * 1024, [settings.targetMb]);
   const originalRatio = useMemo(() => {
@@ -328,6 +368,36 @@ function GifmApp() {
     setNotice('Job cancelled');
   };
 
+  const savePreset = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    setSavedPresets((current) => {
+      const existing = current.find((preset) => preset.name.toLowerCase() === trimmed.toLowerCase());
+      const nextPreset = { id: existing?.id ?? crypto.randomUUID(), name: trimmed, settings };
+      return [nextPreset, ...current.filter((preset) => preset.id !== nextPreset.id)].slice(0, 20);
+    });
+    setNotice(`Preset saved: ${trimmed}`);
+  };
+
+  const loadPreset = (id: string) => {
+    const preset = savedPresets.find((item) => item.id === id);
+    if (!preset) return;
+    setSettings(normalizeSettings(preset.settings));
+    setNotice(`Preset loaded: ${preset.name}`);
+  };
+
+  const deletePreset = (id: string) => {
+    const preset = savedPresets.find((item) => item.id === id);
+    setSavedPresets((current) => current.filter((item) => item.id !== id));
+    if (preset) setNotice(`Preset deleted: ${preset.name}`);
+  };
+
+  const revealRecentOutput = async (id: string) => {
+    const response = await fetch(`/api/jobs/${id}/reveal`, { method: 'POST' });
+    setNotice(response.ok ? 'Output location opened' : await readApiError(response, 'Recent output is no longer available'));
+  };
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -345,7 +415,14 @@ function GifmApp() {
       </header>
 
       <form className="workspace" onSubmit={startEncoding}>
-        <SettingsPanel settings={settings} setSettings={setSettings} />
+        <SettingsPanel
+          settings={settings}
+          setSettings={setSettings}
+          savedPresets={savedPresets}
+          onSavePreset={savePreset}
+          onLoadPreset={loadPreset}
+          onDeletePreset={deletePreset}
+        />
 
         <section className="center-stage" aria-label="Input and encoding">
           <div
@@ -433,6 +510,9 @@ function GifmApp() {
           outputFit={outputFit}
           onReveal={revealOutput}
           onPreviewTime={setPreviewTime}
+          recentOutputs={recentOutputs}
+          onRevealRecent={revealRecentOutput}
+          onClearRecent={() => setRecentOutputs([])}
         />
       </form>
     </main>
@@ -441,11 +521,21 @@ function GifmApp() {
 
 function SettingsPanel({
   settings,
-  setSettings
+  setSettings,
+  savedPresets,
+  onSavePreset,
+  onLoadPreset,
+  onDeletePreset
 }: {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
+  savedPresets: SavedPreset[];
+  onSavePreset: (name: string) => void;
+  onLoadPreset: (id: string) => void;
+  onDeletePreset: (id: string) => void;
 }) {
+  const [presetName, setPresetName] = useState('');
+  const [selectedPresetId, setSelectedPresetId] = useState('');
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     setSettings((current) => ({ ...current, [key]: value }));
   };
@@ -496,6 +586,54 @@ function SettingsPanel({
         }}
       />
       <p className="profile-note">{activeProfile.description}</p>
+
+      <div className="preset-manager">
+        <label className="select-field">
+          <span>Saved preset</span>
+          <select value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.currentTarget.value)}>
+            <option value="">Choose preset</option>
+            {savedPresets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="preset-actions">
+          <input
+            type="text"
+            value={presetName}
+            maxLength={32}
+            placeholder="Preset name"
+            aria-label="Preset name"
+            onChange={(event) => setPresetName(event.currentTarget.value)}
+          />
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              onSavePreset(presetName);
+              setPresetName('');
+            }}
+          >
+            Save
+          </button>
+          <button type="button" className="secondary-button" disabled={!selectedPresetId} onClick={() => onLoadPreset(selectedPresetId)}>
+            Load
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={!selectedPresetId}
+            onClick={() => {
+              onDeletePreset(selectedPresetId);
+              setSelectedPresetId('');
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
 
       <div className="rule" />
 
@@ -698,7 +836,10 @@ function PreviewPanel({
   job,
   outputFit,
   onReveal,
-  onPreviewTime
+  onPreviewTime,
+  recentOutputs,
+  onRevealRecent,
+  onClearRecent
 }: {
   file: File | null;
   objectUrl: string;
@@ -706,6 +847,9 @@ function PreviewPanel({
   outputFit: boolean;
   onReveal: () => void;
   onPreviewTime: (seconds: number) => void;
+  recentOutputs: RecentOutput[];
+  onRevealRecent: (id: string) => void;
+  onClearRecent: () => void;
 }) {
   const isGif = file?.type === 'image/gif' || file?.name.toLowerCase().endsWith('.gif');
 
@@ -785,6 +929,36 @@ function PreviewPanel({
             </div>
           ))}
           {!job?.attempts.length && <p className="muted-text">No attempts yet.</p>}
+        </div>
+      </section>
+
+      <section className="recent-box" aria-label="Recent outputs">
+        <div className="recent-heading">
+          <h3>Recent outputs</h3>
+          <button type="button" className="text-button" disabled={!recentOutputs.length} onClick={onClearRecent}>
+            Clear
+          </button>
+        </div>
+        <div className="recent-list">
+          {recentOutputs.map((item) => (
+            <div key={item.id} className="recent-row">
+              <div>
+                <strong>{item.inputName}</strong>
+                <span>
+                  {formatBytes(item.outputBytes)} / {formatBytes(item.targetBytes)} - {item.profileLabel}
+                </span>
+              </div>
+              <div>
+                <a className="secondary-button" href={item.downloadUrl} download>
+                  Download
+                </a>
+                <button type="button" className="secondary-button" onClick={() => onRevealRecent(item.id)}>
+                  Open
+                </button>
+              </div>
+            </div>
+          ))}
+          {!recentOutputs.length && <p className="muted-text">No recent outputs.</p>}
         </div>
       </section>
     </aside>
@@ -894,6 +1068,82 @@ function queueLabel(job: Job | null) {
   return 'Done';
 }
 
+function recentFromJob(job: Job): RecentOutput {
+  return {
+    id: job.id,
+    inputName: job.inputName,
+    outputBytes: job.outputBytes ?? 0,
+    targetBytes: job.targetBytes,
+    profileLabel: profileFor(job.settings.targetPreset).label,
+    downloadUrl: job.downloadUrl ?? '',
+    completedAt: job.completedAt ?? new Date().toISOString()
+  };
+}
+
+function loadSettings() {
+  return normalizeSettings(readStorage<Partial<Settings>>(SETTINGS_KEY) ?? DEFAULT_SETTINGS);
+}
+
+function loadPresets() {
+  return (readStorage<SavedPreset[]>(PRESETS_KEY) ?? [])
+    .filter((preset) => preset?.id && preset?.name && preset?.settings)
+    .map((preset) => ({ ...preset, settings: normalizeSettings(preset.settings) }))
+    .slice(0, 20);
+}
+
+function loadRecentOutputs() {
+  return (readStorage<RecentOutput[]>(RECENTS_KEY) ?? [])
+    .filter((item) => item?.id && item?.downloadUrl && item?.inputName)
+    .slice(0, MAX_RECENT_OUTPUTS);
+}
+
+function normalizeSettings(value: Partial<Settings>): Settings {
+  const preset = TARGET_PROFILES.some((profile) => profile.id === value.targetPreset) ? value.targetPreset as TargetPreset : DEFAULT_SETTINGS.targetPreset;
+  const profile = profileFor(preset);
+  const targetMb = preset === 'custom'
+    ? clampNumber(Number(value.targetMb ?? DEFAULT_SETTINGS.targetMb), 0.05, 500)
+    : profile.targetMb;
+
+  return {
+    targetPreset: preset,
+    targetMb,
+    width: evenNumber(clampNumber(Number(value.width ?? DEFAULT_SETTINGS.width), 120, 1280)),
+    fps: clampNumber(Number(value.fps ?? DEFAULT_SETTINGS.fps), 5, 30),
+    startSec: clampNumber(Number(value.startSec ?? DEFAULT_SETTINGS.startSec), 0, 7200),
+    durationSec: clampNumber(Number(value.durationSec ?? DEFAULT_SETTINGS.durationSec), 0.5, 60),
+    colors: clampNumber(Number(value.colors ?? DEFAULT_SETTINGS.colors), 16, 256),
+    dither: isDitherMode(value.dither) ? value.dither : DEFAULT_SETTINGS.dither,
+    paletteMode: isPaletteMode(value.paletteMode) ? value.paletteMode : DEFAULT_SETTINGS.paletteMode,
+    autoFit: Boolean(value.autoFit ?? DEFAULT_SETTINGS.autoFit),
+    allowTrim: Boolean(value.allowTrim ?? DEFAULT_SETTINGS.allowTrim)
+  };
+}
+
+function isDitherMode(value: unknown): value is DitherMode {
+  return value === 'sierra2_4a' || value === 'bayer' || value === 'floyd_steinberg' || value === 'none';
+}
+
+function isPaletteMode(value: unknown): value is PaletteMode {
+  return value === 'diff' || value === 'full' || value === 'single';
+}
+
+function readStorage<T>(key: string): T | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: unknown) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Local storage can be disabled; the app still works without persistence.
+  }
+}
+
 function clampTrimToDuration(settings: Settings, durationSec: number): Settings {
   const startSec = clampNumber(settings.startSec, 0, Math.max(0, durationSec - 0.5));
   const duration = clampNumber(settings.durationSec, 0.5, Math.max(0.5, durationSec - startSec));
@@ -907,6 +1157,10 @@ function clampTrimToDuration(settings: Settings, durationSec: number): Settings 
 function clampNumber(value: number, min: number, max: number) {
   const number = Number.isFinite(value) ? value : min;
   return Math.min(max, Math.max(min, number));
+}
+
+function evenNumber(value: number) {
+  return Math.max(2, Math.round(value / 2) * 2);
 }
 
 function formatSeconds(seconds: number) {

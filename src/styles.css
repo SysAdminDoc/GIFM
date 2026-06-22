@@ -42,7 +42,8 @@ select {
 }
 
 button,
-a.primary-button {
+a.primary-button,
+a.secondary-button {
   border: 0;
   cursor: pointer;
   text-decoration: none;
@@ -253,6 +254,34 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-soft);
+}
+
+.preset-manager {
+  display: grid;
+  gap: 8px;
+}
+
+.preset-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 6px;
+}
+
+.preset-actions input {
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: 0;
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.preset-actions .secondary-button {
+  min-height: 38px;
+  padding: 0 9px;
+  font-size: 12px;
 }
 
 .rule {
@@ -639,13 +668,19 @@ button:disabled {
   overflow: hidden;
 }
 
-.attempt-box h3 {
+.attempt-box h3,
+.recent-heading h3 {
   margin: 0;
   padding: 12px;
+  font-size: 14px;
+}
+
+.attempt-box h3 {
   border-bottom: 1px solid var(--border);
 }
 
-.attempt-list {
+.attempt-list,
+.recent-list {
   display: grid;
   gap: 1px;
   max-height: 230px;
@@ -669,6 +704,64 @@ button:disabled {
 
 .attempt-rejected {
   color: var(--amber);
+}
+
+.recent-box {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.recent-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.text-button {
+  margin-right: 10px;
+  background: transparent;
+  color: var(--muted-strong);
+  font-weight: 800;
+}
+
+.recent-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--surface-soft);
+}
+
+.recent-row > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.recent-row strong,
+.recent-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.recent-row > div:last-child {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.recent-row .secondary-button {
+  min-height: 34px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 .muted-text {
@@ -746,6 +839,14 @@ button:disabled {
 
   .attempt-row {
     grid-template-columns: 34px 1fr 1fr;
+  }
+
+  .preset-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .preset-actions input {
+    grid-column: 1 / -1;
   }
 
   .metadata-grid {
