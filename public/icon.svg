@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">GIFM icon</title>
+  <desc id="desc">A compact frame stack forming a GIF maker mark.</desc>
+  <rect x="12" y="16" width="104" height="96" rx="8" fill="#121820" stroke="#4ecdc4" stroke-width="6"/>
+  <rect x="28" y="32" width="72" height="44" rx="4" fill="#0b0f14" stroke="#26313d" stroke-width="5"/>
+  <path d="M36 88h56" stroke="#b7e35f" stroke-width="8" stroke-linecap="square"/>
+  <path d="M44 100h40" stroke="#ffbd5b" stroke-width="6" stroke-linecap="square"/>
+  <path d="M54 43v22l23-11z" fill="#4ecdc4"/>
+</svg>

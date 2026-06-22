@@ -1,0 +1,17 @@
+{
+  "name": "GIFM",
+  "short_name": "GIFM",
+  "description": "GIFM v0.1.0 converts local videos and existing GIFs into Discord-ready animated GIFs.",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0b0f14",
+  "background_color": "#0b0f14",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
