@@ -73,10 +73,18 @@ type Job = {
   startedAt: string;
   completedAt?: string;
   error?: string;
+  errorCode?: string;
   warnings: string[];
   logs: string[];
   attempts: Attempt[];
   settings: Settings;
+};
+
+type ApiErrorPayload = {
+  error?: string | {
+    code?: string;
+    message?: string;
+  };
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -222,8 +230,7 @@ function GifmApp() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(payload?.error ?? `Encoding failed to start (${response.status})`);
+        throw new Error(await readApiError(response, `Encoding failed to start (${response.status})`));
       }
 
       const nextJob = (await response.json()) as Job;
@@ -238,7 +245,7 @@ function GifmApp() {
   const revealOutput = async () => {
     if (!job) return;
     const response = await fetch(`/api/jobs/${job.id}/reveal`, { method: 'POST' });
-    setNotice(response.ok ? 'Output location opened' : 'Could not open output location');
+    setNotice(response.ok ? 'Output location opened' : await readApiError(response, 'Could not open output location'));
   };
 
   return (
@@ -571,7 +578,11 @@ function PreviewPanel({
             </div>
           </>
         ) : job?.status === 'error' ? (
-          <p className="error-text">{job.error}</p>
+          <>
+            <p className="error-text">{job.error}</p>
+            {job.errorCode ? <p className="muted-text">Error code: {job.errorCode}</p> : null}
+            <p className="muted-text">Adjust settings and press Start encoding again, or reset the selection.</p>
+          </>
         ) : (
           <p className="muted-text">Finished GIFs appear here with exact byte size and download actions.</p>
         )}
@@ -655,4 +666,10 @@ function formatRatio(ratio: number) {
   if (!Number.isFinite(ratio) || ratio <= 0) return '-';
   if (ratio < 0.1) return '<0.1x';
   return `${ratio.toFixed(1)}x`;
+}
+
+async function readApiError(response: Response, fallback: string) {
+  const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
+  if (typeof payload?.error === 'string') return payload.error;
+  return payload?.error?.message ?? fallback;
 }

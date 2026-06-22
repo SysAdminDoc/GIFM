@@ -46,3 +46,18 @@ The smoke test generates a small local MP4, uploads it to GIFM, waits for the jo
 ## Output Location
 
 Generated GIFs are stored under `data/output/`. Uploaded sources, smoke artifacts, and temporary work files stay under `data/`; the directory is ignored by Git.
+
+## Local Safety Controls
+
+GIFM binds to `127.0.0.1` by default and rejects non-local hosts unless `GIFM_ALLOW_REMOTE=1` is set on a trusted network. Uploads are limited to 2 GB by default and are checked before FFmpeg runs.
+
+Optional environment controls:
+
+```powershell
+$env:GIFM_MAX_UPLOAD_MB = "2048"
+$env:GIFM_DATA_MAX_MB = "5120"
+$env:GIFM_DATA_MAX_AGE_HOURS = "24"
+npm run dev
+```
+
+Completed outputs, uploads, and temporary work files are pruned by age and total size so abandoned runs do not keep filling disk.

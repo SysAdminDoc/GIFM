@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const smokeDir = path.join(rootDir, 'data', 'smoke');
 const samplePath = path.join(smokeDir, 'sample.mp4');
+const audioOnlyPath = path.join(smokeDir, 'audio-only.mp4');
 const port = 4184;
 const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -25,10 +26,24 @@ await run(ffmpegPath, [
   '-y',
   samplePath
 ]);
+await run(ffmpegPath, [
+  '-hide_banner',
+  '-f',
+  'lavfi',
+  '-i',
+  'sine=frequency=880:sample_rate=44100',
+  '-t',
+  '1',
+  '-vn',
+  '-c:a',
+  'aac',
+  '-y',
+  audioOnlyPath
+]);
 
 const server = spawn(process.execPath, ['server/index.js'], {
   cwd: rootDir,
-  env: { ...process.env, GIFM_PORT: String(port) },
+  env: { ...process.env, GIFM_PORT: String(port), GIFM_MAX_UPLOAD_MB: '1', GIFM_DATA_MAX_MB: '32' },
   windowsHide: true,
   stdio: ['ignore', 'pipe', 'pipe']
 });
@@ -43,25 +58,15 @@ server.stderr.on('data', (chunk) => {
 
 try {
   await waitForHealth();
+  await assertMalformedMultipart();
+  await assertTooLargeUpload();
+  await assertUnsupportedContent();
+  await assertNoVideoJob();
+
   const fileBytes = await fs.readFile(samplePath);
   const form = new FormData();
   form.set('media', new File([fileBytes], 'sample.mp4', { type: 'video/mp4' }));
-  form.set(
-    'settings',
-    JSON.stringify({
-      targetPreset: 'custom',
-      targetMb: 1,
-      width: 240,
-      fps: 10,
-      startSec: 0,
-      durationSec: 1.5,
-      colors: 64,
-      dither: 'sierra2_4a',
-      paletteMode: 'diff',
-      autoFit: true,
-      allowTrim: false
-    })
-  );
+  form.set('settings', JSON.stringify(validSettings()));
 
   const started = await fetch(`${baseUrl}/api/jobs`, { method: 'POST', body: form });
   if (!started.ok) {
@@ -69,12 +74,7 @@ try {
   }
 
   let job = await started.json();
-  const deadline = Date.now() + 45000;
-  while (!['complete', 'error'].includes(job.status) && Date.now() < deadline) {
-    await delay(800);
-    const response = await fetch(`${baseUrl}/api/jobs/${job.id}`);
-    job = await response.json();
-  }
+  job = await waitForJob(job.id, 45000);
 
   if (job.status !== 'complete') {
     throw new Error(`Smoke job did not complete: ${JSON.stringify(job, null, 2)}\n${serverLog}`);
@@ -92,6 +92,85 @@ try {
   console.log(`Smoke passed: ${gifBytes.length} bytes, ${job.attempts.length} attempt(s).`);
 } finally {
   server.kill();
+}
+
+async function assertMalformedMultipart() {
+  const response = await fetch(`${baseUrl}/api/jobs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'multipart/form-data' },
+    body: 'broken'
+  });
+  await expectApiError(response, 400, 'MALFORMED_MULTIPART');
+}
+
+async function assertTooLargeUpload() {
+  const form = new FormData();
+  form.set('media', new File([Buffer.alloc(2 * 1024 * 1024)], 'large.mp4', { type: 'video/mp4' }));
+  form.set('settings', JSON.stringify(validSettings()));
+  const response = await fetch(`${baseUrl}/api/jobs`, { method: 'POST', body: form });
+  await expectApiError(response, 413, 'UPLOAD_TOO_LARGE');
+}
+
+async function assertUnsupportedContent() {
+  const form = new FormData();
+  form.set('media', new File([Buffer.from('not a video')], 'fake.mp4', { type: 'video/mp4' }));
+  form.set('settings', JSON.stringify(validSettings()));
+  const response = await fetch(`${baseUrl}/api/jobs`, { method: 'POST', body: form });
+  await expectApiError(response, 415, 'UNSUPPORTED_MEDIA_CONTENT');
+}
+
+async function assertNoVideoJob() {
+  const audioBytes = await fs.readFile(audioOnlyPath);
+  const form = new FormData();
+  form.set('media', new File([audioBytes], 'audio-only.mp4', { type: 'video/mp4' }));
+  form.set('settings', JSON.stringify(validSettings()));
+
+  const response = await fetch(`${baseUrl}/api/jobs`, { method: 'POST', body: form });
+  if (!response.ok) {
+    throw new Error(`No-video job failed to start unexpectedly: ${response.status} ${await response.text()}`);
+  }
+
+  const started = await response.json();
+  const job = await waitForJob(started.id, 20000);
+  if (job.status !== 'error' || job.errorCode !== 'NO_VIDEO_STREAM') {
+    throw new Error(`Expected no-video job error, got ${JSON.stringify(job, null, 2)}`);
+  }
+}
+
+async function expectApiError(response, status, code) {
+  const payload = await response.json().catch(() => null);
+  if (response.status !== status || payload?.error?.code !== code) {
+    throw new Error(`Expected ${status}/${code}, got ${response.status} ${JSON.stringify(payload)}`);
+  }
+}
+
+async function waitForJob(id, timeoutMs) {
+  let job = null;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await delay(800);
+    const response = await fetch(`${baseUrl}/api/jobs/${id}`);
+    job = await response.json();
+    if (['complete', 'error'].includes(job.status)) return job;
+  }
+
+  throw new Error(`Job did not finish before timeout: ${JSON.stringify(job, null, 2)}\n${serverLog}`);
+}
+
+function validSettings() {
+  return {
+    targetPreset: 'custom',
+    targetMb: 1,
+    width: 240,
+    fps: 10,
+    startSec: 0,
+    durationSec: 1.5,
+    colors: 64,
+    dither: 'sierra2_4a',
+    paletteMode: 'diff',
+    autoFit: true,
+    allowTrim: false
+  };
 }
 
 function waitForHealth() {

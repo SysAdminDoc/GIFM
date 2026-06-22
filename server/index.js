@@ -12,6 +12,10 @@ import { fileURLToPath } from 'node:url';
 const VERSION = '0.1.0';
 const PORT = Number(process.env.GIFM_PORT ?? process.env.PORT ?? 4174);
 const HOST = process.env.GIFM_HOST ?? '127.0.0.1';
+const ALLOW_REMOTE = process.env.GIFM_ALLOW_REMOTE === '1';
+const MAX_UPLOAD_BYTES = parseByteLimit(process.env.GIFM_MAX_UPLOAD_BYTES, process.env.GIFM_MAX_UPLOAD_MB, 2 * 1024 * 1024 * 1024);
+const DATA_MAX_BYTES = parseByteLimit(process.env.GIFM_DATA_MAX_BYTES, process.env.GIFM_DATA_MAX_MB, 5 * 1024 * 1024 * 1024);
+const DATA_MAX_AGE_MS = parseHours(process.env.GIFM_DATA_MAX_AGE_HOURS, 24) * 60 * 60 * 1000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const dataDir = path.join(rootDir, 'data');
@@ -21,12 +25,16 @@ const workDir = path.join(dataDir, 'work');
 const distDir = path.join(rootDir, 'dist');
 const ffprobePath = ffprobeStatic.path;
 const jobs = new Map();
+const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
 
 await Promise.all([uploadDir, outputDir, workDir].map((dir) => fs.mkdir(dir, { recursive: true })));
+assertLocalBinding();
 
 if (!ffmpegPath || !ffprobePath) {
   throw new Error('Bundled FFmpeg or FFprobe binary was not found.');
 }
+
+await enforceDataRetention();
 
 const storage = multer.diskStorage({
   destination: (_request, _file, callback) => callback(null, uploadDir),
@@ -39,71 +47,104 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 2 * 1024 * 1024 * 1024
+    fileSize: MAX_UPLOAD_BYTES,
+    files: 1,
+    fields: 1,
+    parts: 4
+  },
+  fileFilter: (_request, file, callback) => {
+    if (isAllowedUploadDescriptor(file)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Upload a GIF or common video file such as MP4, MOV, WebM, MKV, or AVI.'));
   }
 });
+const uploadMedia = upload.single('media');
 
 const app = express();
 app.disable('x-powered-by');
+app.use(securityHeaders);
 app.use(express.json({ limit: '128kb' }));
 
 app.get('/api/health', (_request, response) => {
-  response.json({ ok: true, version: VERSION, ffmpeg: Boolean(ffmpegPath), ffprobe: Boolean(ffprobePath) });
+  response.json({
+    ok: true,
+    version: VERSION,
+    ffmpeg: Boolean(ffmpegPath),
+    ffprobe: Boolean(ffprobePath),
+    host: HOST,
+    remoteAllowed: ALLOW_REMOTE,
+    maxUploadBytes: MAX_UPLOAD_BYTES,
+    dataMaxBytes: DATA_MAX_BYTES,
+    dataMaxAgeHours: Math.round(DATA_MAX_AGE_MS / 60 / 60 / 1000)
+  });
 });
 
-app.post('/api/jobs', upload.single('media'), async (request, response) => {
-  if (!request.file) {
-    response.status(400).json({ error: 'No media file was uploaded.' });
-    return;
-  }
-
-  let settings;
+app.post('/api/jobs', runUpload, async (request, response, next) => {
   try {
-    settings = parseSettings(request.body.settings);
+    if (!request.file) {
+      sendApiError(response, new ApiError(400, 'NO_MEDIA_FILE', 'No media file was uploaded.'));
+      return;
+    }
+
+    let settings;
+    try {
+      settings = parseSettings(request.body.settings);
+    } catch (error) {
+      await removeFile(request.file.path);
+      sendApiError(response, normalizeError(error));
+      return;
+    }
+
+    const mediaCheck = await inspectUploadedMedia(request.file.path);
+    if (!mediaCheck.ok) {
+      await removeFile(request.file.path);
+      sendApiError(response, new ApiError(415, 'UNSUPPORTED_MEDIA_CONTENT', 'The uploaded file does not look like a supported GIF or video container.'));
+      return;
+    }
+
+    await enforceDataRetention(new Set([request.file.path]));
+
+    const id = randomUUID();
+    const job = {
+      id,
+      status: 'queued',
+      progress: 0,
+      stage: 'Queued',
+      inputPath: request.file.path,
+      inputName: request.file.originalname,
+      inputSize: request.file.size,
+      sourceKind: mediaCheck.kind,
+      outputPath: '',
+      outputBytes: undefined,
+      targetBytes: Math.round(settings.targetMb * 1024 * 1024),
+      downloadUrl: undefined,
+      startedAt: new Date().toISOString(),
+      completedAt: undefined,
+      error: undefined,
+      errorCode: undefined,
+      warnings: [],
+      logs: [],
+      attempts: [],
+      settings
+    };
+
+    jobs.set(id, job);
+    response.status(202).json(publicJob(job));
+
+    processJob(job).catch((error) => failJob(job, error));
   } catch (error) {
-    await fs.rm(request.file.path, { force: true });
-    response.status(400).json({ error: error instanceof Error ? error.message : 'Invalid settings.' });
-    return;
+    if (request.file?.path) await removeFile(request.file.path);
+    next(error);
   }
-
-  const id = randomUUID();
-  const job = {
-    id,
-    status: 'queued',
-    progress: 0,
-    stage: 'Queued',
-    inputPath: request.file.path,
-    inputName: request.file.originalname,
-    inputSize: request.file.size,
-    outputPath: '',
-    outputBytes: undefined,
-    targetBytes: Math.round(settings.targetMb * 1024 * 1024),
-    downloadUrl: undefined,
-    startedAt: new Date().toISOString(),
-    completedAt: undefined,
-    error: undefined,
-    warnings: [],
-    logs: [],
-    attempts: [],
-    settings
-  };
-
-  jobs.set(id, job);
-  response.status(202).json(publicJob(job));
-
-  processJob(job).catch((error) => {
-    job.status = 'error';
-    job.stage = 'Failed';
-    job.error = error instanceof Error ? error.message : String(error);
-    job.completedAt = new Date().toISOString();
-    log(job, `ERROR: ${job.error}`);
-  });
 });
 
 app.get('/api/jobs/:id', (request, response) => {
   const job = jobs.get(request.params.id);
   if (!job) {
-    response.status(404).json({ error: 'Job not found.' });
+    sendApiError(response, new ApiError(404, 'JOB_NOT_FOUND', 'Job not found.'));
     return;
   }
   response.json(publicJob(job));
@@ -112,7 +153,7 @@ app.get('/api/jobs/:id', (request, response) => {
 app.get('/api/jobs/:id/download', (request, response) => {
   const job = jobs.get(request.params.id);
   if (!job || job.status !== 'complete' || !job.outputPath || !existsSync(job.outputPath)) {
-    response.status(404).json({ error: 'Output GIF not found.' });
+    sendApiError(response, new ApiError(404, 'OUTPUT_NOT_FOUND', 'Output GIF not found.'));
     return;
   }
 
@@ -124,7 +165,7 @@ app.get('/api/jobs/:id/download', (request, response) => {
 app.post('/api/jobs/:id/reveal', (request, response) => {
   const job = jobs.get(request.params.id);
   if (!job || job.status !== 'complete' || !job.outputPath) {
-    response.status(404).json({ error: 'Output GIF not found.' });
+    sendApiError(response, new ApiError(404, 'OUTPUT_NOT_FOUND', 'Output GIF not found.'));
     return;
   }
 
@@ -143,6 +184,10 @@ if (existsSync(distDir)) {
   });
 }
 
+app.use((error, _request, response, _next) => {
+  sendApiError(response, normalizeError(error));
+});
+
 app.listen(PORT, HOST, () => {
   console.log(`GIFM v${VERSION} running at http://${HOST}:${PORT}`);
 });
@@ -158,7 +203,7 @@ async function processJob(job) {
   const videoStream = metadata.streams?.find((stream) => stream.codec_type === 'video');
 
   if (!videoStream) {
-    throw new Error('No video stream was found in the selected file.');
+    throw new ApiError(422, 'NO_VIDEO_STREAM', 'No video stream was found in the selected file.');
   }
 
   const startSec = Math.max(0, job.settings.startSec);
@@ -243,6 +288,8 @@ async function processJob(job) {
       job.status = 'complete';
       job.completedAt = new Date().toISOString();
       await cleanupWork(job.id);
+      await cleanupInput(job);
+      await enforceDataRetention(new Set([job.outputPath]));
       log(job, `Complete: ${formatBytes(stat.size)} fits ${formatBytes(job.targetBytes)} target`);
       return;
     }
@@ -282,11 +329,244 @@ async function processJob(job) {
   job.completedAt = new Date().toISOString();
   job.warnings.push(`Final GIF is ${formatBytes(finalStat.size)}, which is above the ${formatBytes(job.targetBytes)} target.`);
   await cleanupWork(job.id);
+  await cleanupInput(job);
+  await enforceDataRetention(new Set([job.outputPath]));
   log(job, `Complete with warning: ${formatBytes(finalStat.size)} exceeds target`);
 }
 
+class ApiError extends Error {
+  constructor(status, code, message, details) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+function runUpload(request, response, next) {
+  uploadMedia(request, response, (error) => {
+    if (error) {
+      next(error);
+      return;
+    }
+    next();
+  });
+}
+
+function securityHeaders(_request, response, next) {
+  response.setHeader('X-Content-Type-Options', 'nosniff');
+  response.setHeader('Referrer-Policy', 'no-referrer');
+  response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  next();
+}
+
+function sendApiError(response, error) {
+  if (response.headersSent) return;
+  response.status(error.status).json({
+    error: {
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {})
+    }
+  });
+}
+
+function normalizeError(error) {
+  if (error instanceof ApiError) return error;
+
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return new ApiError(413, 'UPLOAD_TOO_LARGE', `Upload exceeds the ${formatBytes(MAX_UPLOAD_BYTES)} limit.`);
+    }
+
+    return new ApiError(400, error.code, error.message);
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  if (/multipart/i.test(message) || /boundary/i.test(message)) {
+    return new ApiError(400, 'MALFORMED_MULTIPART', 'The upload request was not valid multipart form data.');
+  }
+
+  if (error instanceof SyntaxError && /JSON/i.test(message)) {
+    return new ApiError(400, 'INVALID_JSON', 'Request JSON is invalid.');
+  }
+
+  return new ApiError(500, 'INTERNAL_ERROR', message || 'Unexpected server error.');
+}
+
+function isAllowedUploadDescriptor(file) {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const mime = String(file.mimetype || '').toLowerCase();
+  return supportedExtensions.has(ext) || mime === 'image/gif' || mime.startsWith('video/');
+}
+
+async function inspectUploadedMedia(filePath) {
+  const handle = await fs.open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(64);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const header = buffer.subarray(0, bytesRead);
+    const ascii = header.toString('ascii');
+
+    if (ascii.startsWith('GIF87a') || ascii.startsWith('GIF89a')) {
+      return { ok: true, kind: 'gif' };
+    }
+
+    if (header.length >= 12 && ascii.slice(4, 8) === 'ftyp') {
+      return { ok: true, kind: 'iso-bmff' };
+    }
+
+    if (header.length >= 12 && ascii.startsWith('RIFF') && ascii.slice(8, 12) === 'AVI ') {
+      return { ok: true, kind: 'avi' };
+    }
+
+    if (header.length >= 4 && header[0] === 0x1a && header[1] === 0x45 && header[2] === 0xdf && header[3] === 0xa3) {
+      return { ok: true, kind: 'matroska' };
+    }
+
+    return { ok: false, kind: 'unknown' };
+  } finally {
+    await handle.close();
+  }
+}
+
+function assertLocalBinding() {
+  if (isLoopbackHost(HOST)) return;
+
+  const message = `Refusing to bind GIFM to ${HOST}. Use GIFM_ALLOW_REMOTE=1 only on a trusted network.`;
+  if (!ALLOW_REMOTE) {
+    throw new Error(message);
+  }
+
+  console.warn(`WARNING: ${message}`);
+}
+
+function isLoopbackHost(host) {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+}
+
+async function failJob(job, error) {
+  const apiError = normalizeError(error);
+  job.status = 'error';
+  job.stage = 'Failed';
+  job.error = apiError.message;
+  job.errorCode = apiError.code;
+  job.completedAt = new Date().toISOString();
+  log(job, `ERROR ${apiError.code}: ${apiError.message}`);
+  await cleanupWork(job.id);
+  await cleanupInput(job);
+  await enforceDataRetention();
+}
+
+async function cleanupInput(job) {
+  if (!job.inputPath) return;
+  await removeFile(job.inputPath);
+  job.inputPath = '';
+}
+
+async function removeFile(filePath) {
+  if (!filePath) return;
+  await fs.rm(filePath, { force: true });
+}
+
+async function enforceDataRetention(extraProtected = new Set()) {
+  pruneOldJobs();
+  const protectedPaths = protectedJobPaths(extraProtected);
+  await Promise.all([
+    enforceDirectoryPolicy(uploadDir, protectedPaths),
+    enforceDirectoryPolicy(outputDir, protectedPaths),
+    enforceDirectoryPolicy(workDir, protectedPaths)
+  ]);
+}
+
+function pruneOldJobs() {
+  const now = Date.now();
+  for (const [id, job] of jobs) {
+    const completedAt = job.completedAt ? Date.parse(job.completedAt) : null;
+    if (completedAt && now - completedAt > DATA_MAX_AGE_MS) {
+      jobs.delete(id);
+    }
+  }
+}
+
+function protectedJobPaths(extraProtected) {
+  const paths = new Set([...extraProtected].filter(Boolean).map((item) => path.resolve(item)));
+  for (const job of jobs.values()) {
+    if (job.status === 'queued' || job.status === 'running') {
+      if (job.inputPath) paths.add(path.resolve(job.inputPath));
+      if (job.outputPath) paths.add(path.resolve(job.outputPath));
+    } else if (job.status === 'complete' && job.outputPath) {
+      paths.add(path.resolve(job.outputPath));
+    }
+  }
+  return paths;
+}
+
+async function enforceDirectoryPolicy(dir, protectedPaths) {
+  const entries = await listManagedEntries(dir, protectedPaths);
+  const now = Date.now();
+  const keptEntries = [];
+
+  for (const entry of entries) {
+    if (!entry.protected && now - entry.mtimeMs > DATA_MAX_AGE_MS) {
+      await fs.rm(entry.path, { recursive: true, force: true });
+      continue;
+    }
+    keptEntries.push(entry);
+  }
+
+  let totalBytes = keptEntries.reduce((sum, entry) => sum + entry.size, 0);
+  for (const entry of keptEntries.sort((a, b) => a.mtimeMs - b.mtimeMs)) {
+    if (totalBytes <= DATA_MAX_BYTES) break;
+    if (entry.protected) continue;
+    await fs.rm(entry.path, { recursive: true, force: true });
+    totalBytes -= entry.size;
+  }
+}
+
+async function listManagedEntries(dir, protectedPaths) {
+  const names = await fs.readdir(dir).catch(() => []);
+  const entries = [];
+
+  for (const name of names) {
+    const entryPath = path.join(dir, name);
+    const stat = await fs.stat(entryPath).catch(() => null);
+    if (!stat) continue;
+
+    entries.push({
+      path: entryPath,
+      size: stat.isDirectory() ? await directorySize(entryPath) : stat.size,
+      mtimeMs: stat.mtimeMs,
+      protected: protectedPaths.has(path.resolve(entryPath))
+    });
+  }
+
+  return entries;
+}
+
+async function directorySize(dir) {
+  const names = await fs.readdir(dir).catch(() => []);
+  let total = 0;
+  for (const name of names) {
+    const entryPath = path.join(dir, name);
+    const stat = await fs.stat(entryPath).catch(() => null);
+    if (!stat) continue;
+    total += stat.isDirectory() ? await directorySize(entryPath) : stat.size;
+  }
+  return total;
+}
+
 function parseSettings(raw) {
-  const parsed = typeof raw === 'string' ? JSON.parse(raw) : {};
+  let parsed;
+  try {
+    parsed = typeof raw === 'string' ? JSON.parse(raw) : {};
+  } catch {
+    throw new ApiError(400, 'INVALID_SETTINGS', 'Settings must be valid JSON.');
+  }
+
   const preset = ['10', '50', 'custom'].includes(parsed.targetPreset) ? parsed.targetPreset : '10';
   const targetMb = clamp(Number(parsed.targetMb ?? (preset === '50' ? 50 : 10)), 1, 500);
 
@@ -435,6 +715,7 @@ function publicJob(job) {
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     error: job.error,
+    errorCode: job.errorCode,
     warnings: job.warnings,
     logs: job.logs.slice(-120),
     attempts: job.attempts,
@@ -478,6 +759,21 @@ async function cleanupWork(jobId) {
 function clamp(value, min, max) {
   const number = Number.isFinite(value) ? value : min;
   return Math.min(max, Math.max(min, number));
+}
+
+function parseByteLimit(byteValue, mbValue, fallback) {
+  const bytes = Number(byteValue);
+  if (Number.isFinite(bytes) && bytes > 0) return Math.round(bytes);
+
+  const mb = Number(mbValue);
+  if (Number.isFinite(mb) && mb > 0) return Math.round(mb * 1024 * 1024);
+
+  return fallback;
+}
+
+function parseHours(value, fallback) {
+  const hours = Number(value);
+  return Number.isFinite(hours) && hours > 0 ? hours : fallback;
 }
 
 function even(value) {

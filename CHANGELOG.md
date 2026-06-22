@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Added upload validation, typed API errors, local-only host guardrails, disk retention limits, and failed-job cleanup.
+- Expanded the smoke test to cover malformed multipart uploads, upload size limits, unsupported content, no-video media, and the successful GIF path.
+
 ## v0.1.0 - 2026-06-22
 
 - Initial GIFM release with local FFmpeg-backed video-to-GIF conversion.
