@@ -54,6 +54,15 @@ button:disabled {
   opacity: 0.55;
 }
 
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+
 .app-shell {
   display: flex;
   flex-direction: column;
@@ -320,6 +329,11 @@ button:disabled {
 .toggle-field input:checked + .toggle-box {
   border-color: var(--lime);
   background: linear-gradient(135deg, var(--lime), #3ad0a1);
+}
+
+.toggle-field input:focus-visible + .toggle-box {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
 }
 
 .toggle-field strong {
@@ -665,6 +679,33 @@ button:disabled {
   padding: 0 12px;
 }
 
+.alt-field {
+  display: grid;
+  gap: 6px;
+  padding: 0 12px;
+}
+
+.alt-field span {
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.alt-field textarea {
+  width: 100%;
+  min-height: 56px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--text);
+  padding: 8px 10px;
+}
+
+.alt-copy {
+  margin: 0 12px;
+}
+
 .attempt-box {
   overflow: hidden;
 }
@@ -859,6 +900,17 @@ button:disabled {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

@@ -994,6 +994,13 @@ function PreviewPanel({
   onClearRecent: () => void;
 }) {
   const isGif = file?.type === 'image/gif' || file?.name.toLowerCase().endsWith('.gif');
+  const [altText, setAltText] = useState('');
+
+  useEffect(() => {
+    if (job?.status === 'complete') {
+      setAltText(defaultAltText(job.inputName));
+    }
+  }, [job?.id, job?.status, job?.inputName]);
 
   return (
     <aside className="preview-panel" aria-label="Preview and output">
@@ -1042,6 +1049,13 @@ function PreviewPanel({
                 Open output
               </button>
             </div>
+            <label className="alt-field">
+              <span>Alt text</span>
+              <textarea value={altText} rows={2} onChange={(event) => setAltText(event.currentTarget.value)} />
+            </label>
+            <button type="button" className="secondary-button alt-copy" onClick={() => navigator.clipboard?.writeText(altText)}>
+              Copy alt text
+            </button>
           </>
         ) : job?.status === 'failed' ? (
           <>
@@ -1124,7 +1138,14 @@ function ProgressPanel({ job }: { job: Job | null }) {
         <strong>{job?.stage ?? 'Idle'}</strong>
         <span>{Math.round(progress)}%</span>
       </div>
-      <div className="progress-track">
+      <div
+        className="progress-track"
+        role="progressbar"
+        aria-label={job?.stage ?? 'Encoding progress'}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(progress)}
+      >
         <span style={{ width: `${progress}%` }} />
       </div>
       {job?.warnings.length ? (
@@ -1226,6 +1247,11 @@ function queueLabel(job: Job | null) {
   if (job.status === 'cancelled') return 'Cancelled';
   if (job.status === 'failed') return 'Failed';
   return 'Done';
+}
+
+function defaultAltText(inputName: string) {
+  const base = inputName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
+  return base ? `${base} animated GIF` : 'Animated GIF';
 }
 
 function recentFromJob(job: Job): RecentOutput {

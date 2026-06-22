@@ -9,6 +9,7 @@
 - Added local source probing plus a visual trim timeline with current-preview start/end controls.
 - Added persisted settings, named presets, and recent output shortcuts.
 - Added multi-file batch submission with per-file queue status, attempts, cancel, download, and reveal actions.
+- Added visible focus states, reduced-motion handling, ARIA progress semantics, and an output alt-text helper.
 - Expanded the smoke test to cover malformed multipart uploads, upload size limits, unsupported content, no-video media, and the successful GIF path.
 - Expanded the smoke test to cover queued and running job cancellation.
 
