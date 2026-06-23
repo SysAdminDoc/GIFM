@@ -999,6 +999,12 @@ textarea:focus-visible {
   gap: 10px;
 }
 
+.flip-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

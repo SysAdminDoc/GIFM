@@ -110,6 +110,17 @@ test('parseSettings clamps the bayer scale', () => {
   assert.equal(parseSettings({}).bayerScale, 5);
 });
 
+test('parseSettings validates orientation and color filters', () => {
+  assert.equal(parseSettings({ rotate: 90 }).rotate, 90);
+  assert.equal(parseSettings({ rotate: 45 }).rotate, 0);
+  assert.equal(parseSettings({ flipH: true, flipV: 1 }).flipH, true);
+  assert.equal(parseSettings({ flipV: 1 }).flipV, true);
+  assert.equal(parseSettings({ colorFilter: 'sepia' }).colorFilter, 'sepia');
+  assert.equal(parseSettings({ colorFilter: 'bogus' }).colorFilter, 'none');
+  assert.equal(parseSettings({ saturation: 9 }).saturation, 3);
+  assert.equal(parseSettings({}).saturation, 1);
+});
+
 test('parseSettings clamps speed and validates playback', () => {
   assert.equal(parseSettings({ speed: 99 }).speed, 8);
   assert.equal(parseSettings({ speed: 0 }).speed, 0.25);

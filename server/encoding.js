@@ -116,7 +116,12 @@ export function parseSettings(raw, maxTrimStartSec = DEFAULT_MAX_TRIM_START_SEC)
     playback: ['normal', 'reverse', 'boomerang'].includes(parsed.playback) ? parsed.playback : 'normal',
     crop: parseCrop(parsed.crop),
     format: resolveFormat(parsed.format, preset),
-    caption: parseCaption(parsed.caption)
+    caption: parseCaption(parsed.caption),
+    rotate: [0, 90, 180, 270].includes(Number(parsed.rotate)) ? Number(parsed.rotate) : 0,
+    flipH: Boolean(parsed.flipH),
+    flipV: Boolean(parsed.flipV),
+    colorFilter: ['none', 'grayscale', 'invert', 'sepia'].includes(parsed.colorFilter) ? parsed.colorFilter : 'none',
+    saturation: clamp(Number(parsed.saturation ?? 1), 0, 3)
   };
 }
 

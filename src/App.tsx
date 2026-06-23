@@ -46,6 +46,8 @@ type OutputFormat = 'gif' | 'apng' | 'webp' | 'mp4';
 type Theme = 'dark' | 'light' | 'high-contrast';
 type Playback = 'normal' | 'reverse' | 'boomerang';
 type CropRect = { enabled: boolean; x: number; y: number; w: number; h: number };
+type Rotation = 0 | 90 | 180 | 270;
+type ColorFilter = 'none' | 'grayscale' | 'invert' | 'sepia';
 
 type Settings = {
   targetPreset: TargetPreset;
@@ -69,6 +71,11 @@ type Settings = {
   crop: CropRect;
   format: OutputFormat;
   caption: { top: string; bottom: string };
+  rotate: Rotation;
+  flipH: boolean;
+  flipV: boolean;
+  colorFilter: ColorFilter;
+  saturation: number;
 };
 
 type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
@@ -256,7 +263,12 @@ const DEFAULT_SETTINGS: Settings = {
   playback: 'normal',
   crop: { enabled: false, x: 0, y: 0, w: 1, h: 1 },
   format: 'gif',
-  caption: { top: '', bottom: '' }
+  caption: { top: '', bottom: '' },
+  rotate: 0,
+  flipH: false,
+  flipV: false,
+  colorFilter: 'none',
+  saturation: 1
 };
 
 const SETTINGS_KEY = 'gifm:settings:v1';
@@ -1109,6 +1121,33 @@ function SettingsPanel({
         {(settings.caption.top || settings.caption.bottom) && health && health.font && !health.font.available
           ? <p className="profile-note">{STRINGS.settings.caption.unavailable}</p>
           : null}
+
+        <label className="select-field">
+          <span>{STRINGS.settings.rotate.label}</span>
+          <select value={String(settings.rotate)} onChange={(event) => update('rotate', Number(event.target.value) as Rotation)}>
+            <option value="0">{STRINGS.settings.rotate.options.none}</option>
+            <option value="90">{STRINGS.settings.rotate.options.cw90}</option>
+            <option value="180">{STRINGS.settings.rotate.options.deg180}</option>
+            <option value="270">{STRINGS.settings.rotate.options.ccw90}</option>
+          </select>
+        </label>
+        <div className="flip-row">
+          <ToggleField label={STRINGS.settings.flipH} description="" checked={settings.flipH} onChange={(checked) => update('flipH', checked)} />
+          <ToggleField label={STRINGS.settings.flipV} description="" checked={settings.flipV} onChange={(checked) => update('flipV', checked)} />
+        </div>
+        <label className="select-field">
+          <span>{STRINGS.settings.colorFilter.label}</span>
+          <select value={settings.colorFilter} onChange={(event) => update('colorFilter', event.target.value as ColorFilter)}>
+            <option value="none">{STRINGS.settings.colorFilter.options.none}</option>
+            <option value="grayscale">{STRINGS.settings.colorFilter.options.grayscale}</option>
+            <option value="invert">{STRINGS.settings.colorFilter.options.invert}</option>
+            <option value="sepia">{STRINGS.settings.colorFilter.options.sepia}</option>
+          </select>
+        </label>
+        <label className="range-field">
+          <span>{STRINGS.settings.saturation.label} <strong>{settings.saturation.toFixed(1)}x</strong></span>
+          <input type="range" min={0} max={3} step={0.1} value={settings.saturation} onChange={(event) => update('saturation', clampNumber(Number(event.target.value), 0, 3))} aria-label={STRINGS.settings.saturation.label} />
+        </label>
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.encoding.title} description={STRINGS.settings.sections.encoding.description}>
@@ -2339,7 +2378,12 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     playback: isPlayback(value.playback) ? value.playback : DEFAULT_SETTINGS.playback,
     crop: normalizeCrop(value.crop),
     format: value.format === 'apng' || value.format === 'webp' || value.format === 'mp4' ? value.format : 'gif',
-    caption: normalizeCaption(value.caption)
+    caption: normalizeCaption(value.caption),
+    rotate: ([0, 90, 180, 270] as const).includes(value.rotate as Rotation) ? (value.rotate as Rotation) : 0,
+    flipH: Boolean(value.flipH),
+    flipV: Boolean(value.flipV),
+    colorFilter: (['none', 'grayscale', 'invert', 'sepia'] as const).includes(value.colorFilter as ColorFilter) ? (value.colorFilter as ColorFilter) : 'none',
+    saturation: clampNumber(Number(value.saturation ?? 1), 0, 3)
   };
 }
 

@@ -207,6 +207,29 @@ const en = {
       placeholder: 'Optional meme text',
       unavailable: 'Caption font missing. Reinstall GIFM to restore assets/fonts.'
     },
+    rotate: {
+      label: 'Rotate',
+      options: {
+        none: 'None',
+        cw90: '90 clockwise',
+        deg180: '180',
+        ccw90: '90 counter-clockwise'
+      }
+    },
+    flipH: 'Flip horizontal',
+    flipV: 'Flip vertical',
+    colorFilter: {
+      label: 'Color filter',
+      options: {
+        none: 'None',
+        grayscale: 'Grayscale',
+        invert: 'Invert',
+        sepia: 'Sepia'
+      }
+    },
+    saturation: {
+      label: 'Saturation'
+    },
     crop: {
       label: 'Crop',
       description: 'Trim the frame to a region. The preview shows the kept area; sliders set position and size.',

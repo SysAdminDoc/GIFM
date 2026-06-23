@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added rotate (90/180/270) and horizontal/vertical flip controls.
+- Added color filters (grayscale, invert, sepia) and a saturation slider.
 - Added an MP4 silent-loop output format (muted faststart H.264) that Discord autoplays inline at the smallest size; the auto-fit loop drives CRF.
 - Added animated WebP as an output format (via bundled libwebp), Discord-native and typically much smaller than GIF, with the auto-fit loop driving WebP quality; avatars remain GIF-only.
 - Expanded the smoke test with an encode-feature matrix covering crop, playback speed, reverse, boomerang, Bayer dither, loop count, captions, and the sticker APNG path (asserting the recorded FFmpeg command and 320x320 `image/apng` output).
