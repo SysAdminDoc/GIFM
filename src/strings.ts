@@ -212,6 +212,23 @@ const en = {
       placeholder: 'Optional meme text',
       unavailable: 'Caption font missing. Reinstall GIFM to restore assets/fonts.'
     },
+    overlay: {
+      label: 'Image overlay',
+      description: 'Burn a logo, sticker, or watermark onto the output.',
+      choose: 'Choose image',
+      replace: 'Replace image',
+      uploadFailed: 'Could not upload overlay image',
+      position: 'Overlay position',
+      size: 'Overlay size',
+      opacity: 'Overlay opacity',
+      positions: {
+        topLeft: 'Top left',
+        topRight: 'Top right',
+        bottomLeft: 'Bottom left',
+        bottomRight: 'Bottom right',
+        center: 'Center'
+      }
+    },
     rotate: {
       label: 'Rotate',
       options: {

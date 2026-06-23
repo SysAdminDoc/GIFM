@@ -43,6 +43,7 @@ const dataDir = path.join(rootDir, 'data');
 const uploadDir = path.join(dataDir, 'uploads');
 const outputDir = process.env.GIFM_OUTPUT_DIR ? path.resolve(process.env.GIFM_OUTPUT_DIR) : path.join(dataDir, 'output');
 const workDir = path.join(dataDir, 'work');
+const overlayDir = path.join(dataDir, 'overlays');
 const distDir = path.join(rootDir, 'dist');
 const fontPath = path.join(rootDir, 'assets', 'fonts', 'Anton-Regular.ttf');
 const ffprobePath = ffprobeStatic.path;
@@ -52,7 +53,7 @@ const jobQueue = [];
 let runningJobs = 0;
 const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
 
-await Promise.all([uploadDir, outputDir, workDir].map((dir) => fs.mkdir(dir, { recursive: true })));
+await Promise.all([uploadDir, outputDir, workDir, overlayDir].map((dir) => fs.mkdir(dir, { recursive: true })));
 assertLocalBinding();
 
 if (!ffmpegPath || !ffprobePath) {
@@ -88,6 +89,24 @@ const upload = multer({
   }
 });
 const uploadMedia = upload.single('media');
+
+const overlayUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_request, _file, callback) => callback(null, overlayDir),
+    filename: (_request, file, callback) => {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      callback(null, `${randomUUID()}${['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext) ? ext : '.png'}`);
+    }
+  }),
+  limits: { fileSize: 16 * 1024 * 1024, files: 1, fields: 0, parts: 2 },
+  fileFilter: (_request, file, callback) => {
+    if (String(file.mimetype || '').startsWith('image/')) {
+      callback(null, true);
+      return;
+    }
+    callback(new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Upload an image (PNG, JPG, WebP, or GIF) for the overlay.'));
+  }
+}).single('overlay');
 
 const app = express();
 app.disable('x-powered-by');
@@ -189,6 +208,21 @@ app.post('/api/import-url', async (request, response, next) => {
     if (downloadedPath) await removeFile(downloadedPath);
     next(error);
   }
+});
+
+app.post('/api/overlay', (request, response, next) => {
+  overlayUpload(request, response, async (error) => {
+    if (error) {
+      next(error);
+      return;
+    }
+    if (!request.file) {
+      sendApiError(response, new ApiError(400, 'NO_MEDIA_FILE', 'No overlay image was uploaded.'));
+      return;
+    }
+    await enforceOverlayRetention(request.file.filename);
+    response.status(201).json({ id: request.file.filename });
+  });
 });
 
 app.post('/api/sources/:id/jobs', async (request, response, next) => {
@@ -1105,6 +1139,27 @@ async function removeFile(filePath) {
   }
 }
 
+async function enforceOverlayRetention(keepName = '') {
+  // Overlay images are small and session-scoped; keep the newest 30 and drop anything older than the data age.
+  const names = await fs.readdir(overlayDir).catch(() => []);
+  const now = Date.now();
+  const entries = [];
+  for (const name of names) {
+    const entryPath = path.join(overlayDir, name);
+    const stat = await fs.lstat(entryPath).catch(() => null);
+    if (stat?.isFile()) entries.push({ name, path: entryPath, mtimeMs: stat.mtimeMs });
+  }
+  entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  let kept = 0;
+  for (const entry of entries) {
+    kept += 1;
+    if (entry.name === keepName) continue;
+    if (kept > 30 || now - entry.mtimeMs > DATA_MAX_AGE_MS) {
+      await fs.rm(entry.path, { force: true });
+    }
+  }
+}
+
 async function enforceDataRetention(extraProtected = new Set()) {
   pruneOldJobs();
   const protectedPaths = protectedJobPaths(extraProtected);
@@ -1209,7 +1264,7 @@ function parseSettings(raw) {
   return parseSettingsRaw(raw, MAX_TRIM_START_SEC);
 }
 
-function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null, caption = null, fontFile = '', rotate = 0, flipH = false, flipV = false, colorFilter = 'none', saturation = 1 }) {
+function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null, caption = null, fontFile = '', rotate = 0, flipH = false, flipV = false, colorFilter = 'none', saturation = 1, overlay = null, overlayPath = '' }) {
   const filters = [];
   if (crop?.enabled) {
     // Crop the source region first so every downstream filter works on the selected rectangle.
@@ -1252,7 +1307,33 @@ function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = 
     // Play forward, then the reversed clip, as a seamless bounce. Doubles the frame count, so auto-fit compensates.
     chain += ',split[fwd][bwd];[bwd]reverse[rev];[fwd][rev]concat=n=2';
   }
+  // Burn a user image overlay on top of the finished frames via the movie filter source.
+  if (overlay?.enabled && overlayPath) {
+    const overlayWidth = Math.max(8, Math.round(width * overlay.scale));
+    chain += `[ovbase];movie=${overlayPath},scale=${overlayWidth}:-1,format=rgba,colorchannelmixer=aa=${overlay.opacity}[ovwm];[ovbase][ovwm]overlay=${overlayPosition(overlay.position)}`;
+  }
   return chain;
+}
+
+function overlayPosition(position) {
+  const margin = 'min(main_w\\,main_h)*0.03';
+  if (position === 'top-left') return `${margin}:${margin}`;
+  if (position === 'top-right') return `main_w-overlay_w-${margin}:${margin}`;
+  if (position === 'bottom-left') return `${margin}:main_h-overlay_h-${margin}`;
+  if (position === 'center') return '(main_w-overlay_w)/2:(main_h-overlay_h)/2';
+  return `main_w-overlay_w-${margin}:main_h-overlay_h-${margin}`;
+}
+
+function escapeMoviePath(filePath) {
+  // The movie= source needs forward slashes and a double-backslash-escaped drive colon inside a filtergraph.
+  return filePath.replace(/\\/g, '/').replace(/:/g, '\\\\:');
+}
+
+function resolveOverlayPath(id) {
+  if (!id || !/^[a-f0-9-]+\.(png|jpe?g|webp|gif)$/i.test(id)) return '';
+  const resolved = path.join(overlayDir, id);
+  if (path.dirname(resolved) !== overlayDir || !existsSync(resolved)) return '';
+  return resolved;
 }
 
 function captionFilters({ caption, fontFile, width }) {
@@ -1402,7 +1483,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-i',
       job.inputPath,
       '-vf',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
       '-frames:v',
       '1',
       '-y',
@@ -1426,7 +1507,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-i',
       palettePath,
       '-lavfi',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
       '-loop',
       String(job.settings.loopCount),
       '-y',
@@ -1450,7 +1531,7 @@ async function encodeWithMp4({ job, attempt, outputPath, startSec, durationSec, 
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation }),
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' }),
       '-c:v',
       'libx264',
       '-preset',
@@ -1484,7 +1565,7 @@ async function encodeWithWebp({ job, attempt, outputPath, startSec, durationSec,
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation }),
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' }),
       '-c:v',
       'libwebp',
       '-loop',
@@ -1513,7 +1594,7 @@ async function encodeWithApng({ job, attempt, outputPath, startSec, durationSec,
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation }),
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' }),
       '-f',
       'apng',
       '-plays',
@@ -1546,7 +1627,7 @@ async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSe
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation }),
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' }),
       '-pix_fmt',
       'yuv420p',
       '-f',

@@ -1028,6 +1028,24 @@ textarea:focus-visible {
   margin-top: 8px;
 }
 
+.overlay-field {
+  display: grid;
+  gap: 10px;
+}
+
+.overlay-pick {
+  position: relative;
+  overflow: hidden;
+  justify-content: center;
+}
+
+.overlay-pick input[type='file'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

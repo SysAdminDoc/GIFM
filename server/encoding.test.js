@@ -13,6 +13,7 @@ import {
   parseSettings,
   parseCrop,
   parseCaption,
+  parseOverlay,
   resolveFormat,
   nextAttempt,
   isProtectedPath
@@ -108,6 +109,20 @@ test('parseSettings clamps the bayer scale', () => {
   assert.equal(parseSettings({ bayerScale: 9 }).bayerScale, 5);
   assert.equal(parseSettings({ bayerScale: -2 }).bayerScale, 0);
   assert.equal(parseSettings({}).bayerScale, 5);
+});
+
+test('parseOverlay accepts safe ids and rejects path traversal', () => {
+  const ok = parseOverlay({ enabled: true, id: 'a1b2c3d4-0000.png', position: 'center', scale: 0.5, opacity: 0.4 });
+  assert.equal(ok.enabled, true);
+  assert.equal(ok.id, 'a1b2c3d4-0000.png');
+  assert.equal(ok.position, 'center');
+  // A traversal id is dropped, which also disables the overlay.
+  const bad = parseOverlay({ enabled: true, id: '../../etc/passwd' });
+  assert.equal(bad.id, '');
+  assert.equal(bad.enabled, false);
+  // Clamps and defaults.
+  assert.equal(parseOverlay({ id: 'x.png', scale: 9 }).scale, 1);
+  assert.equal(parseOverlay({}).position, 'bottom-right');
 });
 
 test('parseSettings validates orientation and color filters', () => {

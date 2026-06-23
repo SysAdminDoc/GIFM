@@ -398,6 +398,25 @@ async function assertEncodeFeatureMatrix() {
   } finally {
     await fs.rm(mp4Path, { force: true });
   }
+
+  // Image overlay: upload an image, then encode with it and assert the movie/overlay filter is used.
+  const overlayPng = path.join(smokeDir, 'overlay.png');
+  await run(ffmpegPath, ['-hide_banner', '-f', 'lavfi', '-i', 'color=c=red:size=40x40:duration=0.1', '-frames:v', '1', '-y', overlayPng]);
+  const overlayForm = new FormData();
+  overlayForm.set('overlay', new File([await fs.readFile(overlayPng)], 'overlay.png', { type: 'image/png' }));
+  const overlayResponse = await fetch(`${baseUrl}/api/overlay`, { method: 'POST', body: overlayForm });
+  if (!overlayResponse.ok) {
+    throw new Error(`Overlay upload failed: ${overlayResponse.status} ${await overlayResponse.text()}`);
+  }
+  const { id: overlayId } = await overlayResponse.json();
+  const overlayJob = await waitForJob((await startMediaJob(bytes, 'feature-overlay.mp4', featureSettings({ overlay: { enabled: true, id: overlayId, position: 'bottom-right', scale: 0.25, opacity: 0.8 } }))).id, 45000);
+  if (overlayJob.status !== 'complete') {
+    throw new Error(`Overlay job did not complete: ${JSON.stringify(overlayJob, null, 2)}\n${serverLog}`);
+  }
+  if (!overlayJob.commands?.some((command) => command.command.includes('movie=') && command.command.includes('overlay='))) {
+    throw new Error(`Overlay job missing movie/overlay filter: ${JSON.stringify(overlayJob.commands, null, 2)}`);
+  }
+  await fs.rm(overlayPng, { force: true });
 }
 
 async function probeDimensions(bytes, ext) {

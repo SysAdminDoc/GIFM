@@ -117,11 +117,26 @@ export function parseSettings(raw, maxTrimStartSec = DEFAULT_MAX_TRIM_START_SEC)
     crop: parseCrop(parsed.crop),
     format: resolveFormat(parsed.format, preset),
     caption: parseCaption(parsed.caption),
+    overlay: parseOverlay(parsed.overlay),
     rotate: [0, 90, 180, 270].includes(Number(parsed.rotate)) ? Number(parsed.rotate) : 0,
     flipH: Boolean(parsed.flipH),
     flipV: Boolean(parsed.flipV),
     colorFilter: ['none', 'grayscale', 'invert', 'sepia'].includes(parsed.colorFilter) ? parsed.colorFilter : 'none',
     saturation: clamp(Number(parsed.saturation ?? 1), 0, 3)
+  };
+}
+
+export function parseOverlay(value) {
+  const raw = value && typeof value === 'object' ? value : {};
+  // Only accept a safe id shape (uuid + image extension) to avoid path traversal when resolving the file.
+  const id = typeof raw.id === 'string' && /^[a-f0-9-]+\.(png|jpe?g|webp|gif)$/i.test(raw.id) ? raw.id : '';
+  const position = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'].includes(raw.position) ? raw.position : 'bottom-right';
+  return {
+    enabled: Boolean(raw.enabled) && Boolean(id),
+    id,
+    position,
+    scale: clamp(Number(raw.scale ?? 0.25), 0.05, 1),
+    opacity: clamp(Number(raw.opacity ?? 1), 0.1, 1)
   };
 }
 

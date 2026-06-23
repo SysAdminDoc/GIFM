@@ -48,6 +48,8 @@ type Playback = 'normal' | 'reverse' | 'boomerang';
 type CropRect = { enabled: boolean; x: number; y: number; w: number; h: number };
 type Rotation = 0 | 90 | 180 | 270;
 type ColorFilter = 'none' | 'grayscale' | 'invert' | 'sepia';
+type OverlayPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
+type OverlaySettings = { enabled: boolean; id: string; position: OverlayPosition; scale: number; opacity: number };
 
 type Settings = {
   targetPreset: TargetPreset;
@@ -71,6 +73,7 @@ type Settings = {
   crop: CropRect;
   format: OutputFormat;
   caption: { top: string; bottom: string };
+  overlay: OverlaySettings;
   rotate: Rotation;
   flipH: boolean;
   flipV: boolean;
@@ -264,6 +267,7 @@ const DEFAULT_SETTINGS: Settings = {
   crop: { enabled: false, x: 0, y: 0, w: 1, h: 1 },
   format: 'gif',
   caption: { top: '', bottom: '' },
+  overlay: { enabled: false, id: '', position: 'bottom-right', scale: 0.25, opacity: 1 },
   rotate: 0,
   flipH: false,
   flipV: false,
@@ -1206,6 +1210,7 @@ function SettingsPanel({
           <span>{STRINGS.settings.saturation.label} <strong>{settings.saturation.toFixed(1)}x</strong></span>
           <input type="range" min={0} max={3} step={0.1} value={settings.saturation} onChange={(event) => update('saturation', clampNumber(Number(event.target.value), 0, 3))} aria-label={STRINGS.settings.saturation.label} />
         </label>
+        <OverlayField value={settings.overlay} onChange={(overlay) => update('overlay', overlay)} />
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.encoding.title} description={STRINGS.settings.sections.encoding.description}>
@@ -1488,6 +1493,70 @@ function UrlImportRow({ busy, onImport }: { busy: boolean; onImport: (url: strin
         {busy ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
         {STRINGS.input.importUrl}
       </button>
+    </div>
+  );
+}
+
+function OverlayField({ value, onChange }: { value: OverlaySettings; onChange: (value: OverlaySettings) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const onPick = async (file: File | null) => {
+    if (!file) return;
+    setBusy(true);
+    setError('');
+    try {
+      const body = new FormData();
+      body.set('overlay', file);
+      const response = await fetch('/api/overlay', { method: 'POST', body });
+      if (!response.ok) {
+        throw new Error(await readApiError(response, STRINGS.settings.overlay.uploadFailed));
+      }
+      const { id } = (await response.json()) as { id: string };
+      onChange({ ...value, id, enabled: true });
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : STRINGS.settings.overlay.uploadFailed);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="overlay-field">
+      <ToggleField
+        label={STRINGS.settings.overlay.label}
+        description={STRINGS.settings.overlay.description}
+        checked={value.enabled}
+        onChange={(checked) => onChange({ ...value, enabled: checked && Boolean(value.id) })}
+      />
+      <label className="overlay-pick secondary-button">
+        {busy ? <Loader2 className="spin" aria-hidden="true" /> : <ImageIcon aria-hidden="true" />}
+        {value.id ? STRINGS.settings.overlay.replace : STRINGS.settings.overlay.choose}
+        <input type="file" accept="image/*" onChange={(event) => onPick(event.target.files?.[0] ?? null)} />
+      </label>
+      {error ? <p className="profile-note">{error}</p> : null}
+      {value.id ? (
+        <>
+          <label className="select-field">
+            <span>{STRINGS.settings.overlay.position}</span>
+            <select value={value.position} onChange={(event) => onChange({ ...value, position: event.target.value as OverlayPosition })}>
+              <option value="top-left">{STRINGS.settings.overlay.positions.topLeft}</option>
+              <option value="top-right">{STRINGS.settings.overlay.positions.topRight}</option>
+              <option value="bottom-left">{STRINGS.settings.overlay.positions.bottomLeft}</option>
+              <option value="bottom-right">{STRINGS.settings.overlay.positions.bottomRight}</option>
+              <option value="center">{STRINGS.settings.overlay.positions.center}</option>
+            </select>
+          </label>
+          <label className="range-field">
+            <span>{STRINGS.settings.overlay.size} <strong>{Math.round(value.scale * 100)}%</strong></span>
+            <input type="range" min={0.05} max={1} step={0.05} value={value.scale} onChange={(event) => onChange({ ...value, scale: clampNumber(Number(event.target.value), 0.05, 1) })} aria-label={STRINGS.settings.overlay.size} />
+          </label>
+          <label className="range-field">
+            <span>{STRINGS.settings.overlay.opacity} <strong>{Math.round(value.opacity * 100)}%</strong></span>
+            <input type="range" min={0.1} max={1} step={0.05} value={value.opacity} onChange={(event) => onChange({ ...value, opacity: clampNumber(Number(event.target.value), 0.1, 1) })} aria-label={STRINGS.settings.overlay.opacity} />
+          </label>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -2488,6 +2557,7 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     crop: normalizeCrop(value.crop),
     format: value.format === 'apng' || value.format === 'webp' || value.format === 'mp4' ? value.format : 'gif',
     caption: normalizeCaption(value.caption),
+    overlay: normalizeOverlay(value.overlay),
     rotate: ([0, 90, 180, 270] as const).includes(value.rotate as Rotation) ? (value.rotate as Rotation) : 0,
     flipH: Boolean(value.flipH),
     flipV: Boolean(value.flipV),
@@ -2510,6 +2580,19 @@ function isEncoderBackend(value: unknown): value is EncoderBackend {
 
 function isPlayback(value: unknown): value is Playback {
   return value === 'normal' || value === 'reverse' || value === 'boomerang';
+}
+
+function normalizeOverlay(value: unknown): OverlaySettings {
+  const raw = (value && typeof value === 'object' ? value : {}) as Partial<OverlaySettings>;
+  const positions: OverlayPosition[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'];
+  const id = typeof raw.id === 'string' ? raw.id : '';
+  return {
+    enabled: Boolean(raw.enabled) && Boolean(id),
+    id,
+    position: positions.includes(raw.position as OverlayPosition) ? (raw.position as OverlayPosition) : 'bottom-right',
+    scale: clampNumber(Number(raw.scale ?? 0.25), 0.05, 1),
+    opacity: clampNumber(Number(raw.opacity ?? 1), 0.1, 1)
+  };
 }
 
 function normalizeCaption(value: unknown): { top: string; bottom: string } {
