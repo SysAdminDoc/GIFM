@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Linq;
 using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -11,13 +14,14 @@ internal static class Program
     const string DefaultHost = "127.0.0.1";
 
     [STAThread]
-    static int Main()
+    static int Main(string[] args)
     {
-        return Run();
+        return Run(args);
     }
 
-    static int Run()
+    static int Run(string[] args)
     {
+        var importFile = args.FirstOrDefault(arg => !arg.StartsWith('-') && File.Exists(arg));
         var appDir = AppContext.BaseDirectory;
         var dataDir = Path.Combine(appDir, "data");
         var logPath = Path.Combine(dataDir, "gifm-server.log");
@@ -62,6 +66,11 @@ internal static class Program
             }
 
             Log(logWriter, $"GIFM ready at {url}");
+
+            if (importFile is not null)
+            {
+                ImportLocalFile(url, importFile, logWriter);
+            }
 
             if (smokeMode)
             {
@@ -290,6 +299,22 @@ internal static class Program
             Thread.Sleep(300);
         }
         return false;
+    }
+
+    static void ImportLocalFile(string url, string filePath, TextWriter logWriter)
+    {
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var payload = JsonSerializer.Serialize(new { path = Path.GetFullPath(filePath) });
+            using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+            using var response = client.PostAsync($"{url}/api/import-local", content).GetAwaiter().GetResult();
+            Log(logWriter, $"Shell import of '{filePath}' -> {(int)response.StatusCode}");
+        }
+        catch (Exception error)
+        {
+            Log(logWriter, $"Shell import failed for '{filePath}': {error.Message}");
+        }
     }
 
     static bool IsHealthy(string url)

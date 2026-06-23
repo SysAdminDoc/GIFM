@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a Windows "Make GIF with GIFM" right-click shell verb: `GIFM.exe` accepts a file argument and stages it, and the portable package ships opt-in `register-shell.ps1` / `unregister-shell.ps1` (per-user, no admin).
 - Added an image overlay layer (logo/sticker/watermark) with position, size, and opacity controls, burned into the output before encoding.
 - Added optional "Send to Discord" webhook upload from a completed output, validating the webhook URL against an https Discord-host allowlist (no SSRF) and the 10 MiB webhook cap.
 - Added URL import: paste a video URL to download it via yt-dlp (from PATH or `GIFM_YTDLP_PATH`) and stage it as a prepared source; missing yt-dlp degrades gracefully.

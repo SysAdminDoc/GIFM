@@ -49,6 +49,7 @@ const fontPath = path.join(rootDir, 'assets', 'fonts', 'Anton-Regular.ttf');
 const ffprobePath = ffprobeStatic.path;
 const jobs = new Map();
 const sources = new Map();
+let pendingImport = null;
 const jobQueue = [];
 let runningJobs = 0;
 const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
@@ -208,6 +209,44 @@ app.post('/api/import-url', async (request, response, next) => {
     if (downloadedPath) await removeFile(downloadedPath);
     next(error);
   }
+});
+
+app.post('/api/import-local', async (request, response, next) => {
+  // Used by the desktop "Make GIF with GIFM" shell verb to stage a local file the user explicitly chose.
+  let copyPath = '';
+  try {
+    const sourcePath = typeof request.body?.path === 'string' ? request.body.path : '';
+    if (!sourcePath || !path.isAbsolute(sourcePath) || !existsSync(sourcePath)) {
+      sendApiError(response, new ApiError(400, 'INVALID_PATH', 'A valid absolute file path is required.'));
+      return;
+    }
+    const ext = path.extname(sourcePath).toLowerCase();
+    if (!supportedExtensions.has(ext)) {
+      sendApiError(response, new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'That file type is not a supported video or GIF.'));
+      return;
+    }
+    const stat = await fs.stat(sourcePath);
+    if (!stat.isFile() || stat.size > MAX_UPLOAD_BYTES) {
+      sendApiError(response, new ApiError(413, 'UPLOAD_TOO_LARGE', `The file is not a regular file or exceeds the ${formatBytes(MAX_UPLOAD_BYTES)} limit.`));
+      return;
+    }
+
+    copyPath = path.join(uploadDir, `local-${Date.now()}-${randomUUID()}${ext}`);
+    await fs.copyFile(sourcePath, copyPath);
+    const prepared = await registerPreparedSource({ filePath: copyPath, inputName: path.basename(sourcePath) });
+    copyPath = '';
+    pendingImport = publicSource(prepared);
+    response.status(201).json(pendingImport);
+  } catch (error) {
+    if (copyPath) await removeFile(copyPath);
+    next(error);
+  }
+});
+
+app.get('/api/pending-import', (_request, response) => {
+  const pending = pendingImport;
+  pendingImport = null;
+  response.json({ source: pending });
 });
 
 app.post('/api/overlay', (request, response, next) => {

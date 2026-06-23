@@ -60,6 +60,11 @@ await fs.rm(launcherPublishDir, { recursive: true, force: true });
 // runtime on first launch instead of failing. The bootstrapper is a small (~2 MB) online installer.
 await downloadWebView2Bootstrapper(path.join(portableDir, 'MicrosoftEdgeWebview2Setup.exe'));
 
+await Promise.all([
+  fs.copyFile(path.join(rootDir, 'scripts', 'register-shell.ps1'), path.join(portableDir, 'register-shell.ps1')),
+  fs.copyFile(path.join(rootDir, 'scripts', 'unregister-shell.ps1'), path.join(portableDir, 'unregister-shell.ps1'))
+]);
+
 await fs.writeFile(
   path.join(portableDir, 'start-gifm.cmd'),
   [

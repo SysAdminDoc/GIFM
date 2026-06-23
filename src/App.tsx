@@ -377,6 +377,29 @@ function GifmApp() {
   }, []);
 
   useEffect(() => {
+    // Pick up a file staged by the desktop "Make GIF with GIFM" shell verb.
+    fetch('/api/pending-import')
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => {
+        const prepared = payload?.source as SourceSession | undefined;
+        if (!prepared) return;
+        setSourceSession(prepared);
+        setSourceMeta({
+          durationSec: prepared.durationSec,
+          width: prepared.width,
+          height: prepared.height,
+          fps: prepared.fps,
+          codec: prepared.codec,
+          rotation: prepared.rotation,
+          probeSource: 'server',
+          frameSampled: false
+        });
+        setNotice(STRINGS.notices.sourcePrepared(prepared.inputName));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     if (!file) {
       setObjectUrl('');
       return undefined;
