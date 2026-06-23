@@ -43,6 +43,7 @@ type DitherMode = 'sierra2_4a' | 'bayer' | 'floyd_steinberg' | 'none';
 type PaletteMode = 'diff' | 'full' | 'single';
 type EncoderBackend = 'ffmpeg' | 'gifski';
 type Playback = 'normal' | 'reverse' | 'boomerang';
+type CropRect = { enabled: boolean; x: number; y: number; w: number; h: number };
 
 type Settings = {
   targetPreset: TargetPreset;
@@ -62,6 +63,7 @@ type Settings = {
   loopCount: number;
   speed: number;
   playback: Playback;
+  crop: CropRect;
 };
 
 type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
@@ -240,7 +242,8 @@ const DEFAULT_SETTINGS: Settings = {
   gifskiQuality: 90,
   loopCount: 0,
   speed: 1,
-  playback: 'normal'
+  playback: 'normal',
+  crop: { enabled: false, x: 0, y: 0, w: 1, h: 1 }
 };
 
 const SETTINGS_KEY = 'gifm:settings:v1';
@@ -916,6 +919,7 @@ function GifmApp() {
           objectUrl={objectUrl}
           job={job}
           outputFit={outputFit}
+          crop={settings.crop}
           onReveal={revealOutput}
           onSaveAs={saveOutputAs}
           onCopyText={copyText}
@@ -1026,6 +1030,22 @@ function SettingsPanel({
             <option value="boomerang">{STRINGS.settings.playback.options.boomerang}</option>
           </select>
         </label>
+        <ToggleField
+          label={STRINGS.settings.crop.label}
+          description={STRINGS.settings.crop.description}
+          checked={settings.crop.enabled}
+          onChange={(checked) => update('crop', normalizeCrop({ ...settings.crop, enabled: checked, ...(checked && settings.crop.w >= 1 && settings.crop.h >= 1 ? { x: 0.1, y: 0.1, w: 0.8, h: 0.8 } : {}) }))}
+        />
+        {settings.crop.enabled
+          ? (
+            <div className="crop-fields">
+              <CropRange label={STRINGS.settings.crop.x} value={settings.crop.x} max={0.95} onChange={(x) => update('crop', normalizeCrop({ ...settings.crop, x }))} />
+              <CropRange label={STRINGS.settings.crop.y} value={settings.crop.y} max={0.95} onChange={(y) => update('crop', normalizeCrop({ ...settings.crop, y }))} />
+              <CropRange label={STRINGS.settings.crop.w} value={settings.crop.w} max={1} onChange={(w) => update('crop', normalizeCrop({ ...settings.crop, w }))} />
+              <CropRange label={STRINGS.settings.crop.h} value={settings.crop.h} max={1} onChange={(h) => update('crop', normalizeCrop({ ...settings.crop, h }))} />
+            </div>
+          )
+          : null}
         {settings.targetPreset === 'emoji'
           ? <p className="profile-note">{STRINGS.settings.squareNote.emoji}</p>
           : settings.targetPreset === 'avatar'
@@ -1228,6 +1248,34 @@ function NumberField({
         <em>{suffix}</em>
       </div>
     </label>
+  );
+}
+
+function CropRange({ label, value, max, onChange }: { label: string; value: number; max: number; onChange: (value: number) => void }) {
+  return (
+    <label className="range-field">
+      <span>{label} <strong>{Math.round(value * 100)}%</strong></span>
+      <input
+        type="range"
+        min={0}
+        max={max}
+        step={0.01}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        aria-label={label}
+      />
+    </label>
+  );
+}
+
+function CropOverlay({ crop }: { crop: CropRect }) {
+  return (
+    <div className="crop-overlay" aria-hidden="true">
+      <div
+        className="crop-region"
+        style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.w * 100}%`, height: `${crop.h * 100}%` }}
+      />
+    </div>
   );
 }
 
@@ -1614,12 +1662,14 @@ function PreviewPanel({
   previewSeekTime,
   recentOutputs,
   onRevealRecent,
-  onClearRecent
+  onClearRecent,
+  crop
 }: {
   file: File | null;
   objectUrl: string;
   job: Job | null;
   outputFit: boolean;
+  crop: CropRect;
   onReveal: () => void;
   onSaveAs: (job: Job) => void;
   onCopyText: (text: string, successMessage: string) => void;
@@ -1677,6 +1727,7 @@ function PreviewPanel({
         ) : (
           <EmptyState icon={<Video aria-hidden="true" />} title={STRINGS.preview.emptyTitle} body={STRINGS.preview.empty} />
         )}
+        {objectUrl && crop.enabled ? <CropOverlay crop={crop} /> : null}
       </div>
 
       <section className="output-box" aria-label={STRINGS.output.aria}>
@@ -2157,7 +2208,8 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     gifskiQuality: Math.round(clampNumber(Number(value.gifskiQuality ?? DEFAULT_SETTINGS.gifskiQuality), 1, 100)),
     loopCount: normalizeLoopCount(value.loopCount),
     speed: clampNumber(Number(value.speed ?? DEFAULT_SETTINGS.speed), 0.25, 8),
-    playback: isPlayback(value.playback) ? value.playback : DEFAULT_SETTINGS.playback
+    playback: isPlayback(value.playback) ? value.playback : DEFAULT_SETTINGS.playback,
+    crop: normalizeCrop(value.crop)
   };
 }
 
@@ -2175,6 +2227,16 @@ function isEncoderBackend(value: unknown): value is EncoderBackend {
 
 function isPlayback(value: unknown): value is Playback {
   return value === 'normal' || value === 'reverse' || value === 'boomerang';
+}
+
+function normalizeCrop(value: unknown): CropRect {
+  const raw = (value && typeof value === 'object' ? value : {}) as Partial<CropRect>;
+  const x = clampNumber(Number(raw.x ?? 0), 0, 0.95);
+  const y = clampNumber(Number(raw.y ?? 0), 0, 0.95);
+  const w = clampNumber(Number(raw.w ?? 1), 0.05, 1 - x);
+  const h = clampNumber(Number(raw.h ?? 1), 0.05, 1 - y);
+  const enabled = Boolean(raw.enabled) && (x > 0 || y > 0 || w < 1 || h < 1);
+  return { enabled, x, y, w, h };
 }
 
 function normalizeLoopCount(value: unknown): number {

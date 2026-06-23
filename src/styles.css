@@ -881,6 +881,7 @@ textarea:focus-visible {
 }
 
 .preview-box {
+  position: relative;
   display: grid;
   min-height: 238px;
   place-items: center;
@@ -892,6 +893,25 @@ textarea:focus-visible {
     linear-gradient(-45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%),
     #05080b;
   background-size: 22px 22px;
+}
+
+.crop-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.crop-region {
+  position: absolute;
+  border: 2px solid var(--cyan);
+  border-radius: 2px;
+  box-shadow: 0 0 0 9999px rgba(3, 6, 10, 0.55);
+}
+
+.crop-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .preview-box video,

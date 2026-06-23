@@ -174,6 +174,14 @@ export const STRINGS = {
         reverse: 'Reverse',
         boomerang: 'Boomerang'
       }
+    },
+    crop: {
+      label: 'Crop',
+      description: 'Trim the frame to a region. The preview shows the kept area; sliders set position and size.',
+      x: 'Left',
+      y: 'Top',
+      w: 'Width',
+      h: 'Height'
     }
   },
   input: {

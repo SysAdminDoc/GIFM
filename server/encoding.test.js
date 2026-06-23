@@ -11,6 +11,7 @@ import {
   normalizeTargetPreset,
   dimensionLockForPreset,
   parseSettings,
+  parseCrop,
   nextAttempt,
   isProtectedPath
 } from './encoding.js';
@@ -99,6 +100,15 @@ test('parseSettings honours the maxTrimStartSec ceiling argument', () => {
 
 test('parseSettings rejects malformed JSON with an ApiError', () => {
   assert.throws(() => parseSettings('{not json'), (error) => error instanceof ApiError && error.code === 'INVALID_SETTINGS');
+});
+
+test('parseCrop clamps the region and only enables a real sub-rectangle', () => {
+  assert.deepEqual(parseCrop({ enabled: true, x: 0.1, y: 0.1, w: 0.8, h: 0.8 }), { enabled: true, x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+  // A full-frame crop is treated as disabled even when the flag is set.
+  assert.equal(parseCrop({ enabled: true, x: 0, y: 0, w: 1, h: 1 }).enabled, false);
+  // Width is bounded so the rectangle stays inside the frame.
+  assert.ok(Math.abs(parseCrop({ enabled: true, x: 0.8, w: 1 }).w - 0.2) < 1e-9);
+  assert.equal(parseCrop(undefined).enabled, false);
 });
 
 test('nextAttempt reduces width and colours while over target', () => {

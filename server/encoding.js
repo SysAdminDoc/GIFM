@@ -103,8 +103,19 @@ export function parseSettings(raw, maxTrimStartSec = DEFAULT_MAX_TRIM_START_SEC)
     gifskiQuality: Math.round(clamp(Number(parsed.gifskiQuality ?? 90), 1, 100)),
     loopCount: parseLoopCount(parsed.loopCount),
     speed: clamp(Number(parsed.speed ?? 1), 0.25, 8),
-    playback: ['normal', 'reverse', 'boomerang'].includes(parsed.playback) ? parsed.playback : 'normal'
+    playback: ['normal', 'reverse', 'boomerang'].includes(parsed.playback) ? parsed.playback : 'normal',
+    crop: parseCrop(parsed.crop)
   };
+}
+
+export function parseCrop(value) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const x = clamp(Number(raw.x ?? 0), 0, 0.95);
+  const y = clamp(Number(raw.y ?? 0), 0, 0.95);
+  const w = clamp(Number(raw.w ?? 1), 0.05, 1 - x);
+  const h = clamp(Number(raw.h ?? 1), 0.05, 1 - y);
+  const enabled = Boolean(raw.enabled) && (x > 0 || y > 0 || w < 1 || h < 1);
+  return { enabled, x, y, w, h };
 }
 
 export function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, allowLossy = false, durationSec, outputBytes, targetBytes, allowTrim, minWidth = 120 }) {

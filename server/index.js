@@ -976,8 +976,12 @@ function parseSettings(raw) {
   return parseSettingsRaw(raw, MAX_TRIM_START_SEC);
 }
 
-function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal' }) {
+function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null }) {
   const filters = [];
+  if (crop?.enabled) {
+    // Crop the source region first so every downstream filter works on the selected rectangle.
+    filters.push(`crop='iw*${crop.w}':'ih*${crop.h}':'iw*${crop.x}':'ih*${crop.y}'`);
+  }
   if (dedupeFrames) {
     filters.push('mpdecimate', 'setpts=N/FRAME_RATE/TB');
   }
@@ -1133,7 +1137,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-i',
       job.inputPath,
       '-vf',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
       '-frames:v',
       '1',
       '-y',
@@ -1157,7 +1161,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-i',
       palettePath,
       '-lavfi',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
       '-loop',
       String(job.settings.loopCount),
       '-y',
@@ -1188,7 +1192,7 @@ async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSe
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback }),
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop }),
       '-pix_fmt',
       'yuv420p',
       '-f',
