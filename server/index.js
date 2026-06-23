@@ -43,6 +43,7 @@ const uploadDir = path.join(dataDir, 'uploads');
 const outputDir = process.env.GIFM_OUTPUT_DIR ? path.resolve(process.env.GIFM_OUTPUT_DIR) : path.join(dataDir, 'output');
 const workDir = path.join(dataDir, 'work');
 const distDir = path.join(rootDir, 'dist');
+const fontPath = path.join(rootDir, 'assets', 'fonts', 'Anton-Regular.ttf');
 const ffprobePath = ffprobeStatic.path;
 const jobs = new Map();
 const sources = new Map();
@@ -100,6 +101,7 @@ app.get('/api/health', (_request, response) => {
     ffprobe: runtimeInfo.ffprobe,
     gifski: runtimeInfo.gifski,
     gifsicle: runtimeInfo.gifsicle,
+    font: runtimeInfo.font,
     platform: runtimeInfo.platform,
     host: HOST,
     remoteAllowed: ALLOW_REMOTE,
@@ -1035,7 +1037,7 @@ function parseSettings(raw) {
   return parseSettingsRaw(raw, MAX_TRIM_START_SEC);
 }
 
-function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null }) {
+function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null, caption = null, fontFile = '' }) {
   const filters = [];
   if (crop?.enabled) {
     // Crop the source region first so every downstream filter works on the selected rectangle.
@@ -1059,6 +1061,8 @@ function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = 
     filters.push(`scale=${width}:-2:flags=lanczos`);
   }
   let chain = filters.join(',');
+  const captionChain = captionFilters({ caption, fontFile, width });
+  if (captionChain) chain += `,${captionChain}`;
   if (playback === 'reverse') {
     chain += ',reverse';
   } else if (playback === 'boomerang') {
@@ -1066,6 +1070,25 @@ function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = 
     chain += ',split[fwd][bwd];[bwd]reverse[rev];[fwd][rev]concat=n=2';
   }
   return chain;
+}
+
+function captionFilters({ caption, fontFile, width }) {
+  if (!fontFile || !caption || (!caption.top && !caption.bottom)) return '';
+  const borderw = Math.max(2, Math.round(width / 120));
+  const base = `fontfile=${fontFile}:expansion=none:fontcolor=white:bordercolor=black:borderw=${borderw}:fontsize=h/9:x=(w-text_w)/2`;
+  const parts = [];
+  if (caption.top) parts.push(`drawtext=${base}:text='${escapeDrawtextText(caption.top)}':y=h*0.05`);
+  if (caption.bottom) parts.push(`drawtext=${base}:text='${escapeDrawtextText(caption.bottom)}':y=h*0.95-text_h`);
+  return parts.join(',');
+}
+
+function escapeDrawtextPath(filePath) {
+  return filePath.replace(/\\/g, '/').replace(/:/g, '\\:');
+}
+
+function escapeDrawtextText(text) {
+  // Single-quoted drawtext value with expansion=none: escape backslashes, then close/reopen quotes around apostrophes.
+  return text.replace(/\\/g, '\\\\').replace(/'/g, "'\\''");
 }
 
 function strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, optimizeEnabled = false, square = false }) {
@@ -1196,7 +1219,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-i',
       job.inputPath,
       '-vf',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '' })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
       '-frames:v',
       '1',
       '-y',
@@ -1220,7 +1243,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-i',
       palettePath,
       '-lavfi',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '' })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
       '-loop',
       String(job.settings.loopCount),
       '-y',
@@ -1243,7 +1266,7 @@ async function encodeWithApng({ job, attempt, outputPath, startSec, durationSec,
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop }),
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '' }),
       '-f',
       'apng',
       '-plays',
@@ -1276,7 +1299,7 @@ async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSe
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop }),
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '' }),
       '-pix_fmt',
       'yuv420p',
       '-f',
@@ -1607,6 +1630,11 @@ async function getRuntimeInfo() {
       path: gifsicleAvailable ? GIFSICLE_PATH : '',
       version: gifsicleVersion,
       license: 'gifsicle is GPL-2.0-licensed; GIFM does not bundle it and runs it as a separate process when present.'
+    },
+    font: {
+      available: existsSync(fontPath),
+      path: fontPath,
+      license: 'Anton font is bundled under the SIL Open Font License 1.1 (assets/fonts/Anton-OFL.txt).'
     }
   };
 }

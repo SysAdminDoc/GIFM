@@ -69,6 +69,10 @@ The unit test suite (`npm run test:unit`) covers the pure encoding-strategy logi
 The smoke test generates a small local MP4, uploads it to GIFM, waits for the job to finish, downloads the result, validates the GIF header, and checks that the file fits the configured byte target.
 The UI smoke test serves the built app and verifies the default English interface renders through the shared string catalog.
 
+## Bundled Font
+
+Caption overlays render with the Anton typeface bundled under the SIL Open Font License 1.1 at `assets/fonts/` (license text in `assets/fonts/Anton-OFL.txt`).
+
 ## Output Location
 
 Generated GIFs are stored under `data/output/`. Uploaded sources, smoke artifacts, and temporary work files stay under `data/`; the directory is ignored by Git.

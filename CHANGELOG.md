@@ -16,6 +16,7 @@
 - Added a batch "Download all" action that streams completed outputs as a single ZIP via a dependency-free store-method archive writer.
 - Added a Content-Security-Policy to the served UI and exposed a Bayer dither scale control (0-5).
 - Added an APNG output format and a Sticker 512 KB target that exports a square 320x320 animated PNG for Discord stickers.
+- Added top/bottom meme caption overlays rendered with a bundled SIL OFL font (Anton), burned into the output before scaling.
 
 ## v0.2.0 - 2026-06-22
 

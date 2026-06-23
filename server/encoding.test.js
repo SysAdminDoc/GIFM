@@ -12,6 +12,7 @@ import {
   dimensionLockForPreset,
   parseSettings,
   parseCrop,
+  parseCaption,
   resolveFormat,
   nextAttempt,
   isProtectedPath
@@ -132,6 +133,13 @@ test('parseCrop clamps the region and only enables a real sub-rectangle', () => 
   // Width is bounded so the rectangle stays inside the frame.
   assert.ok(Math.abs(parseCrop({ enabled: true, x: 0.8, w: 1 }).w - 0.2) < 1e-9);
   assert.equal(parseCrop(undefined).enabled, false);
+});
+
+test('parseCaption keeps printable text and strips control characters', () => {
+  assert.deepEqual(parseCaption({ top: 'HELLO - WORLD 100%', bottom: "it's fine" }), { top: 'HELLO - WORLD 100%', bottom: "it's fine" });
+  assert.equal(parseCaption({ top: 'line\nbreak' }).top, 'line break');
+  assert.equal(parseCaption({ top: 'x'.repeat(200) }).top.length, 120);
+  assert.deepEqual(parseCaption(undefined), { top: '', bottom: '' });
 });
 
 test('nextAttempt reduces width and colours while over target', () => {

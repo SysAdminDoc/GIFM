@@ -68,6 +68,7 @@ type Settings = {
   playback: Playback;
   crop: CropRect;
   format: OutputFormat;
+  caption: { top: string; bottom: string };
 };
 
 type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
@@ -146,6 +147,11 @@ type HealthInfo = {
     configured: boolean;
     path: string;
     version: string;
+    license: string;
+  };
+  font?: {
+    available: boolean;
+    path: string;
     license: string;
   };
   platform: {
@@ -249,7 +255,8 @@ const DEFAULT_SETTINGS: Settings = {
   speed: 1,
   playback: 'normal',
   crop: { enabled: false, x: 0, y: 0, w: 1, h: 1 },
-  format: 'gif'
+  format: 'gif',
+  caption: { top: '', bottom: '' }
 };
 
 const SETTINGS_KEY = 'gifm:settings:v1';
@@ -1074,6 +1081,18 @@ function SettingsPanel({
             : settings.targetPreset === 'avatar'
               ? <p className="profile-note">{STRINGS.settings.squareNote.avatar}</p>
               : null}
+
+        <label className="text-field">
+          <span>{STRINGS.settings.caption.top}</span>
+          <input type="text" maxLength={120} value={settings.caption.top} placeholder={STRINGS.settings.caption.placeholder} onChange={(event) => update('caption', { ...settings.caption, top: event.target.value })} />
+        </label>
+        <label className="text-field">
+          <span>{STRINGS.settings.caption.bottom}</span>
+          <input type="text" maxLength={120} value={settings.caption.bottom} placeholder={STRINGS.settings.caption.placeholder} onChange={(event) => update('caption', { ...settings.caption, bottom: event.target.value })} />
+        </label>
+        {(settings.caption.top || settings.caption.bottom) && health && health.font && !health.font.available
+          ? <p className="profile-note">{STRINGS.settings.caption.unavailable}</p>
+          : null}
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.encoding.title} description={STRINGS.settings.sections.encoding.description}>
@@ -2285,7 +2304,8 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     speed: clampNumber(Number(value.speed ?? DEFAULT_SETTINGS.speed), 0.25, 8),
     playback: isPlayback(value.playback) ? value.playback : DEFAULT_SETTINGS.playback,
     crop: normalizeCrop(value.crop),
-    format: value.format === 'apng' ? 'apng' : 'gif'
+    format: value.format === 'apng' ? 'apng' : 'gif',
+    caption: normalizeCaption(value.caption)
   };
 }
 
@@ -2303,6 +2323,12 @@ function isEncoderBackend(value: unknown): value is EncoderBackend {
 
 function isPlayback(value: unknown): value is Playback {
   return value === 'normal' || value === 'reverse' || value === 'boomerang';
+}
+
+function normalizeCaption(value: unknown): { top: string; bottom: string } {
+  const raw = (value && typeof value === 'object' ? value : {}) as { top?: unknown; bottom?: unknown };
+  const clean = (text: unknown) => String(text ?? '').replace(/[\r\n\t]+/g, ' ').slice(0, 120);
+  return { top: clean(raw.top), bottom: clean(raw.bottom) };
 }
 
 function normalizeCrop(value: unknown): CropRect {

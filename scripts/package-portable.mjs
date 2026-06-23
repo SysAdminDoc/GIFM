@@ -25,6 +25,7 @@ await fs.mkdir(path.join(portableDir, 'node'), { recursive: true });
 await Promise.all([
   fs.cp(path.join(rootDir, 'dist'), path.join(portableDir, 'dist'), { recursive: true }),
   fs.cp(path.join(rootDir, 'server'), path.join(portableDir, 'server'), { recursive: true }),
+  fs.cp(path.join(rootDir, 'assets'), path.join(portableDir, 'assets'), { recursive: true }),
   fs.cp(path.join(rootDir, 'node_modules'), path.join(portableDir, 'node_modules'), { recursive: true }),
   fs.copyFile(path.join(rootDir, 'package.json'), path.join(portableDir, 'package.json')),
   fs.copyFile(path.join(rootDir, 'package-lock.json'), path.join(portableDir, 'package-lock.json')),

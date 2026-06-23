@@ -593,6 +593,26 @@ textarea:focus-visible {
   accent-color: var(--cyan);
 }
 
+.text-field {
+  display: grid;
+  gap: 8px;
+}
+
+.text-field span {
+  color: var(--muted-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.text-field input {
+  height: 40px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 .range-field {
   display: grid;
   gap: 8px;

@@ -196,6 +196,12 @@ export const STRINGS = {
         boomerang: 'Boomerang'
       }
     },
+    caption: {
+      top: 'Top caption',
+      bottom: 'Bottom caption',
+      placeholder: 'Optional meme text',
+      unavailable: 'Caption font missing. Reinstall GIFM to restore assets/fonts.'
+    },
     crop: {
       label: 'Crop',
       description: 'Trim the frame to a region. The preview shows the kept area; sliders set position and size.',

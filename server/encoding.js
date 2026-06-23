@@ -114,8 +114,19 @@ export function parseSettings(raw, maxTrimStartSec = DEFAULT_MAX_TRIM_START_SEC)
     speed: clamp(Number(parsed.speed ?? 1), 0.25, 8),
     playback: ['normal', 'reverse', 'boomerang'].includes(parsed.playback) ? parsed.playback : 'normal',
     crop: parseCrop(parsed.crop),
-    format: resolveFormat(parsed.format, preset)
+    format: resolveFormat(parsed.format, preset),
+    caption: parseCaption(parsed.caption)
   };
+}
+
+export function parseCaption(value) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const clean = (text) => String(text ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[\u0000-\u001f]/g, '')
+    .trim()
+    .slice(0, 120);
+  return { top: clean(raw.top), bottom: clean(raw.bottom) };
 }
 
 export function parseCrop(value) {
