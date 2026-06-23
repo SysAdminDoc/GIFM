@@ -9,6 +9,7 @@
 - Extracted the pure encoding-strategy, settings, and retention helpers into `server/encoding.js` and added a `node:test` unit suite (`npm run test:unit`).
 - Added a Boosted 100 MB target preset for Level 3 server boost upload limits.
 - Upgraded lucide-react to v1.x for a smaller dependency footprint.
+- Improved auto-fit convergence with prediction-based frame-rate steps and deeper width cuts when far over target, reaching the size target in fewer encode passes.
 
 ## v0.2.0 - 2026-06-22
 

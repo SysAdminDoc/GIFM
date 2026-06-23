@@ -107,7 +107,10 @@ export function parseSettings(raw, maxTrimStartSec = DEFAULT_MAX_TRIM_START_SEC)
 
 export function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, allowLossy = false, durationSec, outputBytes, targetBytes, allowTrim, minWidth = 120 }) {
   const overRatio = outputBytes / targetBytes;
-  const scale = clamp(Math.sqrt(targetBytes / outputBytes) * 0.94, 0.68, 0.9);
+  // GIF size scales ~quadratically with width, so a sqrt step lands near the target in one pass.
+  // Allow a deeper cut when the output is far over target so far-over inputs converge in fewer encodes.
+  const minScale = overRatio > 3 ? 0.5 : 0.68;
+  const scale = clamp(Math.sqrt(targetBytes / outputBytes) * 0.94, minScale, 0.9);
   let nextWidth = even(Math.max(minWidth, width * scale));
   let nextFps = fps;
   let nextColors = colors;
@@ -119,7 +122,10 @@ export function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo,
   if (nextWidth >= width - 8) {
     nextWidth = width;
     if (nextFps > 6) {
-      nextFps = Math.max(6, nextFps - (overRatio > 1.6 ? 3 : 2));
+      // Size scales roughly linearly with frame rate; predict the fps that lands near the target,
+      // guaranteeing at least a one-step reduction so the loop always makes progress.
+      const predicted = Math.round(nextFps * clamp(targetBytes / outputBytes, 0.45, 0.85));
+      nextFps = Math.max(6, Math.min(nextFps - 1, predicted));
     } else if (nextColors > 32) {
       nextColors = Math.max(32, nextColors - (overRatio > 1.6 ? 32 : 16));
     } else if (allowLossy && nextGifsicleLossy < 160) {

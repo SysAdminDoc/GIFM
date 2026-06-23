@@ -103,6 +103,24 @@ test('nextAttempt reduces width and colours while over target', () => {
   assert.ok(next.colors <= 96);
 });
 
+test('nextAttempt predicts a frame-rate cut that lands near the target in one step', () => {
+  const next = nextAttempt({
+    width: 120, fps: 15, colors: 96, dedupeFrames: false, frameDropModulo: 0,
+    durationSec: 6, outputBytes: 20 * 1024 * 1024, targetBytes: 10 * 1024 * 1024, allowTrim: false, minWidth: 120
+  });
+  assert.ok(next);
+  assert.equal(next.fps, 8);
+});
+
+test('nextAttempt cuts width deeper when far over the target', () => {
+  const next = nextAttempt({
+    width: 800, fps: 15, colors: 96, dedupeFrames: false, frameDropModulo: 0,
+    durationSec: 6, outputBytes: 50 * 1024 * 1024, targetBytes: 10 * 1024 * 1024, allowTrim: false, minWidth: 120
+  });
+  assert.ok(next);
+  assert.equal(next.width, 400);
+});
+
 test('nextAttempt prefers lossy compression over dropping frames when allowed', () => {
   const next = nextAttempt({
     width: 120, fps: 6, colors: 32, dedupeFrames: false, frameDropModulo: 0,
