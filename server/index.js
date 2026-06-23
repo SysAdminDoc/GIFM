@@ -8,6 +8,20 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  ApiError,
+  targetProfiles,
+  clamp,
+  even,
+  formatBytes,
+  parseFrameRate,
+  parseLoopCount,
+  normalizeTargetPreset,
+  dimensionLockForPreset,
+  parseSettings as parseSettingsRaw,
+  nextAttempt,
+  isProtectedPath
+} from './encoding.js';
 
 const VERSION = '0.2.0';
 const PORT = parsePositiveInteger(process.env.GIFM_PORT ?? process.env.PORT, 4174);
@@ -34,14 +48,6 @@ const sources = new Map();
 const jobQueue = [];
 let runningJobs = 0;
 const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
-const targetProfiles = {
-  free: 10,
-  'nitro-basic': 50,
-  nitro: 500,
-  emoji: 256 / 1024,
-  avatar: 10,
-  custom: 10
-};
 
 await Promise.all([uploadDir, outputDir, workDir].map((dir) => fs.mkdir(dir, { recursive: true })));
 assertLocalBinding();
@@ -532,16 +538,6 @@ async function processJob(job) {
   log(job, `Complete with warning: ${formatBytes(finalStat.size)} exceeds target`);
 }
 
-class ApiError extends Error {
-  constructor(status, code, message, details) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
-
 function runUpload(request, response, next) {
   uploadMedia(request, response, (error) => {
     if (error) {
@@ -786,16 +782,6 @@ function sourceMetadata(metadata) {
   };
 }
 
-function parseFrameRate(raw) {
-  if (!raw || raw === '0/0') return null;
-  const [numerator, denominator] = String(raw).split('/').map(Number);
-  if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0) {
-    return numerator / denominator;
-  }
-  const value = Number(raw);
-  return Number.isFinite(value) && value > 0 ? value : null;
-}
-
 function readRotation(stream) {
   const tagged = Number(stream?.tags?.rotate);
   if (Number.isFinite(tagged)) return tagged;
@@ -986,116 +972,8 @@ async function directorySize(dir) {
   return total;
 }
 
-function isProtectedPath(entryPath, protectedPaths) {
-  const resolved = path.resolve(entryPath);
-  for (const protectedPath of protectedPaths) {
-    if (resolved === protectedPath) return true;
-    if (protectedPath.startsWith(`${resolved}${path.sep}`)) return true;
-    if (resolved.startsWith(`${protectedPath}${path.sep}`)) return true;
-  }
-  return false;
-}
-
 function parseSettings(raw) {
-  let parsed;
-  try {
-    parsed = typeof raw === 'string' ? JSON.parse(raw) : raw && typeof raw === 'object' ? raw : {};
-  } catch {
-    throw new ApiError(400, 'INVALID_SETTINGS', 'Settings must be valid JSON.');
-  }
-
-  const preset = normalizeTargetPreset(parsed.targetPreset);
-  const profileTargetMb = targetProfiles[preset] ?? targetProfiles.free;
-  const targetMb = preset === 'custom' ? clamp(Number(parsed.targetMb ?? profileTargetMb), 0.05, 500) : profileTargetMb;
-
-  return {
-    targetPreset: preset,
-    targetMb,
-    width: even(clamp(Number(parsed.width ?? 480), 120, 1280)),
-    fps: clamp(Number(parsed.fps ?? 15), 5, 30),
-    startSec: clamp(Number(parsed.startSec ?? 0), 0, MAX_TRIM_START_SEC),
-    durationSec: clamp(Number(parsed.durationSec ?? 6), 0.5, 60),
-    colors: clamp(Number(parsed.colors ?? 96), 16, 256),
-    dither: ['sierra2_4a', 'bayer', 'floyd_steinberg', 'none'].includes(parsed.dither) ? parsed.dither : 'sierra2_4a',
-    paletteMode: ['diff', 'full', 'single'].includes(parsed.paletteMode) ? parsed.paletteMode : 'diff',
-    encoderBackend: parsed.encoderBackend === 'gifski' ? 'gifski' : 'ffmpeg',
-    autoFit: Boolean(parsed.autoFit ?? true),
-    allowTrim: Boolean(parsed.allowTrim ?? false),
-    optimize: Boolean(parsed.optimize ?? true),
-    gifskiQuality: Math.round(clamp(Number(parsed.gifskiQuality ?? 90), 1, 100)),
-    loopCount: parseLoopCount(parsed.loopCount)
-  };
-}
-
-function parseLoopCount(value) {
-  const number = Math.round(Number(value));
-  if (!Number.isFinite(number)) return 0;
-  if (number <= -1) return -1;
-  return clamp(number, 0, 1000);
-}
-
-function normalizeTargetPreset(value) {
-  if (value === '10') return 'free';
-  if (value === '50') return 'nitro-basic';
-  return Object.hasOwn(targetProfiles, value) ? value : 'free';
-}
-
-function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, allowLossy = false, durationSec, outputBytes, targetBytes, allowTrim, minWidth = 120 }) {
-  const overRatio = outputBytes / targetBytes;
-  const scale = clamp(Math.sqrt(targetBytes / outputBytes) * 0.94, 0.68, 0.9);
-  let nextWidth = even(Math.max(minWidth, width * scale));
-  let nextFps = fps;
-  let nextColors = colors;
-  let nextDedupeFrames = dedupeFrames;
-  let nextFrameDropModulo = frameDropModulo;
-  let nextGifsicleLossy = gifsicleLossy;
-  let nextDuration = durationSec;
-
-  if (nextWidth >= width - 8) {
-    nextWidth = width;
-    if (nextFps > 6) {
-      nextFps = Math.max(6, nextFps - (overRatio > 1.6 ? 3 : 2));
-    } else if (nextColors > 32) {
-      nextColors = Math.max(32, nextColors - (overRatio > 1.6 ? 32 : 16));
-    } else if (allowLossy && nextGifsicleLossy < 160) {
-      // Lossy LZW compression preserves motion, so prefer it over dropping or trimming frames.
-      nextGifsicleLossy = nextGifsicleLossy === 0 ? 40 : Math.min(160, nextGifsicleLossy + 40);
-    } else if (!nextDedupeFrames) {
-      nextDedupeFrames = true;
-    } else if (nextFrameDropModulo === 0) {
-      nextFrameDropModulo = 5;
-    } else if (nextFrameDropModulo > 3) {
-      nextFrameDropModulo -= 1;
-    } else if (allowTrim && nextDuration > 1) {
-      nextDuration = Math.max(1, nextDuration * scale);
-    } else {
-      return null;
-    }
-  } else if (overRatio > 1.25 && nextColors > 64) {
-    nextColors = Math.max(64, nextColors - 16);
-  }
-
-  if (
-    nextWidth === width &&
-    nextFps === fps &&
-    nextColors === colors &&
-    nextDedupeFrames === dedupeFrames &&
-    nextFrameDropModulo === frameDropModulo &&
-    nextGifsicleLossy === gifsicleLossy &&
-    Math.abs(nextDuration - durationSec) < 0.05
-  ) {
-    return null;
-  }
-
-  return {
-    width: nextWidth,
-    fps: Math.round(nextFps),
-    colors: Math.round(nextColors),
-    dedupeFrames: nextDedupeFrames,
-    frameDropModulo: nextFrameDropModulo,
-    gifsicleLossy: nextGifsicleLossy,
-    durationSec: Number(nextDuration.toFixed(2))
-  };
+  return parseSettingsRaw(raw, MAX_TRIM_START_SEC);
 }
 
 function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false }) {
@@ -1114,12 +992,6 @@ function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = 
     filters.push(`scale=${width}:-2:flags=lanczos`);
   }
   return filters.join(',');
-}
-
-function dimensionLockForPreset(preset) {
-  if (preset === 'emoji') return { square: true, fixedWidth: 128, minWidth: 128, fpsMax: 30 };
-  if (preset === 'avatar') return { square: true, fixedWidth: 0, minWidth: 128, fpsMax: 30 };
-  return { square: false, fixedWidth: 0, minWidth: 120, fpsMax: 30 };
 }
 
 function strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, optimizeEnabled = false, square = false }) {
@@ -1653,11 +1525,6 @@ function toolVersion(toolPath, versionArg = '-version') {
   });
 }
 
-function clamp(value, min, max) {
-  const number = Number.isFinite(value) ? value : min;
-  return Math.min(max, Math.max(min, number));
-}
-
 function parseByteLimit(byteValue, mbValue, fallback) {
   const bytes = Number(byteValue);
   if (Number.isFinite(bytes) && bytes > 0) return Math.round(bytes);
@@ -1678,18 +1545,3 @@ function parsePositiveInteger(value, fallback) {
   return Number.isFinite(number) && number > 0 ? Math.round(number) : fallback;
 }
 
-function even(value) {
-  return Math.max(2, Math.round(value / 2) * 2);
-}
-
-function formatBytes(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-}

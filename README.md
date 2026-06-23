@@ -57,11 +57,14 @@ The portable artifact is written to `release/GIFM-v<version>-win-x64/` and zippe
 ```powershell
 npm run typecheck
 npm run build
+npm run test:unit
 npm run test:smoke
 npm run test:ui
 npm run package:portable
 npm run package:smoke
 ```
+
+The unit test suite (`npm run test:unit`) covers the pure encoding-strategy logic in `server/encoding.js`: auto-fit attempt stepping, settings parsing/clamping, target presets, square dimension locks, and protected-path retention matching.
 
 The smoke test generates a small local MP4, uploads it to GIFM, waits for the job to finish, downloads the result, validates the GIF header, and checks that the file fits the configured byte target.
 The UI smoke test serves the built app and verifies the default English interface renders through the shared string catalog.
