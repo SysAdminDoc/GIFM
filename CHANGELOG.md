@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.3.0 - 2026-06-23
+
 - Added an optional gifsicle `-O3` post-optimization pass with lossy LZW compression as an auto-fit lever, detected from `PATH` or `GIFM_GIFSICLE_PATH`, surfaced as an "Optimize with gifsicle" toggle and an optimizer diagnostics row.
 - Added a GIF loop control (infinite, play once, or a fixed loop count) applied through the FFmpeg and gifski encoders.
 - Added a gifski quality slider, replacing the hardcoded quality value when the gifski backend is selected.

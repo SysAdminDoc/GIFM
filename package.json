@@ -1,8 +1,8 @@
 {
   "name": "gifm",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": false,
-  "description": "GIFM v0.2.0 - local Discord-ready GIF maker and compressor.",
+  "description": "GIFM v0.3.0 - local Discord-ready GIF maker and compressor.",
   "type": "module",
   "engines": {
     "node": ">=20"

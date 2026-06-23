@@ -34,7 +34,7 @@ import {
 import { probeClientMedia } from './clientPreflight';
 import { STRINGS, setActiveLocale, LOCALE_LABELS, type Locale } from './strings';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const TARGET_PROFILES = STRINGS.target.profiles;
 const SPEED_OPTIONS = [0.25, 0.5, 1, 1.5, 2, 3, 4];
 
