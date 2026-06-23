@@ -1011,13 +1011,21 @@ textarea:focus-visible {
   gap: 8px;
 }
 
-.url-import input {
+.url-import input,
+.webhook-row input {
   height: 40px;
   padding: 0 12px;
   color: var(--text);
   background: var(--surface-soft);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.webhook-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .visually-hidden {

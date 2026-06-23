@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added optional "Send to Discord" webhook upload from a completed output, validating the webhook URL against an https Discord-host allowlist (no SSRF) and the 10 MiB webhook cap.
 - Added URL import: paste a video URL to download it via yt-dlp (from PATH or `GIFM_YTDLP_PATH`) and stage it as a prepared source; missing yt-dlp degrades gracefully.
 - Added rotate (90/180/270) and horizontal/vertical flip controls.
 - Added color filters (grayscale, invert, sepia) and a saturation slider.

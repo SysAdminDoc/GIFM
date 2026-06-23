@@ -129,6 +129,8 @@ try {
     throw new Error(`Expected smoke GIF in custom output directory, found ${JSON.stringify(outputFiles)}`);
   }
 
+  await assertWebhookValidation(job.id);
+
   console.log(`Smoke passed: ${gifBytes.length} bytes, ${job.attempts.length} attempt(s).`);
 } finally {
   server.kill();
@@ -289,6 +291,23 @@ async function assertTrimStartAdjustment() {
   }
   if (!job.warnings.some((warning) => warning.includes('adjusted'))) {
     throw new Error(`Expected trim adjustment warning, got ${JSON.stringify(job.warnings, null, 2)}`);
+  }
+}
+
+async function assertWebhookValidation(jobId) {
+  // The webhook endpoint must reject non-Discord and non-https URLs (SSRF guard) before attempting any POST.
+  const cases = [
+    { url: 'https://evil.example.com/api/webhooks/1/abc', code: 'INVALID_WEBHOOK' },
+    { url: 'http://discord.com/api/webhooks/1/abc', code: 'INVALID_WEBHOOK' },
+    { url: 'https://discord.com/not-a-webhook', code: 'INVALID_WEBHOOK' }
+  ];
+  for (const testCase of cases) {
+    const response = await fetch(`${baseUrl}/api/jobs/${jobId}/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhookUrl: testCase.url })
+    });
+    await expectApiError(response, 400, testCase.code);
   }
 }
 

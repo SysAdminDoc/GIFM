@@ -394,6 +394,59 @@ app.post('/api/jobs/:id/reveal', (request, response) => {
   response.json({ ok: true });
 });
 
+const DISCORD_WEBHOOK_MAX_BYTES = 10 * 1024 * 1024;
+
+app.post('/api/jobs/:id/webhook', async (request, response, next) => {
+  try {
+    const job = jobs.get(request.params.id);
+    if (!job || job.status !== 'complete' || !job.outputPath || !existsSync(job.outputPath)) {
+      sendApiError(response, new ApiError(404, 'OUTPUT_NOT_FOUND', 'Output not found.'));
+      return;
+    }
+
+    const webhookUrl = typeof request.body?.webhookUrl === 'string' ? request.body.webhookUrl.trim() : '';
+    if (!isDiscordWebhookUrl(webhookUrl)) {
+      sendApiError(response, new ApiError(400, 'INVALID_WEBHOOK', 'Enter a valid Discord webhook URL (https://discord.com/api/webhooks/...).'));
+      return;
+    }
+
+    const stat = await fs.stat(job.outputPath);
+    if (stat.size > DISCORD_WEBHOOK_MAX_BYTES) {
+      sendApiError(response, new ApiError(413, 'WEBHOOK_TOO_LARGE', `Discord webhooks accept up to ${formatBytes(DISCORD_WEBHOOK_MAX_BYTES)}; this output is ${formatBytes(stat.size)}.`));
+      return;
+    }
+
+    const ext = path.extname(job.outputPath).toLowerCase();
+    const format = ext === '.png' ? 'apng' : ext === '.webp' ? 'webp' : ext === '.mp4' ? 'mp4' : 'gif';
+    const mime = format === 'apng' ? 'image/apng' : format === 'webp' ? 'image/webp' : format === 'mp4' ? 'video/mp4' : 'image/gif';
+    const fileBytes = await fs.readFile(job.outputPath);
+    const form = new FormData();
+    form.set('files[0]', new Blob([fileBytes], { type: mime }), downloadName(job.inputName, format));
+
+    const discordResponse = await fetch(webhookUrl, { method: 'POST', body: form });
+    if (!discordResponse.ok) {
+      const detail = (await discordResponse.text().catch(() => '')).slice(0, 200);
+      sendApiError(response, new ApiError(502, 'WEBHOOK_REJECTED', `Discord rejected the upload (${discordResponse.status}). ${detail}`.trim()));
+      return;
+    }
+
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+function isDiscordWebhookUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  const allowedHosts = new Set(['discord.com', 'discordapp.com', 'canary.discord.com', 'ptb.discord.com']);
+  return parsed.protocol === 'https:' && allowedHosts.has(parsed.host) && parsed.pathname.startsWith('/api/webhooks/');
+}
+
 if (existsSync(distDir)) {
   app.use(express.static(distDir));
   app.use((request, response, next) => {

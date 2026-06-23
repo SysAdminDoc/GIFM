@@ -756,6 +756,24 @@ function GifmApp() {
     setNotice(response.ok ? STRINGS.notices.outputOpened : await readApiError(response, STRINGS.errors.outputOpenFailed));
   };
 
+  const sendToWebhook = async (webhookUrl: string) => {
+    if (!job || job.status !== 'complete') return;
+    setNotice(STRINGS.notices.webhookSending);
+    try {
+      const response = await fetch(`/api/jobs/${job.id}/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhookUrl })
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response, STRINGS.errors.webhookFailed));
+      }
+      setNotice(STRINGS.notices.webhookSent);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : STRINGS.errors.webhookFailed);
+    }
+  };
+
   const saveOutputAs = async (targetJob: Job) => {
     if (!targetJob.downloadUrl) return;
 
@@ -1017,6 +1035,7 @@ function GifmApp() {
           crop={settings.crop}
           onReveal={revealOutput}
           onSaveAs={saveOutputAs}
+          onSendWebhook={sendToWebhook}
           onCopyText={copyText}
           onPreviewTime={setPreviewTime}
           previewSeekTime={previewSeekTime}
@@ -1422,6 +1441,29 @@ function NumberField({
         <em>{suffix}</em>
       </div>
     </label>
+  );
+}
+
+const WEBHOOK_KEY = 'gifm:webhook:v1';
+
+function WebhookRow({ onSend }: { onSend: (webhookUrl: string) => void }) {
+  const [url, setUrl] = useState(() => readStorage<string>(WEBHOOK_KEY) ?? '');
+  useEffect(() => {
+    writeStorage(WEBHOOK_KEY, url);
+  }, [url]);
+  return (
+    <div className="webhook-row">
+      <input
+        type="url"
+        value={url}
+        placeholder={STRINGS.output.webhookPlaceholder}
+        aria-label={STRINGS.output.webhookAria}
+        onChange={(event) => setUrl(event.target.value)}
+      />
+      <button type="button" className="secondary-button" disabled={!url.trim()} onClick={() => onSend(url.trim())}>
+        {STRINGS.output.sendToDiscord}
+      </button>
+    </div>
   );
 }
 
@@ -1866,6 +1908,7 @@ function PreviewPanel({
   outputFit,
   onReveal,
   onSaveAs,
+  onSendWebhook,
   onCopyText,
   onPreviewTime,
   previewSeekTime,
@@ -1881,6 +1924,7 @@ function PreviewPanel({
   crop: CropRect;
   onReveal: () => void;
   onSaveAs: (job: Job) => void;
+  onSendWebhook: (webhookUrl: string) => void;
   onCopyText: (text: string, successMessage: string) => void;
   onPreviewTime: (seconds: number) => void;
   previewSeekTime: number | null;
@@ -1974,6 +2018,7 @@ function PreviewPanel({
             <button type="button" className="secondary-button alt-copy" onClick={() => onCopyText(altText, STRINGS.notices.altTextCopied)}>
               {STRINGS.output.copyAltText}
             </button>
+            <WebhookRow onSend={onSendWebhook} />
           </>
         ) : job?.status === 'failed' ? (
           <>
