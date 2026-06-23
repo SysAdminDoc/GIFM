@@ -7,6 +7,7 @@ export const DEFAULT_MAX_TRIM_START_SEC = 24 * 60 * 60;
 export const targetProfiles = {
   free: 10,
   'nitro-basic': 50,
+  boosted: 100,
   nitro: 500,
   emoji: 256 / 1024,
   avatar: 10,

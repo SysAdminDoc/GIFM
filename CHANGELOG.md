@@ -7,6 +7,7 @@
 - Added a gifski quality slider, replacing the hardcoded quality value when the gifski backend is selected.
 - Pinned the emoji target to a square 128x128 output and the avatar target to a square output via center-crop, so dimension-constrained Discord targets produce valid GIFs.
 - Extracted the pure encoding-strategy, settings, and retention helpers into `server/encoding.js` and added a `node:test` unit suite (`npm run test:unit`).
+- Added a Boosted 100 MB target preset for Level 3 server boost upload limits.
 
 ## v0.2.0 - 2026-06-22
 

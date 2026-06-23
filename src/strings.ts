@@ -64,6 +64,7 @@ export const STRINGS = {
     profiles: [
       { id: 'free', label: 'Free 10 MB', targetMb: 10, description: 'Standard account file uploads.' },
       { id: 'nitro-basic', label: 'Basic 50 MB', targetMb: 50, description: 'Nitro Basic file sharing limit.' },
+      { id: 'boosted', label: 'Boosted 100 MB', targetMb: 100, description: 'Level 3 server boost upload limit.' },
       { id: 'nitro', label: 'Nitro 500 MB', targetMb: 500, description: 'Full Nitro file sharing limit.' },
       { id: 'emoji', label: 'Emoji 256 KB', targetMb: 256 / 1024, description: 'Custom animated emoji upload ceiling.' },
       { id: 'avatar', label: 'Icon/avatar 10 MB', targetMb: 10, description: 'Square GIF guidance for avatars and server icons.' },
