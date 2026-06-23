@@ -10,7 +10,15 @@ export const STRINGS = {
     ffmpegReady: 'FFmpeg ready',
     ffmpegUnavailable: 'FFmpeg unavailable',
     runtimePending: 'Checking runtime',
-    targetStatus: (label: string, size: string) => label === 'Custom' ? `Custom target ${size}` : `${label} target`
+    targetStatus: (label: string, size: string) => label === 'Custom' ? `Custom target ${size}` : `${label} target`,
+    theme: {
+      label: 'Theme',
+      options: {
+        dark: 'Dark',
+        light: 'Light',
+        highContrast: 'High contrast'
+      }
+    }
   },
   errors: {
     fatalTitle: 'GIFM stopped rendering',

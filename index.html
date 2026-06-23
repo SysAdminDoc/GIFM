@@ -11,6 +11,20 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <title>GIFM v0.2.0</title>
+    <script>
+      // Apply the stored (or OS-preferred) theme before paint to avoid a flash of the wrong theme.
+      (function () {
+        try {
+          var stored = JSON.parse(localStorage.getItem('gifm:theme:v1'));
+          var theme = stored === 'light' || stored === 'high-contrast' || stored === 'dark'
+            ? stored
+            : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+          document.documentElement.dataset.theme = theme;
+        } catch (error) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -42,6 +42,7 @@ type TargetPreset = typeof TARGET_PROFILES[number]['id'];
 type DitherMode = 'sierra2_4a' | 'bayer' | 'floyd_steinberg' | 'none';
 type PaletteMode = 'diff' | 'full' | 'single';
 type EncoderBackend = 'ffmpeg' | 'gifski';
+type Theme = 'dark' | 'light' | 'high-contrast';
 type Playback = 'normal' | 'reverse' | 'boomerang';
 type CropRect = { enabled: boolean; x: number; y: number; w: number; h: number };
 
@@ -249,6 +250,7 @@ const DEFAULT_SETTINGS: Settings = {
 const SETTINGS_KEY = 'gifm:settings:v1';
 const PRESETS_KEY = 'gifm:presets:v1';
 const RECENTS_KEY = 'gifm:recents:v1';
+const THEME_KEY = 'gifm:theme:v1';
 const MAX_RECENT_OUTPUTS = 8;
 const MAX_TRIM_START_SEC = 24 * 60 * 60;
 
@@ -311,7 +313,13 @@ function GifmApp() {
   const [probeBusy, setProbeBusy] = useState(false);
   const [previewTime, setPreviewTime] = useState(0);
   const [previewSeekTime, setPreviewSeekTime] = useState<number | null>(null);
+  const [theme, setTheme] = useState<Theme>(() => loadTheme());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    writeStorage(THEME_KEY, theme);
+  }, [theme]);
 
   useEffect(() => {
     writeStorage(SETTINGS_KEY, settings);
@@ -796,6 +804,14 @@ function GifmApp() {
               {STRINGS.app.targetStatus(activeProfile.label, formatBytes(targetBytes))}
             </span>
           </div>
+          <label className="theme-select">
+            <span className="visually-hidden">{STRINGS.app.theme.label}</span>
+            <select value={theme} onChange={(event) => setTheme(event.target.value as Theme)} aria-label={STRINGS.app.theme.label}>
+              <option value="dark">{STRINGS.app.theme.options.dark}</option>
+              <option value="light">{STRINGS.app.theme.options.light}</option>
+              <option value="high-contrast">{STRINGS.app.theme.options.highContrast}</option>
+            </select>
+          </label>
         </div>
       </header>
 
@@ -2169,6 +2185,14 @@ function clipSettings(settings: Settings, clip: TimelineClip): Settings {
 
 function loadSettings() {
   return normalizeSettings(readStorage<Partial<Settings>>(SETTINGS_KEY) ?? DEFAULT_SETTINGS);
+}
+
+function loadTheme(): Theme {
+  const stored = readStorage<Theme>(THEME_KEY);
+  if (stored === 'dark' || stored === 'light' || stored === 'high-contrast') return stored;
+  // First load with no stored choice: respect the OS preference.
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
+  return 'dark';
 }
 
 function loadPresets() {

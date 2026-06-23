@@ -12,6 +12,7 @@
 - Improved auto-fit convergence with prediction-based frame-rate steps and deeper width cuts when far over target, reaching the size target in fewer encode passes.
 - Added a playback speed control (0.25x-4x) and reverse/boomerang playback modes, applied through both the FFmpeg and gifski pipelines and accounted for in the size estimate.
 - Added a crop control with a live preview overlay and position/size sliders that crops the source region before scaling.
+- Added persisted light and high-contrast themes with a topbar theme selector, OS-preference detection on first load, and a flash-free pre-paint theme apply.
 
 ## v0.2.0 - 2026-06-22
 
