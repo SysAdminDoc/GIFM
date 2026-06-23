@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added an optional gifsicle `-O3` post-optimization pass with lossy LZW compression as an auto-fit lever, detected from `PATH` or `GIFM_GIFSICLE_PATH`, surfaced as an "Optimize with gifsicle" toggle and an optimizer diagnostics row.
+
 ## v0.2.0 - 2026-06-22
 
 - Added a timeline editor with timecode fields, playhead-aware start/end marking, a visual selection rail, saved GIF cuts, and per-cut or all-cuts export actions.

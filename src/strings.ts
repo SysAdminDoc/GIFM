@@ -140,6 +140,11 @@ export const STRINGS = {
     allowTrim: {
       label: 'Allow duration trim',
       description: 'Only trims when every visual-quality lever is exhausted.'
+    },
+    optimize: {
+      label: 'Optimize with gifsicle',
+      description: 'Run a gifsicle -O3 pass and use lossy compression as an auto-fit lever for smaller GIFs.',
+      unavailable: 'gifsicle not detected. Install gifsicle on PATH or set GIFM_GIFSICLE_PATH to enable optimization.'
     }
   },
   input: {
@@ -278,6 +283,8 @@ export const STRINGS = {
     ffmpeg: 'FFmpeg',
     ffprobe: 'FFprobe',
     encoder: 'Encoder',
+    optimizer: 'Optimizer',
+    optimizerUnavailable: 'gifsicle not detected',
     platform: 'Platform',
     estimate: 'Estimate',
     unknown: 'Unknown',

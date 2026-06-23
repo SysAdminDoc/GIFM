@@ -81,6 +81,15 @@ npm run dev
 
 The Encoder setting then exposes `gifski` beside the default FFmpeg palette encoder. gifski is AGPL-licensed unless you use a commercial license, so verify the license before redistributing any package that includes or depends on it.
 
+## Optional gifsicle Optimization
+
+GIFM does not bundle gifsicle either. When a `gifsicle` binary is on `PATH` (or `GIFM_GIFSICLE_PATH` points at one), the "Optimize with gifsicle" setting runs a `gifsicle -O3` pass on each encode and uses lossy LZW compression (`--lossy`) as an additional auto-fit lever, which significantly improves the chance of hitting tight targets such as the 256 KB emoji ceiling. gifsicle runs as a separate process and is GPL-2.0-licensed; verify the license before redistributing a package that depends on it.
+
+```powershell
+$env:GIFM_GIFSICLE_PATH = "C:\Tools\gifsicle.exe"
+npm run dev
+```
+
 ## Local Safety Controls
 
 GIFM binds to `127.0.0.1` by default and rejects non-local hosts unless `GIFM_ALLOW_REMOTE=1` is set on a trusted network. Uploads are limited to 20 GB by default and are checked before FFmpeg runs.

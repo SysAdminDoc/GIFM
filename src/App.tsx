@@ -55,6 +55,7 @@ type Settings = {
   encoderBackend: EncoderBackend;
   autoFit: boolean;
   allowTrim: boolean;
+  optimize: boolean;
 };
 
 type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
@@ -124,6 +125,13 @@ type HealthInfo = {
   };
   gifski: {
     available: boolean;
+    path: string;
+    version: string;
+    license: string;
+  };
+  gifsicle?: {
+    available: boolean;
+    configured: boolean;
     path: string;
     version: string;
     license: string;
@@ -221,7 +229,8 @@ const DEFAULT_SETTINGS: Settings = {
   paletteMode: 'diff',
   encoderBackend: 'ffmpeg',
   autoFit: true,
-  allowTrim: false
+  allowTrim: false,
+  optimize: true
 };
 
 const SETTINGS_KEY = 'gifm:settings:v1';
@@ -1040,6 +1049,15 @@ function SettingsPanel({
           checked={settings.allowTrim}
           onChange={(checked) => update('allowTrim', checked)}
         />
+        <ToggleField
+          label={STRINGS.settings.optimize.label}
+          description={STRINGS.settings.optimize.description}
+          checked={settings.optimize}
+          onChange={(checked) => update('optimize', checked)}
+        />
+        {!health?.gifsicle?.available
+          ? <p className="profile-note">{STRINGS.settings.optimize.unavailable}</p>
+          : null}
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.presets.title} description={STRINGS.settings.sections.presets.description}>
@@ -1822,6 +1840,7 @@ function DiagnosticsPanel({
         <span>{STRINGS.diagnostics.ffmpeg} <strong>{health?.ffmpeg.version ?? STRINGS.diagnostics.unknown}</strong></span>
         <span>{STRINGS.diagnostics.ffprobe} <strong>{health?.ffprobe.version ?? STRINGS.diagnostics.unknown}</strong></span>
         <span>{STRINGS.diagnostics.encoder} <strong>{encoderHealthLabel(settings, health)}</strong></span>
+        <span>{STRINGS.diagnostics.optimizer} <strong>{optimizerHealthLabel(health)}</strong></span>
         <span>{STRINGS.diagnostics.platform} <strong>{health ? `${health.platform.os}/${health.platform.arch}` : STRINGS.diagnostics.unknown}</strong></span>
         <span>{STRINGS.diagnostics.estimate} <strong>{sourceMeta ? formatBytes(estimateOutputBytes(settings, sourceMeta)) : STRINGS.diagnostics.emptyValue}</strong></span>
       </div>
@@ -1862,6 +1881,12 @@ function estimateOutputBytes(settings: Settings, sourceMeta: SourceMeta) {
   const frames = Math.max(1, duration * settings.fps);
   const paletteFactor = clampNumber(settings.colors / 256, 0.15, 1);
   return Math.round(settings.width * height * frames * 0.18 * paletteFactor);
+}
+
+function optimizerHealthLabel(health: HealthInfo | null) {
+  if (!health) return STRINGS.diagnostics.unknown;
+  if (health.gifsicle?.available) return `gifsicle ${health.gifsicle.version}`;
+  return STRINGS.diagnostics.optimizerUnavailable;
 }
 
 function downloadDiagnosticJson(json: string) {
@@ -2065,7 +2090,8 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     paletteMode: isPaletteMode(value.paletteMode) ? value.paletteMode : DEFAULT_SETTINGS.paletteMode,
     encoderBackend: isEncoderBackend(value.encoderBackend) ? value.encoderBackend : DEFAULT_SETTINGS.encoderBackend,
     autoFit: Boolean(value.autoFit ?? DEFAULT_SETTINGS.autoFit),
-    allowTrim: Boolean(value.allowTrim ?? DEFAULT_SETTINGS.allowTrim)
+    allowTrim: Boolean(value.allowTrim ?? DEFAULT_SETTINGS.allowTrim),
+    optimize: Boolean(value.optimize ?? DEFAULT_SETTINGS.optimize)
   };
 }
 

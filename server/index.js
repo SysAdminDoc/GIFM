@@ -14,6 +14,8 @@ const PORT = parsePositiveInteger(process.env.GIFM_PORT ?? process.env.PORT, 417
 const HOST = (process.env.GIFM_HOST ?? '127.0.0.1').trim() || '127.0.0.1';
 const ALLOW_REMOTE = process.env.GIFM_ALLOW_REMOTE === '1';
 const GIFSKI_PATH = process.env.GIFM_GIFSKI_PATH ? path.resolve(process.env.GIFM_GIFSKI_PATH) : '';
+const GIFSICLE_CONFIGURED = Boolean(process.env.GIFM_GIFSICLE_PATH);
+const GIFSICLE_PATH = GIFSICLE_CONFIGURED ? path.resolve(process.env.GIFM_GIFSICLE_PATH) : 'gifsicle';
 const MAX_UPLOAD_BYTES = parseByteLimit(process.env.GIFM_MAX_UPLOAD_BYTES, process.env.GIFM_MAX_UPLOAD_MB, 20 * 1024 * 1024 * 1024);
 const DATA_MAX_BYTES = parseByteLimit(process.env.GIFM_DATA_MAX_BYTES, process.env.GIFM_DATA_MAX_MB, 25 * 1024 * 1024 * 1024);
 const DATA_MAX_AGE_MS = parseHours(process.env.GIFM_DATA_MAX_AGE_HOURS, 24) * 60 * 60 * 1000;
@@ -90,6 +92,7 @@ app.get('/api/health', (_request, response) => {
     ffmpeg: runtimeInfo.ffmpeg,
     ffprobe: runtimeInfo.ffprobe,
     gifski: runtimeInfo.gifski,
+    gifsicle: runtimeInfo.gifsicle,
     platform: runtimeInfo.platform,
     host: HOST,
     remoteAllowed: ALLOW_REMOTE,
@@ -402,7 +405,9 @@ async function processJob(job) {
   let colors = Math.round(clamp(job.settings.colors, 16, 256));
   let dedupeFrames = false;
   let frameDropModulo = 0;
-  const maxAttempts = job.settings.autoFit ? 9 : 1;
+  let gifsicleLossy = 0;
+  const optimizeEnabled = job.settings.optimize && runtimeInfo.gifsicle.available;
+  const maxAttempts = job.settings.autoFit ? 10 : 1;
   let lastOutputPath = '';
   let bestOutputPath = '';
   let bestOutputBytes = Number.POSITIVE_INFINITY;
@@ -416,9 +421,9 @@ async function processJob(job) {
     const palettePattern = path.join(attemptWorkDir, `palette-${attempt}-%03d.png`);
     const outputPath = path.join(outputDir, `${safeBaseName(job.inputName)}-${job.id.slice(0, 8)}-a${attempt}.gif`);
     trackOutputCandidate(job, outputPath);
-    const strategy = strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo });
+    const strategy = strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy, optimizeEnabled });
 
-    const attemptRecord = { attempt, width, fps, colors, durationSec, strategy, dedupeFrames, frameDropModulo };
+    const attemptRecord = { attempt, width, fps, colors, durationSec, strategy, dedupeFrames, frameDropModulo, gifsicleLossy };
     job.attempts.push(attemptRecord);
     job.stage = job.settings.encoderBackend === 'gifski' ? `Attempt ${attempt}: gifski` : `Attempt ${attempt}: palette`;
     log(job, `Attempt ${attempt}: ${width}px, ${fps} fps, ${colors} colors, ${durationSec.toFixed(2)} sec, ${strategy}`);
@@ -429,6 +434,11 @@ async function processJob(job) {
       await encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, outputPath, startSec, durationSec, width, fps, colors, dedupeFrames, frameDropModulo });
     }
     checkCancelled(job);
+
+    if (optimizeEnabled) {
+      await optimizeOutput({ job, attempt, outputPath, lossy: gifsicleLossy });
+      checkCancelled(job);
+    }
 
     const stat = await fs.stat(outputPath);
     attemptRecord.outputBytes = stat.size;
@@ -470,6 +480,8 @@ async function processJob(job) {
       colors,
       dedupeFrames,
       frameDropModulo,
+      gifsicleLossy,
+      allowLossy: optimizeEnabled,
       durationSec,
       outputBytes: stat.size,
       targetBytes: job.targetBytes,
@@ -486,6 +498,7 @@ async function processJob(job) {
     colors = next.colors;
     dedupeFrames = next.dedupeFrames;
     frameDropModulo = next.frameDropModulo;
+    gifsicleLossy = next.gifsicleLossy;
     durationSec = next.durationSec;
   }
 
@@ -1003,7 +1016,8 @@ function parseSettings(raw) {
     paletteMode: ['diff', 'full', 'single'].includes(parsed.paletteMode) ? parsed.paletteMode : 'diff',
     encoderBackend: parsed.encoderBackend === 'gifski' ? 'gifski' : 'ffmpeg',
     autoFit: Boolean(parsed.autoFit ?? true),
-    allowTrim: Boolean(parsed.allowTrim ?? false)
+    allowTrim: Boolean(parsed.allowTrim ?? false),
+    optimize: Boolean(parsed.optimize ?? true)
   };
 }
 
@@ -1013,7 +1027,7 @@ function normalizeTargetPreset(value) {
   return Object.hasOwn(targetProfiles, value) ? value : 'free';
 }
 
-function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, durationSec, outputBytes, targetBytes, allowTrim }) {
+function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, allowLossy = false, durationSec, outputBytes, targetBytes, allowTrim }) {
   const overRatio = outputBytes / targetBytes;
   const scale = clamp(Math.sqrt(targetBytes / outputBytes) * 0.94, 0.68, 0.9);
   let nextWidth = even(Math.max(120, width * scale));
@@ -1021,6 +1035,7 @@ function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, durati
   let nextColors = colors;
   let nextDedupeFrames = dedupeFrames;
   let nextFrameDropModulo = frameDropModulo;
+  let nextGifsicleLossy = gifsicleLossy;
   let nextDuration = durationSec;
 
   if (nextWidth >= width - 8) {
@@ -1029,6 +1044,9 @@ function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, durati
       nextFps = Math.max(6, nextFps - (overRatio > 1.6 ? 3 : 2));
     } else if (nextColors > 32) {
       nextColors = Math.max(32, nextColors - (overRatio > 1.6 ? 32 : 16));
+    } else if (allowLossy && nextGifsicleLossy < 160) {
+      // Lossy LZW compression preserves motion, so prefer it over dropping or trimming frames.
+      nextGifsicleLossy = nextGifsicleLossy === 0 ? 40 : Math.min(160, nextGifsicleLossy + 40);
     } else if (!nextDedupeFrames) {
       nextDedupeFrames = true;
     } else if (nextFrameDropModulo === 0) {
@@ -1050,6 +1068,7 @@ function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, durati
     nextColors === colors &&
     nextDedupeFrames === dedupeFrames &&
     nextFrameDropModulo === frameDropModulo &&
+    nextGifsicleLossy === gifsicleLossy &&
     Math.abs(nextDuration - durationSec) < 0.05
   ) {
     return null;
@@ -1061,6 +1080,7 @@ function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, durati
     colors: Math.round(nextColors),
     dedupeFrames: nextDedupeFrames,
     frameDropModulo: nextFrameDropModulo,
+    gifsicleLossy: nextGifsicleLossy,
     durationSec: Number(nextDuration.toFixed(2))
   };
 }
@@ -1077,12 +1097,76 @@ function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo }) {
   return filters.join(',');
 }
 
-function strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo }) {
+function strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, optimizeEnabled = false }) {
   const parts = [`${width}px`, `${fps}fps`, `${colors} colors`];
   if (dedupeFrames) parts.push('dedupe frames');
   if (frameDropModulo > 0) parts.push(`drop every ${frameDropModulo}th frame`);
   parts.push('transparency rectangles');
+  if (optimizeEnabled) parts.push(gifsicleLossy > 0 ? `gifsicle -O3 --lossy=${gifsicleLossy}` : 'gifsicle -O3');
   return parts.join(' / ');
+}
+
+async function optimizeOutput({ job, attempt, outputPath, lossy }) {
+  const stage = `Attempt ${attempt}: optimize`;
+  job.stage = stage;
+  const tempPath = `${outputPath}.opt.gif`;
+  try {
+    await runGifsicle(outputPath, tempPath, lossy, job, stage);
+    const optimized = await fs.stat(tempPath).catch(() => null);
+    if (optimized && optimized.size > 0) {
+      await fs.rm(outputPath, { force: true });
+      await fs.rename(tempPath, outputPath);
+      log(job, `Attempt ${attempt}: gifsicle -O3${lossy > 0 ? ` --lossy=${lossy}` : ''} -> ${formatBytes(optimized.size)}`);
+      return;
+    }
+    await removeFile(tempPath);
+  } catch (error) {
+    if (isCancellationError(error)) {
+      await removeFile(tempPath);
+      throw error;
+    }
+    // A failed optimization must never fail the encode; keep the unoptimized GIF.
+    await removeFile(tempPath);
+    log(job, `Attempt ${attempt}: gifsicle optimization skipped (${error instanceof Error ? error.message : String(error)})`);
+  }
+}
+
+function runGifsicle(inputPath, outputPath, lossy, job, stage) {
+  return new Promise((resolve, reject) => {
+    if (job.cancelRequested || job.status === 'cancelled') {
+      reject(cancelError());
+      return;
+    }
+
+    const args = ['-O3'];
+    if (lossy > 0) args.push(`--lossy=${Math.round(lossy)}`);
+    args.push(inputPath, '-o', outputPath);
+    const child = spawn(runtimeInfo.gifsicle.path, args, { windowsHide: true });
+    recordCommand(job, stage, args, runtimeInfo.gifsicle.path);
+    trackChild(job, child);
+    let stderr = '';
+
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (error) => {
+      clearTrackedChild(job, child);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTrackedChild(job, child);
+      if (job.cancelRequested || job.status === 'cancelled') {
+        reject(cancelError());
+        return;
+      }
+
+      if (code !== 0) {
+        reject(new Error(stderr.trim().split(/\r?\n/).slice(-4).join('\n') || `gifsicle exited with code ${code}`));
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 function trimArgs(startSec, durationSec) {
@@ -1482,11 +1566,15 @@ async function removeDirectory(dirPath) {
 async function getRuntimeInfo() {
   const gifskiConfigured = Boolean(GIFSKI_PATH);
   const gifskiAvailable = gifskiConfigured && existsSync(GIFSKI_PATH);
-  const [ffmpegVersion, ffprobeVersion, gifskiVersion] = await Promise.all([
+  // gifsicle may be a bare PATH lookup, so probe its version directly rather than checking existsSync.
+  const gifsicleReachable = GIFSICLE_CONFIGURED ? existsSync(GIFSICLE_PATH) : true;
+  const [ffmpegVersion, ffprobeVersion, gifskiVersion, gifsicleVersion] = await Promise.all([
     toolVersion(ffmpegPath),
     toolVersion(ffprobePath),
-    gifskiAvailable ? toolVersion(GIFSKI_PATH) : Promise.resolve(gifskiConfigured ? 'missing' : 'not configured')
+    gifskiAvailable ? toolVersion(GIFSKI_PATH) : Promise.resolve(gifskiConfigured ? 'missing' : 'not configured'),
+    gifsicleReachable ? toolVersion(GIFSICLE_PATH, '--version') : Promise.resolve('missing')
   ]);
+  const gifsicleAvailable = gifsicleReachable && gifsicleVersion !== 'unavailable' && gifsicleVersion !== 'missing';
 
   return {
     platform: {
@@ -1509,13 +1597,20 @@ async function getRuntimeInfo() {
       path: GIFSKI_PATH,
       version: gifskiVersion,
       license: 'gifski is AGPL-licensed unless you use a commercial license; GIFM does not bundle it.'
+    },
+    gifsicle: {
+      available: gifsicleAvailable,
+      configured: GIFSICLE_CONFIGURED,
+      path: gifsicleAvailable ? GIFSICLE_PATH : '',
+      version: gifsicleVersion,
+      license: 'gifsicle is GPL-2.0-licensed; GIFM does not bundle it and runs it as a separate process when present.'
     }
   };
 }
 
-function toolVersion(toolPath) {
+function toolVersion(toolPath, versionArg = '-version') {
   return new Promise((resolve) => {
-    const child = spawn(toolPath, ['-version'], { windowsHide: true });
+    const child = spawn(toolPath, [versionArg], { windowsHide: true });
     let stdout = '';
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
