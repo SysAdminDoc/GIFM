@@ -400,8 +400,11 @@ async function processJob(job) {
 
   log(job, `Source: ${source.width ?? '?'}x${source.height ?? '?'} ${source.codec ?? 'video'} at ${source.fps ? `${source.fps.toFixed(2)} fps` : '? fps'} for ${durationSec.toFixed(2)} sec`);
 
-  let width = even(clamp(job.settings.width, 120, 1280));
-  let fps = Math.round(clamp(job.settings.fps, 5, 30));
+  const dimensionLock = dimensionLockForPreset(job.settings.targetPreset);
+  let width = dimensionLock.fixedWidth
+    ? dimensionLock.fixedWidth
+    : even(clamp(job.settings.width, dimensionLock.minWidth, 1280));
+  let fps = Math.round(clamp(job.settings.fps, 5, dimensionLock.fpsMax));
   let colors = Math.round(clamp(job.settings.colors, 16, 256));
   let dedupeFrames = false;
   let frameDropModulo = 0;
@@ -421,7 +424,7 @@ async function processJob(job) {
     const palettePattern = path.join(attemptWorkDir, `palette-${attempt}-%03d.png`);
     const outputPath = path.join(outputDir, `${safeBaseName(job.inputName)}-${job.id.slice(0, 8)}-a${attempt}.gif`);
     trackOutputCandidate(job, outputPath);
-    const strategy = strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy, optimizeEnabled });
+    const strategy = strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy, optimizeEnabled, square: dimensionLock.square });
 
     const attemptRecord = { attempt, width, fps, colors, durationSec, strategy, dedupeFrames, frameDropModulo, gifsicleLossy };
     job.attempts.push(attemptRecord);
@@ -429,9 +432,9 @@ async function processJob(job) {
     log(job, `Attempt ${attempt}: ${width}px, ${fps} fps, ${colors} colors, ${durationSec.toFixed(2)} sec, ${strategy}`);
 
     if (job.settings.encoderBackend === 'gifski') {
-      await encodeWithGifski({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo });
+      await encodeWithGifski({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square: dimensionLock.square });
     } else {
-      await encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, outputPath, startSec, durationSec, width, fps, colors, dedupeFrames, frameDropModulo });
+      await encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, outputPath, startSec, durationSec, width, fps, colors, dedupeFrames, frameDropModulo, square: dimensionLock.square });
     }
     checkCancelled(job);
 
@@ -485,7 +488,8 @@ async function processJob(job) {
       durationSec,
       outputBytes: stat.size,
       targetBytes: job.targetBytes,
-      allowTrim: job.settings.allowTrim
+      allowTrim: job.settings.allowTrim,
+      minWidth: dimensionLock.minWidth
     });
 
     if (!next) {
@@ -1036,10 +1040,10 @@ function normalizeTargetPreset(value) {
   return Object.hasOwn(targetProfiles, value) ? value : 'free';
 }
 
-function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, allowLossy = false, durationSec, outputBytes, targetBytes, allowTrim }) {
+function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, allowLossy = false, durationSec, outputBytes, targetBytes, allowTrim, minWidth = 120 }) {
   const overRatio = outputBytes / targetBytes;
   const scale = clamp(Math.sqrt(targetBytes / outputBytes) * 0.94, 0.68, 0.9);
-  let nextWidth = even(Math.max(120, width * scale));
+  let nextWidth = even(Math.max(minWidth, width * scale));
   let nextFps = fps;
   let nextColors = colors;
   let nextDedupeFrames = dedupeFrames;
@@ -1094,7 +1098,7 @@ function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo, gifsic
   };
 }
 
-function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo }) {
+function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false }) {
   const filters = [];
   if (dedupeFrames) {
     filters.push('mpdecimate', 'setpts=N/FRAME_RATE/TB');
@@ -1102,12 +1106,24 @@ function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo }) {
   if (frameDropModulo > 0) {
     filters.push(`select='not(eq(mod(n\\,${frameDropModulo})\\,0))'`, 'setpts=N/FRAME_RATE/TB');
   }
-  filters.push(`fps=${fps}`, `scale=${width}:-2:flags=lanczos`);
+  filters.push(`fps=${fps}`);
+  if (square) {
+    // Center-crop to a square, then scale to the locked dimension (Discord emoji/avatar are square).
+    filters.push("crop='min(iw,ih)':'min(iw,ih)'", `scale=${width}:${width}:flags=lanczos`);
+  } else {
+    filters.push(`scale=${width}:-2:flags=lanczos`);
+  }
   return filters.join(',');
 }
 
-function strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, optimizeEnabled = false }) {
-  const parts = [`${width}px`, `${fps}fps`, `${colors} colors`];
+function dimensionLockForPreset(preset) {
+  if (preset === 'emoji') return { square: true, fixedWidth: 128, minWidth: 128, fpsMax: 30 };
+  if (preset === 'avatar') return { square: true, fixedWidth: 0, minWidth: 128, fpsMax: 30 };
+  return { square: false, fixedWidth: 0, minWidth: 120, fpsMax: 30 };
+}
+
+function strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, optimizeEnabled = false, square = false }) {
+  const parts = [square ? `${width}x${width} square` : `${width}px`, `${fps}fps`, `${colors} colors`];
   if (dedupeFrames) parts.push('dedupe frames');
   if (frameDropModulo > 0) parts.push(`drop every ${frameDropModulo}th frame`);
   parts.push('transparency rectangles');
@@ -1227,14 +1243,14 @@ function ffprobe(inputPath, job) {
   });
 }
 
-async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, outputPath, startSec, durationSec, width, fps, colors, dedupeFrames, frameDropModulo }) {
+async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, outputPath, startSec, durationSec, width, fps, colors, dedupeFrames, frameDropModulo, square = false }) {
   await runFfmpeg(
     [
       ...trimArgs(startSec, durationSec),
       '-i',
       job.inputPath,
       '-vf',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
       '-frames:v',
       '1',
       '-y',
@@ -1258,7 +1274,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-i',
       palettePath,
       '-lavfi',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
       '-loop',
       String(job.settings.loopCount),
       '-y',
@@ -1272,7 +1288,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
   );
 }
 
-async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo }) {
+async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square = false }) {
   if (!runtimeInfo.gifski.available) {
     throw new ApiError(400, 'GIFSKI_UNAVAILABLE', 'Set GIFM_GIFSKI_PATH to use the gifski encoder backend.');
   }
@@ -1289,7 +1305,7 @@ async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSe
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo }),
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square }),
       '-pix_fmt',
       'yuv420p',
       '-f',

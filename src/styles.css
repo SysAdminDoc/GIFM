@@ -267,6 +267,11 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
+.number-field input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .select-field select {
   height: 40px;
   padding: 0 10px;

@@ -1000,10 +1000,15 @@ function SettingsPanel({
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.clip.title} description={STRINGS.settings.sections.clip.description}>
-        <NumberField label={STRINGS.settings.width} value={settings.width} min={160} max={1280} step={20} suffix={STRINGS.settings.units.px} onChange={(value) => update('width', value)} />
+        <NumberField label={STRINGS.settings.width} value={settings.targetPreset === 'emoji' ? 128 : settings.width} min={160} max={1280} step={20} suffix={STRINGS.settings.units.px} disabled={settings.targetPreset === 'emoji'} onChange={(value) => update('width', value)} />
         <NumberField label={STRINGS.settings.fps} value={settings.fps} min={5} max={30} step={1} suffix={STRINGS.settings.units.fps} onChange={(value) => update('fps', value)} />
         <NumberField label={STRINGS.settings.start} value={settings.startSec} min={0} max={health?.maxTrimStartSec ?? MAX_TRIM_START_SEC} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('startSec', value)} />
         <NumberField label={STRINGS.settings.duration} value={settings.durationSec} min={0.5} max={60} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('durationSec', value)} />
+        {settings.targetPreset === 'emoji'
+          ? <p className="profile-note">{STRINGS.settings.squareNote.emoji}</p>
+          : settings.targetPreset === 'avatar'
+            ? <p className="profile-note">{STRINGS.settings.squareNote.avatar}</p>
+            : null}
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.encoding.title} description={STRINGS.settings.sections.encoding.description}>
@@ -1170,7 +1175,8 @@ function NumberField({
   max,
   step,
   suffix,
-  onChange
+  onChange,
+  disabled = false
 }: {
   label: string;
   value: number;
@@ -1179,6 +1185,7 @@ function NumberField({
   step: number;
   suffix: string;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }) {
   const generatedId = useId();
   const id = `${label.toLowerCase().replace(/\s+/g, '-')}-${generatedId}`;
@@ -1193,6 +1200,7 @@ function NumberField({
           max={max}
           step={step}
           value={value}
+          disabled={disabled}
           onChange={(event) => onChange(Number(event.target.value))}
         />
         <em>{suffix}</em>
