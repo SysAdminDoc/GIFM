@@ -112,6 +112,9 @@ export const STRINGS = {
     duration: 'Duration',
     palette: 'Palette',
     dither: 'Dither',
+    bayerScale: {
+      label: 'Bayer scale'
+    },
     paletteMode: 'Palette mode',
     encoder: 'Encoder',
     units: {

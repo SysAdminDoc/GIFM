@@ -86,6 +86,12 @@ test('parseSettings clamps the custom target and quality', () => {
   assert.equal(parseSettings({ gifskiQuality: 0 }).gifskiQuality, 1);
 });
 
+test('parseSettings clamps the bayer scale', () => {
+  assert.equal(parseSettings({ bayerScale: 9 }).bayerScale, 5);
+  assert.equal(parseSettings({ bayerScale: -2 }).bayerScale, 0);
+  assert.equal(parseSettings({}).bayerScale, 5);
+});
+
 test('parseSettings clamps speed and validates playback', () => {
   assert.equal(parseSettings({ speed: 99 }).speed, 8);
   assert.equal(parseSettings({ speed: 0 }).speed, 0.25);

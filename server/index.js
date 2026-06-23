@@ -731,6 +731,22 @@ function securityHeaders(_request, response, next) {
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  // Defense-in-depth for the local UI. Inline script (pre-paint theme) and React inline styles
+  // require 'unsafe-inline'; everything else is locked to same-origin with no external connections.
+  response.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "img-src 'self' data: blob:",
+      "media-src 'self' blob:",
+      "style-src 'self' 'unsafe-inline'",
+      "script-src 'self' 'unsafe-inline'",
+      "connect-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'"
+    ].join('; ')
+  );
   next();
 }
 
@@ -1123,8 +1139,8 @@ function trimArgs(startSec, durationSec) {
   return args;
 }
 
-function ditherFilter(mode) {
-  if (mode === 'bayer') return 'dither=bayer:bayer_scale=5';
+function ditherFilter(mode, bayerScale = 5) {
+  if (mode === 'bayer') return `dither=bayer:bayer_scale=${bayerScale}`;
   if (mode === 'floyd_steinberg') return 'dither=floyd_steinberg';
   if (mode === 'none') return 'dither=none';
   return 'dither=sierra2_4a';
@@ -1187,7 +1203,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
   checkCancelled(job);
 
   job.stage = `Attempt ${attempt}: encode`;
-  const dither = ditherFilter(job.settings.dither);
+  const dither = ditherFilter(job.settings.dither, job.settings.bayerScale);
   await runFfmpeg(
     [
       ...trimArgs(startSec, durationSec),

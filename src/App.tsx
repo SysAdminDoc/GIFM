@@ -55,6 +55,7 @@ type Settings = {
   durationSec: number;
   colors: number;
   dither: DitherMode;
+  bayerScale: number;
   paletteMode: PaletteMode;
   encoderBackend: EncoderBackend;
   autoFit: boolean;
@@ -235,6 +236,7 @@ const DEFAULT_SETTINGS: Settings = {
   durationSec: 6,
   colors: 96,
   dither: 'sierra2_4a',
+  bayerScale: 5,
   paletteMode: 'diff',
   encoderBackend: 'ffmpeg',
   autoFit: true,
@@ -1081,6 +1083,23 @@ function SettingsPanel({
             <option value="none">{STRINGS.settings.ditherOptions.none}</option>
           </select>
         </label>
+
+        {settings.dither === 'bayer'
+          ? (
+            <label className="range-field">
+              <span>{STRINGS.settings.bayerScale.label} <strong>{settings.bayerScale}</strong></span>
+              <input
+                type="range"
+                min={0}
+                max={5}
+                step={1}
+                value={settings.bayerScale}
+                onChange={(event) => update('bayerScale', clampNumber(Number(event.target.value), 0, 5))}
+                aria-label={STRINGS.settings.bayerScale.label}
+              />
+            </label>
+          )
+          : null}
 
         <label className="select-field">
           <span>{STRINGS.settings.paletteMode}</span>
@@ -2234,6 +2253,7 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     durationSec: clampNumber(Number(value.durationSec ?? DEFAULT_SETTINGS.durationSec), 0.5, 60),
     colors: clampNumber(Number(value.colors ?? DEFAULT_SETTINGS.colors), 16, 256),
     dither: isDitherMode(value.dither) ? value.dither : DEFAULT_SETTINGS.dither,
+    bayerScale: Math.round(clampNumber(Number(value.bayerScale ?? DEFAULT_SETTINGS.bayerScale), 0, 5)),
     paletteMode: isPaletteMode(value.paletteMode) ? value.paletteMode : DEFAULT_SETTINGS.paletteMode,
     encoderBackend: isEncoderBackend(value.encoderBackend) ? value.encoderBackend : DEFAULT_SETTINGS.encoderBackend,
     autoFit: Boolean(value.autoFit ?? DEFAULT_SETTINGS.autoFit),

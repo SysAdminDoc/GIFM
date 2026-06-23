@@ -14,6 +14,7 @@
 - Added a crop control with a live preview overlay and position/size sliders that crops the source region before scaling.
 - Added persisted light and high-contrast themes with a topbar theme selector, OS-preference detection on first load, and a flash-free pre-paint theme apply.
 - Added a batch "Download all" action that streams completed outputs as a single ZIP via a dependency-free store-method archive writer.
+- Added a Content-Security-Policy to the served UI and exposed a Bayer dither scale control (0-5).
 
 ## v0.2.0 - 2026-06-22
 
