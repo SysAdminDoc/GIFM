@@ -1333,10 +1333,20 @@ function BatchQueue({
 }) {
   if (!jobs.length) return null;
 
+  const completedIds = jobs
+    .filter((item) => item.job?.status === 'complete' && item.job.downloadUrl)
+    .map((item) => item.job!.id);
+
   return (
     <section className="batch-panel" aria-label={STRINGS.batch.aria}>
       <div className="output-title">
         <h3>{STRINGS.batch.title}</h3>
+        {completedIds.length > 1 ? (
+          <a className="secondary-button" href={`/api/jobs/zip?ids=${completedIds.join(',')}`} download>
+            <Download aria-hidden="true" />
+            {STRINGS.batch.downloadAll(completedIds.length)}
+          </a>
+        ) : null}
       </div>
       <div className="batch-list">
         {jobs.map((item) => {

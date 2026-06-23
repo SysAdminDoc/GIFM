@@ -304,6 +304,7 @@ export const STRINGS = {
   batch: {
     aria: 'Batch queue',
     title: 'Batch queue',
+    downloadAll: (count: number) => `Download all (${count})`,
     attempts: (count: number) => `${count} attempts`,
     failedSubmit: 'Failed to submit',
     pending: 'Pending',

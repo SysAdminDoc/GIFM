@@ -22,6 +22,7 @@ import {
   nextAttempt,
   isProtectedPath
 } from './encoding.js';
+import { buildStoreZip } from './zip.js';
 
 const VERSION = '0.2.0';
 const PORT = parsePositiveInteger(process.env.GIFM_PORT ?? process.env.PORT, 4174);
@@ -274,6 +275,40 @@ app.post('/api/probe', runUpload, async (request, response, next) => {
     next(error);
   } finally {
     if (request.file?.path) await removeFile(request.file.path);
+  }
+});
+
+app.get('/api/jobs/zip', async (request, response, next) => {
+  try {
+    const ids = String(request.query.ids ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+    const entries = [];
+    const usedNames = new Set();
+
+    for (const id of ids) {
+      const job = jobs.get(id);
+      if (!job || job.status !== 'complete' || !job.outputPath || !existsSync(job.outputPath)) continue;
+      let name = downloadName(job.inputName);
+      let suffix = 1;
+      while (usedNames.has(name)) {
+        name = downloadName(job.inputName).replace(/\.gif$/i, `-${suffix}.gif`);
+        suffix += 1;
+      }
+      usedNames.add(name);
+      entries.push({ name, data: await fs.readFile(job.outputPath) });
+    }
+
+    if (entries.length === 0) {
+      sendApiError(response, new ApiError(404, 'NO_OUTPUTS', 'No completed outputs were available to download.'));
+      return;
+    }
+
+    const zip = buildStoreZip(entries);
+    response.setHeader('Content-Type', 'application/zip');
+    response.setHeader('Content-Disposition', `attachment; filename="gifm-batch-${entries.length}.zip"`);
+    response.setHeader('Content-Length', zip.length);
+    response.end(zip);
+  } catch (error) {
+    next(error);
   }
 });
 

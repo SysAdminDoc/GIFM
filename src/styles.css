@@ -169,6 +169,11 @@ textarea:focus-visible {
   gap: 12px;
 }
 
+.batch-panel .output-title {
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .brand img {
   width: 42px;
   height: 42px;
