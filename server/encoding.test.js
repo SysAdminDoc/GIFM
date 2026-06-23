@@ -12,6 +12,7 @@ import {
   dimensionLockForPreset,
   parseSettings,
   parseCrop,
+  resolveFormat,
   nextAttempt,
   isProtectedPath
 } from './encoding.js';
@@ -59,10 +60,26 @@ test('normalizeTargetPreset accepts legacy and known presets', () => {
   assert.equal(normalizeTargetPreset('mystery'), 'free');
 });
 
-test('dimensionLockForPreset locks emoji and avatar to square output', () => {
+test('dimensionLockForPreset locks emoji, sticker, and avatar to square output', () => {
   assert.deepEqual(dimensionLockForPreset('emoji'), { square: true, fixedWidth: 128, minWidth: 128, fpsMax: 30 });
+  assert.deepEqual(dimensionLockForPreset('sticker'), { square: true, fixedWidth: 320, minWidth: 320, fpsMax: 30 });
   assert.deepEqual(dimensionLockForPreset('avatar'), { square: true, fixedWidth: 0, minWidth: 128, fpsMax: 30 });
   assert.deepEqual(dimensionLockForPreset('free'), { square: false, fixedWidth: 0, minWidth: 120, fpsMax: 30 });
+});
+
+test('resolveFormat forces APNG for stickers and otherwise honours the requested format', () => {
+  assert.equal(resolveFormat('gif', 'sticker'), 'apng');
+  assert.equal(resolveFormat('apng', 'sticker'), 'apng');
+  assert.equal(resolveFormat('apng', 'free'), 'apng');
+  assert.equal(resolveFormat('gif', 'free'), 'gif');
+  assert.equal(resolveFormat(undefined, 'free'), 'gif');
+});
+
+test('parseSettings derives the sticker format and target', () => {
+  const sticker = parseSettings({ targetPreset: 'sticker' });
+  assert.equal(sticker.format, 'apng');
+  assert.equal(sticker.targetPreset, 'sticker');
+  assert.ok(Math.abs(sticker.targetMb - 512 / 1024) < 1e-9);
 });
 
 test('parseSettings applies defaults', () => {

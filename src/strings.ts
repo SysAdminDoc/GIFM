@@ -75,6 +75,7 @@ export const STRINGS = {
       { id: 'boosted', label: 'Boosted 100 MB', targetMb: 100, description: 'Level 3 server boost upload limit.' },
       { id: 'nitro', label: 'Nitro 500 MB', targetMb: 500, description: 'Full Nitro file sharing limit.' },
       { id: 'emoji', label: 'Emoji 256 KB', targetMb: 256 / 1024, description: 'Custom animated emoji upload ceiling.' },
+      { id: 'sticker', label: 'Sticker 512 KB', targetMb: 512 / 1024, description: 'Square 320x320 APNG sticker.' },
       { id: 'avatar', label: 'Icon/avatar 10 MB', targetMb: 10, description: 'Square GIF guidance for avatars and server icons.' },
       { id: 'custom', label: 'Custom', targetMb: 10, description: 'Use a specific byte target.' }
     ]
@@ -112,6 +113,14 @@ export const STRINGS = {
     duration: 'Duration',
     palette: 'Palette',
     dither: 'Dither',
+    format: {
+      label: 'Output format',
+      options: {
+        gif: 'Animated GIF',
+        apng: 'APNG (sticker)'
+      },
+      apngNote: 'APNG keeps full color for Discord stickers. gifsicle optimization and the gifski encoder do not apply.'
+    },
     bayerScale: {
       label: 'Bayer scale'
     },
@@ -172,6 +181,7 @@ export const STRINGS = {
     },
     squareNote: {
       emoji: 'Emoji output is center-cropped to a square 128x128 GIF to meet Discord’s animated emoji requirement.',
+      sticker: 'Sticker output is a center-cropped square 320x320 APNG to meet Discord’s sticker requirement.',
       avatar: 'Avatar output is center-cropped to a square GIF for Discord avatars and server icons.'
     },
     speed: {
@@ -354,7 +364,8 @@ export const STRINGS = {
     fromName: (name: string) => `${name} animated GIF`
   },
   files: {
-    gifDescription: 'GIF image'
+    gifDescription: 'GIF image',
+    apngDescription: 'APNG image'
   },
   format: {
     zeroBytes: '0 B',

@@ -10,6 +10,7 @@ export const targetProfiles = {
   boosted: 100,
   nitro: 500,
   emoji: 256 / 1024,
+  sticker: 512 / 1024,
   avatar: 10,
   custom: 10
 };
@@ -70,8 +71,15 @@ export function normalizeTargetPreset(value) {
 
 export function dimensionLockForPreset(preset) {
   if (preset === 'emoji') return { square: true, fixedWidth: 128, minWidth: 128, fpsMax: 30 };
+  if (preset === 'sticker') return { square: true, fixedWidth: 320, minWidth: 320, fpsMax: 30 };
   if (preset === 'avatar') return { square: true, fixedWidth: 0, minWidth: 128, fpsMax: 30 };
   return { square: false, fixedWidth: 0, minWidth: 120, fpsMax: 30 };
+}
+
+// Discord stickers must be APNG, so the sticker preset forces the APNG output format.
+export function resolveFormat(rawFormat, preset) {
+  if (preset === 'sticker') return 'apng';
+  return rawFormat === 'apng' ? 'apng' : 'gif';
 }
 
 export function parseSettings(raw, maxTrimStartSec = DEFAULT_MAX_TRIM_START_SEC) {
@@ -105,7 +113,8 @@ export function parseSettings(raw, maxTrimStartSec = DEFAULT_MAX_TRIM_START_SEC)
     loopCount: parseLoopCount(parsed.loopCount),
     speed: clamp(Number(parsed.speed ?? 1), 0.25, 8),
     playback: ['normal', 'reverse', 'boomerang'].includes(parsed.playback) ? parsed.playback : 'normal',
-    crop: parseCrop(parsed.crop)
+    crop: parseCrop(parsed.crop),
+    format: resolveFormat(parsed.format, preset)
   };
 }
 

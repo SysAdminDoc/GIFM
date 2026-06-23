@@ -287,10 +287,12 @@ app.get('/api/jobs/zip', async (request, response, next) => {
     for (const id of ids) {
       const job = jobs.get(id);
       if (!job || job.status !== 'complete' || !job.outputPath || !existsSync(job.outputPath)) continue;
-      let name = downloadName(job.inputName);
+      const format = path.extname(job.outputPath).toLowerCase() === '.png' ? 'apng' : 'gif';
+      const ext = format === 'apng' ? 'png' : 'gif';
+      let name = downloadName(job.inputName, format);
       let suffix = 1;
       while (usedNames.has(name)) {
-        name = downloadName(job.inputName).replace(/\.gif$/i, `-${suffix}.gif`);
+        name = downloadName(job.inputName, format).replace(new RegExp(`\\.${ext}$`, 'i'), `-${suffix}.${ext}`);
         suffix += 1;
       }
       usedNames.add(name);
@@ -343,8 +345,9 @@ app.get('/api/jobs/:id/download', (request, response) => {
     return;
   }
 
-  response.setHeader('Content-Type', 'image/gif');
-  response.setHeader('Content-Disposition', `attachment; filename="${downloadName(job.inputName)}"`);
+  const isApng = path.extname(job.outputPath).toLowerCase() === '.png';
+  response.setHeader('Content-Type', isApng ? 'image/apng' : 'image/gif');
+  response.setHeader('Content-Disposition', `attachment; filename="${downloadName(job.inputName, isApng ? 'apng' : 'gif')}"`);
   createReadStream(job.outputPath).pipe(response);
 });
 
@@ -450,7 +453,10 @@ async function processJob(job) {
   let dedupeFrames = false;
   let frameDropModulo = 0;
   let gifsicleLossy = 0;
-  const optimizeEnabled = job.settings.optimize && runtimeInfo.gifsicle.available;
+  const isApng = job.settings.format === 'apng';
+  const outputExt = isApng ? 'png' : 'gif';
+  // gifsicle only optimizes GIFs, so it is skipped for the APNG sticker format.
+  const optimizeEnabled = !isApng && job.settings.optimize && runtimeInfo.gifsicle.available;
   const maxAttempts = job.settings.autoFit ? 10 : 1;
   let lastOutputPath = '';
   let bestOutputPath = '';
@@ -463,16 +469,18 @@ async function processJob(job) {
     await fs.mkdir(attemptWorkDir, { recursive: true });
     const palettePath = path.join(attemptWorkDir, `palette-${attempt}-001.png`);
     const palettePattern = path.join(attemptWorkDir, `palette-${attempt}-%03d.png`);
-    const outputPath = path.join(outputDir, `${safeBaseName(job.inputName)}-${job.id.slice(0, 8)}-a${attempt}.gif`);
+    const outputPath = path.join(outputDir, `${safeBaseName(job.inputName)}-${job.id.slice(0, 8)}-a${attempt}.${outputExt}`);
     trackOutputCandidate(job, outputPath);
     const strategy = strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy, optimizeEnabled, square: dimensionLock.square });
 
     const attemptRecord = { attempt, width, fps, colors, durationSec, strategy, dedupeFrames, frameDropModulo, gifsicleLossy };
     job.attempts.push(attemptRecord);
-    job.stage = job.settings.encoderBackend === 'gifski' ? `Attempt ${attempt}: gifski` : `Attempt ${attempt}: palette`;
+    job.stage = isApng ? `Attempt ${attempt}: apng` : job.settings.encoderBackend === 'gifski' ? `Attempt ${attempt}: gifski` : `Attempt ${attempt}: palette`;
     log(job, `Attempt ${attempt}: ${width}px, ${fps} fps, ${colors} colors, ${durationSec.toFixed(2)} sec, ${strategy}`);
 
-    if (job.settings.encoderBackend === 'gifski') {
+    if (isApng) {
+      await encodeWithApng({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square: dimensionLock.square });
+    } else if (job.settings.encoderBackend === 'gifski') {
       await encodeWithGifski({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square: dimensionLock.square });
     } else {
       await encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, outputPath, startSec, durationSec, width, fps, colors, dedupeFrames, frameDropModulo, square: dimensionLock.square });
@@ -488,7 +496,7 @@ async function processJob(job) {
     attemptRecord.outputBytes = stat.size;
     lastOutputPath = outputPath;
     log(job, `Attempt ${attempt} output: ${formatBytes(stat.size)}`);
-    const rejectedLargerGif = job.sourceKind === 'gif' && stat.size >= job.inputSize;
+    const rejectedLargerGif = !isApng && job.sourceKind === 'gif' && stat.size >= job.inputSize;
     attemptRecord.rejected = rejectedLargerGif;
 
     if (rejectedLargerGif) {
@@ -552,7 +560,7 @@ async function processJob(job) {
     throw new ApiError(422, 'NO_OUTPUT', 'No GIF output was produced.');
   }
 
-  if (job.sourceKind === 'gif' && !bestOutputPath) {
+  if (!isApng && job.sourceKind === 'gif' && !bestOutputPath) {
     throw new ApiError(422, 'OUTPUT_NOT_SMALLER', 'The generated GIF was larger than the source GIF, so GIFM kept the source unchanged.');
   }
 
@@ -1226,6 +1234,31 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
   );
 }
 
+async function encodeWithApng({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square = false }) {
+  // APNG keeps full colour, so no palette pass is needed; -plays maps the loop convention (0 = infinite, 1 = once).
+  const plays = job.settings.loopCount === 0 ? 0 : job.settings.loopCount === -1 ? 1 : job.settings.loopCount;
+  await runFfmpeg(
+    [
+      ...trimArgs(startSec, durationSec),
+      '-i',
+      job.inputPath,
+      '-vf',
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop }),
+      '-f',
+      'apng',
+      '-plays',
+      String(plays),
+      '-y',
+      outputPath
+    ],
+    job,
+    `Attempt ${attempt}: apng`,
+    5,
+    95,
+    durationSec
+  );
+}
+
 async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square = false }) {
   if (!runtimeInfo.gifski.available) {
     throw new ApiError(400, 'GIFSKI_UNAVAILABLE', 'Set GIFM_GIFSKI_PATH to use the gifski encoder backend.');
@@ -1490,8 +1523,9 @@ function safeBaseName(name) {
   return base.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'gifm-output';
 }
 
-function downloadName(inputName) {
-  return `${safeBaseName(inputName)}-gifm.gif`;
+function downloadName(inputName, format = 'gif') {
+  const ext = format === 'apng' ? 'png' : 'gif';
+  return `${safeBaseName(inputName)}-gifm.${ext}`;
 }
 
 function displayClipName(inputName, clipName) {

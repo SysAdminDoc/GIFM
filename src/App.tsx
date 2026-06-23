@@ -42,6 +42,7 @@ type TargetPreset = typeof TARGET_PROFILES[number]['id'];
 type DitherMode = 'sierra2_4a' | 'bayer' | 'floyd_steinberg' | 'none';
 type PaletteMode = 'diff' | 'full' | 'single';
 type EncoderBackend = 'ffmpeg' | 'gifski';
+type OutputFormat = 'gif' | 'apng';
 type Theme = 'dark' | 'light' | 'high-contrast';
 type Playback = 'normal' | 'reverse' | 'boomerang';
 type CropRect = { enabled: boolean; x: number; y: number; w: number; h: number };
@@ -66,6 +67,7 @@ type Settings = {
   speed: number;
   playback: Playback;
   crop: CropRect;
+  format: OutputFormat;
 };
 
 type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
@@ -246,7 +248,8 @@ const DEFAULT_SETTINGS: Settings = {
   loopCount: 0,
   speed: 1,
   playback: 'normal',
-  crop: { enabled: false, x: 0, y: 0, w: 1, h: 1 }
+  crop: { enabled: false, x: 0, y: 0, w: 1, h: 1 },
+  format: 'gif'
 };
 
 const SETTINGS_KEY = 'gifm:settings:v1';
@@ -1028,7 +1031,7 @@ function SettingsPanel({
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.clip.title} description={STRINGS.settings.sections.clip.description}>
-        <NumberField label={STRINGS.settings.width} value={settings.targetPreset === 'emoji' ? 128 : settings.width} min={160} max={1280} step={20} suffix={STRINGS.settings.units.px} disabled={settings.targetPreset === 'emoji'} onChange={(value) => update('width', value)} />
+        <NumberField label={STRINGS.settings.width} value={settings.targetPreset === 'emoji' ? 128 : settings.targetPreset === 'sticker' ? 320 : settings.width} min={160} max={1280} step={20} suffix={STRINGS.settings.units.px} disabled={settings.targetPreset === 'emoji' || settings.targetPreset === 'sticker'} onChange={(value) => update('width', value)} />
         <NumberField label={STRINGS.settings.fps} value={settings.fps} min={5} max={30} step={1} suffix={STRINGS.settings.units.fps} onChange={(value) => update('fps', value)} />
         <NumberField label={STRINGS.settings.start} value={settings.startSec} min={0} max={health?.maxTrimStartSec ?? MAX_TRIM_START_SEC} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('startSec', value)} />
         <NumberField label={STRINGS.settings.duration} value={settings.durationSec} min={0.5} max={60} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('durationSec', value)} />
@@ -1066,9 +1069,11 @@ function SettingsPanel({
           : null}
         {settings.targetPreset === 'emoji'
           ? <p className="profile-note">{STRINGS.settings.squareNote.emoji}</p>
-          : settings.targetPreset === 'avatar'
-            ? <p className="profile-note">{STRINGS.settings.squareNote.avatar}</p>
-            : null}
+          : settings.targetPreset === 'sticker'
+            ? <p className="profile-note">{STRINGS.settings.squareNote.sticker}</p>
+            : settings.targetPreset === 'avatar'
+              ? <p className="profile-note">{STRINGS.settings.squareNote.avatar}</p>
+              : null}
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.encoding.title} description={STRINGS.settings.sections.encoding.description}>
@@ -1111,8 +1116,23 @@ function SettingsPanel({
         </label>
 
         <label className="select-field">
+          <span>{STRINGS.settings.format.label}</span>
+          <select
+            value={settings.targetPreset === 'sticker' ? 'apng' : settings.format}
+            disabled={settings.targetPreset === 'sticker'}
+            onChange={(event) => update('format', event.target.value as OutputFormat)}
+          >
+            <option value="gif">{STRINGS.settings.format.options.gif}</option>
+            <option value="apng">{STRINGS.settings.format.options.apng}</option>
+          </select>
+        </label>
+        {settings.targetPreset === 'sticker' || settings.format === 'apng'
+          ? <p className="profile-note">{STRINGS.settings.format.apngNote}</p>
+          : null}
+
+        <label className="select-field">
           <span>{STRINGS.settings.encoder}</span>
-          <select value={settings.encoderBackend} onChange={(event) => update('encoderBackend', event.target.value as EncoderBackend)}>
+          <select value={settings.encoderBackend} disabled={settings.format === 'apng' || settings.targetPreset === 'sticker'} onChange={(event) => update('encoderBackend', event.target.value as EncoderBackend)}>
             <option value="ffmpeg">{STRINGS.settings.encoderOptions.ffmpeg}</option>
             <option value="gifski" disabled={!health?.gifski?.available}>{STRINGS.settings.encoderOptions.gifski}</option>
           </select>
@@ -2123,7 +2143,8 @@ async function saveJobOutput(job: Job) {
   }
 
   const blob = await response.blob();
-  const suggestedName = `${safeFileBase(job.inputName)}-gifm.gif`;
+  const isApng = job.settings.format === 'apng';
+  const suggestedName = `${safeFileBase(job.inputName)}-gifm.${isApng ? 'png' : 'gif'}`;
   const saveWindow = window as SavePickerWindow;
   if (!saveWindow.showSaveFilePicker) {
     const url = URL.createObjectURL(blob);
@@ -2140,8 +2161,8 @@ async function saveJobOutput(job: Job) {
     suggestedName,
     types: [
       {
-        description: STRINGS.files.gifDescription,
-        accept: { 'image/gif': ['.gif'] }
+        description: isApng ? STRINGS.files.apngDescription : STRINGS.files.gifDescription,
+        accept: isApng ? { 'image/apng': ['.png'] } : { 'image/gif': ['.gif'] }
       }
     ]
   });
@@ -2263,7 +2284,8 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     loopCount: normalizeLoopCount(value.loopCount),
     speed: clampNumber(Number(value.speed ?? DEFAULT_SETTINGS.speed), 0.25, 8),
     playback: isPlayback(value.playback) ? value.playback : DEFAULT_SETTINGS.playback,
-    crop: normalizeCrop(value.crop)
+    crop: normalizeCrop(value.crop),
+    format: value.format === 'apng' ? 'apng' : 'gif'
   };
 }
 
