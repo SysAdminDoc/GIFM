@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Expanded the smoke test with an encode-feature matrix covering crop, playback speed, reverse, boomerang, Bayer dither, loop count, captions, and the sticker APNG path (asserting the recorded FFmpeg command and 320x320 `image/apng` output).
 - Pruned the portable Windows package to production dependencies only (dropped playwright/typescript/vite devDependencies, server test files, and non-Windows FFprobe binaries), shrinking bundled `node_modules` from ~562 MB to ~234 MB.
 
 ## v0.3.0 - 2026-06-23

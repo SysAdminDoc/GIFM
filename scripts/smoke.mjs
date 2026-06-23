@@ -1,4 +1,5 @@
 import ffmpegPath from 'ffmpeg-static';
+import ffprobeStatic from 'ffprobe-static';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -93,6 +94,7 @@ try {
   await assertQueueAndCancel();
   await assertAttemptOutputCleanup();
   await assertTrimStartAdjustment();
+  await assertEncodeFeatureMatrix();
 
   const fileBytes = await fs.readFile(samplePath);
   const form = new FormData();
@@ -290,6 +292,77 @@ async function assertTrimStartAdjustment() {
   }
 }
 
+async function assertEncodeFeatureMatrix() {
+  const bytes = await fs.readFile(samplePath);
+
+  // Each case drives a real encode and asserts the recorded ffmpeg command reflects the feature.
+  const cases = [
+    { label: 'crop', settings: featureSettings({ crop: { enabled: true, x: 0.1, y: 0.1, w: 0.5, h: 0.5 } }), expect: "crop='iw*0.5'" },
+    { label: 'speed', settings: featureSettings({ speed: 2 }), expect: 'setpts=PTS/2' },
+    { label: 'reverse', settings: featureSettings({ playback: 'reverse' }), expect: ',reverse' },
+    { label: 'boomerang', settings: featureSettings({ playback: 'boomerang' }), expect: 'concat=n=2' },
+    { label: 'bayer', settings: featureSettings({ dither: 'bayer', bayerScale: 3 }), expect: 'dither=bayer:bayer_scale=3' },
+    { label: 'loop-once', settings: featureSettings({ loopCount: -1 }), expect: '-loop -1' },
+    { label: 'caption', settings: featureSettings({ caption: { top: 'TOP', bottom: 'BOTTOM' } }), expect: 'drawtext' }
+  ];
+
+  for (const testCase of cases) {
+    const started = await startMediaJob(bytes, `feature-${testCase.label}.mp4`, testCase.settings);
+    const job = await waitForJob(started.id, 45000);
+    if (job.status !== 'complete') {
+      throw new Error(`Feature '${testCase.label}' did not complete: ${JSON.stringify(job, null, 2)}\n${serverLog}`);
+    }
+    if (!job.commands?.some((command) => command.command.includes(testCase.expect))) {
+      throw new Error(`Feature '${testCase.label}' missing '${testCase.expect}' in commands: ${JSON.stringify(job.commands, null, 2)}`);
+    }
+  }
+
+  // Sticker preset forces a square 320x320 APNG; verify the real output format and dimensions.
+  const sticker = await startMediaJob(bytes, 'feature-sticker.mp4', { ...featureSettings(), targetPreset: 'sticker' });
+  const stickerJob = await waitForJob(sticker.id, 45000);
+  if (stickerJob.status !== 'complete') {
+    throw new Error(`Sticker job did not complete: ${JSON.stringify(stickerJob, null, 2)}\n${serverLog}`);
+  }
+  const stickerDownload = await fetch(`${baseUrl}${stickerJob.downloadUrl}`);
+  if (stickerDownload.headers.get('content-type') !== 'image/apng') {
+    throw new Error(`Sticker download should be image/apng, got ${stickerDownload.headers.get('content-type')}`);
+  }
+  const stickerBytes = Buffer.from(await stickerDownload.arrayBuffer());
+  if (stickerBytes.slice(0, 8).toString('hex') !== '89504e470d0a1a0a') {
+    throw new Error('Sticker output is not a valid PNG/APNG file.');
+  }
+  const dims = await probeDimensions(stickerBytes, '.png');
+  if (dims.width !== 320 || dims.height !== 320) {
+    throw new Error(`Sticker output should be 320x320, got ${dims.width}x${dims.height}`);
+  }
+}
+
+async function probeDimensions(bytes, ext) {
+  const tempPath = path.join(smokeDir, `probe-${Date.now()}${ext}`);
+  await fs.writeFile(tempPath, bytes);
+  try {
+    const output = await captureStdout(ffprobeStatic.path, [
+      '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', tempPath
+    ]);
+    const [width, height] = output.trim().split(',').map(Number);
+    return { width, height };
+  } finally {
+    await fs.rm(tempPath, { force: true });
+  }
+}
+
+function captureStdout(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => (stdout += chunk.toString()));
+    child.stderr.on('data', (chunk) => (stderr += chunk.toString()));
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve(stdout) : reject(new Error(stderr || `${command} exited with ${code}`))));
+  });
+}
+
 async function startMediaJob(bytes, name, settings) {
   const form = new FormData();
   form.set('media', new File([bytes], name, { type: 'video/mp4' }));
@@ -389,6 +462,21 @@ function slowSettings() {
     encoderBackend: 'ffmpeg',
     autoFit: false,
     allowTrim: false
+  };
+}
+
+function featureSettings(overrides = {}) {
+  // Generous target + small dimensions so each encode completes in one attempt and the recorded
+  // command reflects the requested feature settings rather than auto-fit fallbacks.
+  return {
+    ...validSettings(),
+    targetPreset: 'custom',
+    targetMb: 50,
+    width: 200,
+    fps: 8,
+    durationSec: 1,
+    optimize: false,
+    ...overrides
   };
 }
 
