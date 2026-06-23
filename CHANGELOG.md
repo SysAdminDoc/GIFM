@@ -17,6 +17,7 @@
 - Added a Content-Security-Policy to the served UI and exposed a Bayer dither scale control (0-5).
 - Added an APNG output format and a Sticker 512 KB target that exports a square 320x320 animated PNG for Discord stickers.
 - Added top/bottom meme caption overlays rendered with a bundled SIL OFL font (Anton), burned into the output before scaling.
+- Added locale switching with a Spanish translation and a topbar language selector; missing keys fall back to English.
 
 ## v0.2.0 - 2026-06-22
 

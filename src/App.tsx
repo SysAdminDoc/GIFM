@@ -32,7 +32,7 @@ import {
   useState
 } from 'react';
 import { probeClientMedia } from './clientPreflight';
-import { STRINGS } from './strings';
+import { STRINGS, setActiveLocale, LOCALE_LABELS, type Locale } from './strings';
 
 const VERSION = '0.2.0';
 const TARGET_PROFILES = STRINGS.target.profiles;
@@ -263,6 +263,7 @@ const SETTINGS_KEY = 'gifm:settings:v1';
 const PRESETS_KEY = 'gifm:presets:v1';
 const RECENTS_KEY = 'gifm:recents:v1';
 const THEME_KEY = 'gifm:theme:v1';
+const LOCALE_KEY = 'gifm:locale:v1';
 const MAX_RECENT_OUTPUTS = 8;
 const MAX_TRIM_START_SEC = 24 * 60 * 60;
 
@@ -326,12 +327,19 @@ function GifmApp() {
   const [previewTime, setPreviewTime] = useState(0);
   const [previewSeekTime, setPreviewSeekTime] = useState<number | null>(null);
   const [theme, setTheme] = useState<Theme>(() => loadTheme());
+  const [locale, setLocale] = useState<Locale>(() => loadLocale());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     writeStorage(THEME_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    setActiveLocale(locale);
+    document.documentElement.lang = locale;
+    writeStorage(LOCALE_KEY, locale);
+  }, [locale]);
 
   useEffect(() => {
     writeStorage(SETTINGS_KEY, settings);
@@ -816,6 +824,14 @@ function GifmApp() {
               {STRINGS.app.targetStatus(activeProfile.label, formatBytes(targetBytes))}
             </span>
           </div>
+          <label className="theme-select">
+            <span className="visually-hidden">{STRINGS.app.localeLabel}</span>
+            <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)} aria-label={STRINGS.app.localeLabel}>
+              {(Object.keys(LOCALE_LABELS) as Locale[]).map((code) => (
+                <option key={code} value={code}>{LOCALE_LABELS[code]}</option>
+              ))}
+            </select>
+          </label>
           <label className="theme-select">
             <span className="visually-hidden">{STRINGS.app.theme.label}</span>
             <select value={theme} onChange={(event) => setTheme(event.target.value as Theme)} aria-label={STRINGS.app.theme.label}>
@@ -2262,6 +2278,14 @@ function loadTheme(): Theme {
   // First load with no stored choice: respect the OS preference.
   if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
   return 'dark';
+}
+
+function loadLocale(): Locale {
+  const stored = readStorage<Locale>(LOCALE_KEY);
+  const locale: Locale = stored && LOCALE_LABELS[stored] ? stored : 'en';
+  // Apply before the first render reads STRINGS so the initial paint is already localized.
+  setActiveLocale(locale);
+  return locale;
 }
 
 function loadPresets() {

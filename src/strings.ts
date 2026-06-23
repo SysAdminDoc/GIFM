@@ -1,4 +1,4 @@
-export const STRINGS = {
+const en = {
   app: {
     name: 'GIFM',
     subtitle: (version: string) => `v${version} local GIF maker`,
@@ -6,6 +6,7 @@ export const STRINGS = {
     sourceSize: (size: string) => `${size} source`,
     filesSelected: (count: number) => `${count} files selected`,
     runtimeAria: 'Local runtime status',
+    localeLabel: 'Language',
     localOnly: 'Local only',
     ffmpegReady: 'FFmpeg ready',
     ffmpegUnavailable: 'FFmpeg unavailable',
@@ -383,4 +384,123 @@ export const STRINGS = {
   }
 } as const;
 
-export type UiStrings = typeof STRINGS;
+export type UiStrings = typeof en;
+export type Locale = 'en' | 'es';
+
+export const LOCALE_LABELS: Record<Locale, string> = {
+  en: 'English',
+  es: 'Espanol'
+};
+
+// Spanish overrides for the visible interface chrome. Any key omitted here falls back to English
+// through the deep merge below, so the catalog never has missing strings.
+const esOverrides = {
+  app: {
+    subtitle: (version: string) => `v${version} creador local de GIF`,
+    ready: 'Listo para video o GIF',
+    localOnly: 'Solo local',
+    ffmpegReady: 'FFmpeg listo',
+    ffmpegUnavailable: 'FFmpeg no disponible',
+    runtimePending: 'Comprobando entorno',
+    theme: {
+      label: 'Tema',
+      options: { dark: 'Oscuro', light: 'Claro', highContrast: 'Alto contraste' }
+    }
+  },
+  input: {
+    heading: 'Suelta un video o GIF',
+    description: 'Los archivos MP4, MOV, WebM, AVI, MKV y GIF permanecen en este equipo mientras GIFM los analiza, previsualiza y ajusta localmente.',
+    browse: 'Examinar',
+    queue: 'Cola',
+    startEncoding: 'Iniciar codificacion',
+    cancel: 'Cancelar',
+    reset: 'Restablecer'
+  },
+  target: {
+    title: 'Objetivo',
+    subtitle: 'Controles de tamano para Discord'
+  },
+  settings: {
+    width: 'Ancho',
+    duration: 'Duracion',
+    palette: 'Paleta',
+    dither: 'Tramado',
+    encoder: 'Codificador',
+    speed: { label: 'Velocidad', option: (value: number) => `${value}x` },
+    playback: { label: 'Reproduccion', options: { normal: 'Normal', reverse: 'Inverso', boomerang: 'Boomerang' } },
+    sections: {
+      target: { title: 'Perfil objetivo', description: 'Elige el limite de Discord antes de ajustar la calidad.' },
+      clip: { title: 'Clip y salida', description: 'Ajusta dimensiones, tiempo y velocidad de fotogramas.' },
+      encoding: { title: 'Estrategia de codificacion', description: 'Controla la calidad de la paleta y el ajuste.' },
+      presets: { title: 'Ajustes guardados', description: 'Guarda configuraciones de exportacion reutilizables.' }
+    }
+  },
+  preview: {
+    title: 'Vista previa',
+    noFile: 'Ningun archivo seleccionado',
+    emptyTitle: 'Vista previa lista',
+    empty: 'Selecciona un video o GIF para inspeccionar el clip antes de codificar.'
+  },
+  output: {
+    title: 'Salida',
+    download: 'Descargar',
+    open: 'Abrir',
+    downloadGif: 'Descargar GIF',
+    saveAs: 'Guardar como',
+    emptyTitle: 'Sin exportacion aun',
+    empty: 'Los GIF terminados apareceran aqui con su tamano exacto, estado de ajuste y acciones de guardado.'
+  },
+  diagnostics: {
+    title: 'Diagnostico',
+    platform: 'Plataforma',
+    estimate: 'Estimacion'
+  },
+  log: {
+    title: 'Registro',
+    emptyTitle: 'Registro del codificador',
+    empty: 'La salida de FFmpeg aparece aqui cuando empieza una codificacion.'
+  }
+};
+
+type DeepPartial<T> = { [K in keyof T]?: T[K] extends (...args: never[]) => unknown ? T[K] : DeepPartial<T[K]> };
+
+function deepMerge<T>(base: T, override: DeepPartial<T> | undefined): T {
+  if (!override) return base;
+  if (Array.isArray(base) || typeof base !== 'object' || base === null) {
+    return (override as T) ?? base;
+  }
+  const result: Record<string, unknown> = { ...(base as Record<string, unknown>) };
+  for (const key of Object.keys(override as Record<string, unknown>)) {
+    const overrideValue = (override as Record<string, unknown>)[key];
+    const baseValue = (base as Record<string, unknown>)[key];
+    if (overrideValue && typeof overrideValue === 'object' && !Array.isArray(overrideValue) && typeof overrideValue !== 'function') {
+      result[key] = deepMerge(baseValue, overrideValue as DeepPartial<typeof baseValue>);
+    } else {
+      result[key] = overrideValue;
+    }
+  }
+  return result as T;
+}
+
+const LOCALES: Record<Locale, UiStrings> = {
+  en,
+  es: deepMerge(en, esOverrides as DeepPartial<UiStrings>)
+};
+
+let activeLocale: Locale = 'en';
+
+export function setActiveLocale(locale: Locale) {
+  activeLocale = LOCALES[locale] ? locale : 'en';
+}
+
+export function getActiveLocale(): Locale {
+  return activeLocale;
+}
+
+// STRINGS forwards every top-level access to the active locale catalog, so existing `STRINGS.x.y`
+// usage switches language at render time without threading a context through every component.
+export const STRINGS: UiStrings = new Proxy(en, {
+  get(_target, prop: string) {
+    return (LOCALES[activeLocale] as Record<string, unknown>)[prop];
+  }
+}) as UiStrings;

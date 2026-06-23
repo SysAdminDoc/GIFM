@@ -135,7 +135,13 @@ try {
     throw new Error(`Console warnings/errors found: ${consoleMessages.join('\n')}`);
   }
 
-  console.log('UI smoke passed: default English strings render.');
+  // Verify locale switching: persist Spanish, reload, and confirm a translated string renders.
+  await page.evaluate(() => window.localStorage.setItem('gifm:locale:v1', JSON.stringify('es')));
+  await page.reload({ waitUntil: 'load' });
+  await assertVisibleText(page, 'Suelta un video o GIF');
+  await page.evaluate(() => window.localStorage.removeItem('gifm:locale:v1'));
+
+  console.log('UI smoke passed: English strings render and the Spanish locale switches.');
 } finally {
   await browser?.close().catch(() => {});
   server.kill();
