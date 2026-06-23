@@ -145,6 +145,18 @@ export const STRINGS = {
       label: 'Optimize with gifsicle',
       description: 'Run a gifsicle -O3 pass and use lossy compression as an auto-fit lever for smaller GIFs.',
       unavailable: 'gifsicle not detected. Install gifsicle on PATH or set GIFM_GIFSICLE_PATH to enable optimization.'
+    },
+    gifskiQuality: {
+      label: 'gifski quality'
+    },
+    loop: {
+      label: 'Loop',
+      options: {
+        infinite: 'Infinite',
+        once: 'Play once',
+        three: 'Loop 3 times',
+        five: 'Loop 5 times'
+      }
     }
   },
   input: {

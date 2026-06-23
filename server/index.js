@@ -1017,8 +1017,17 @@ function parseSettings(raw) {
     encoderBackend: parsed.encoderBackend === 'gifski' ? 'gifski' : 'ffmpeg',
     autoFit: Boolean(parsed.autoFit ?? true),
     allowTrim: Boolean(parsed.allowTrim ?? false),
-    optimize: Boolean(parsed.optimize ?? true)
+    optimize: Boolean(parsed.optimize ?? true),
+    gifskiQuality: Math.round(clamp(Number(parsed.gifskiQuality ?? 90), 1, 100)),
+    loopCount: parseLoopCount(parsed.loopCount)
   };
+}
+
+function parseLoopCount(value) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return 0;
+  if (number <= -1) return -1;
+  return clamp(number, 0, 1000);
 }
 
 function normalizeTargetPreset(value) {
@@ -1251,7 +1260,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-lavfi',
       `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
       '-loop',
-      '0',
+      String(job.settings.loopCount),
       '-y',
       outputPath
     ],
@@ -1268,6 +1277,12 @@ async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSe
     throw new ApiError(400, 'GIFSKI_UNAVAILABLE', 'Set GIFM_GIFSKI_PATH to use the gifski encoder backend.');
   }
 
+  const gifskiArgs = ['--quality', String(job.settings.gifskiQuality)];
+  // gifski follows the same loop convention as the gif muxer (0 = infinite, -1 = play once);
+  // infinite is the default, so only pass --repeat when the user asked for something else.
+  if (job.settings.loopCount !== 0) gifskiArgs.push('--repeat', String(job.settings.loopCount));
+  gifskiArgs.push('--output', outputPath, '-');
+
   await runFfmpegToGifski(
     [
       ...trimArgs(startSec, durationSec),
@@ -1281,7 +1296,7 @@ async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSe
       'yuv4mpegpipe',
       '-'
     ],
-    ['--quality', '90', '--output', outputPath, '-'],
+    gifskiArgs,
     job,
     `Attempt ${attempt}: gifski`,
     5,

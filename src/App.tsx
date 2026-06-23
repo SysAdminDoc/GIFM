@@ -56,6 +56,8 @@ type Settings = {
   autoFit: boolean;
   allowTrim: boolean;
   optimize: boolean;
+  gifskiQuality: number;
+  loopCount: number;
 };
 
 type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
@@ -230,7 +232,9 @@ const DEFAULT_SETTINGS: Settings = {
   encoderBackend: 'ffmpeg',
   autoFit: true,
   allowTrim: false,
-  optimize: true
+  optimize: true,
+  gifskiQuality: 90,
+  loopCount: 0
 };
 
 const SETTINGS_KEY = 'gifm:settings:v1';
@@ -1036,6 +1040,33 @@ function SettingsPanel({
             ? STRINGS.settings.encoderNotes.gifski
             : STRINGS.settings.encoderNotes.ffmpeg}
         </p>
+
+        {settings.encoderBackend === 'gifski'
+          ? (
+            <label className="range-field">
+              <span>{STRINGS.settings.gifskiQuality.label} <strong>{settings.gifskiQuality}</strong></span>
+              <input
+                type="range"
+                min={1}
+                max={100}
+                step={1}
+                value={settings.gifskiQuality}
+                onChange={(event) => update('gifskiQuality', clampNumber(Number(event.target.value), 1, 100))}
+                aria-label={STRINGS.settings.gifskiQuality.label}
+              />
+            </label>
+          )
+          : null}
+
+        <label className="select-field">
+          <span>{STRINGS.settings.loop.label}</span>
+          <select value={String(settings.loopCount)} onChange={(event) => update('loopCount', normalizeLoopCount(event.target.value))}>
+            <option value="0">{STRINGS.settings.loop.options.infinite}</option>
+            <option value="-1">{STRINGS.settings.loop.options.once}</option>
+            <option value="3">{STRINGS.settings.loop.options.three}</option>
+            <option value="5">{STRINGS.settings.loop.options.five}</option>
+          </select>
+        </label>
 
         <ToggleField
           label={STRINGS.settings.autoFit.label}
@@ -2091,7 +2122,9 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     encoderBackend: isEncoderBackend(value.encoderBackend) ? value.encoderBackend : DEFAULT_SETTINGS.encoderBackend,
     autoFit: Boolean(value.autoFit ?? DEFAULT_SETTINGS.autoFit),
     allowTrim: Boolean(value.allowTrim ?? DEFAULT_SETTINGS.allowTrim),
-    optimize: Boolean(value.optimize ?? DEFAULT_SETTINGS.optimize)
+    optimize: Boolean(value.optimize ?? DEFAULT_SETTINGS.optimize),
+    gifskiQuality: Math.round(clampNumber(Number(value.gifskiQuality ?? DEFAULT_SETTINGS.gifskiQuality), 1, 100)),
+    loopCount: normalizeLoopCount(value.loopCount)
   };
 }
 
@@ -2105,6 +2138,13 @@ function isPaletteMode(value: unknown): value is PaletteMode {
 
 function isEncoderBackend(value: unknown): value is EncoderBackend {
   return value === 'ffmpeg' || value === 'gifski';
+}
+
+function normalizeLoopCount(value: unknown): number {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return DEFAULT_SETTINGS.loopCount;
+  if (number <= -1) return -1;
+  return clampNumber(number, 0, 1000);
 }
 
 function readStorage<T>(key: string): T | null {

@@ -523,6 +523,26 @@ textarea:focus-visible {
   accent-color: var(--cyan);
 }
 
+.range-field {
+  display: grid;
+  gap: 8px;
+}
+
+.range-field span {
+  color: var(--muted-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.range-field span strong {
+  color: var(--cyan);
+}
+
+.range-field input {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+
 .trim-actions {
   flex-wrap: wrap;
   gap: 8px;
