@@ -42,7 +42,7 @@ type TargetPreset = typeof TARGET_PROFILES[number]['id'];
 type DitherMode = 'sierra2_4a' | 'bayer' | 'floyd_steinberg' | 'none';
 type PaletteMode = 'diff' | 'full' | 'single';
 type EncoderBackend = 'ffmpeg' | 'gifski';
-type OutputFormat = 'gif' | 'apng' | 'webp';
+type OutputFormat = 'gif' | 'apng' | 'webp' | 'mp4';
 type Theme = 'dark' | 'light' | 'high-contrast';
 type Playback = 'normal' | 'reverse' | 'boomerang';
 type CropRect = { enabled: boolean; x: number; y: number; w: number; h: number };
@@ -1160,13 +1160,16 @@ function SettingsPanel({
             <option value="gif">{STRINGS.settings.format.options.gif}</option>
             <option value="apng">{STRINGS.settings.format.options.apng}</option>
             <option value="webp">{STRINGS.settings.format.options.webp}</option>
+            <option value="mp4">{STRINGS.settings.format.options.mp4}</option>
           </select>
         </label>
         {settings.targetPreset === 'sticker' || settings.format === 'apng'
           ? <p className="profile-note">{STRINGS.settings.format.apngNote}</p>
           : settings.format === 'webp'
             ? <p className="profile-note">{STRINGS.settings.format.webpNote}</p>
-            : null}
+            : settings.format === 'mp4'
+              ? <p className="profile-note">{STRINGS.settings.format.mp4Note}</p>
+              : null}
 
         <label className="select-field">
           <span>{STRINGS.settings.encoder}</span>
@@ -2182,14 +2185,16 @@ async function saveJobOutput(job: Job) {
 
   const blob = await response.blob();
   const format = job.settings.format;
-  const ext = format === 'apng' ? 'png' : format === 'webp' ? 'webp' : 'gif';
+  const ext = format === 'apng' ? 'png' : format === 'webp' ? 'webp' : format === 'mp4' ? 'mp4' : 'gif';
   const suggestedName = `${safeFileBase(job.inputName)}-gifm.${ext}`;
   const fileType: { description: string; accept: Record<string, string[]> } =
     format === 'apng'
       ? { description: STRINGS.files.apngDescription, accept: { 'image/apng': ['.png'] } }
       : format === 'webp'
         ? { description: STRINGS.files.webpDescription, accept: { 'image/webp': ['.webp'] } }
-        : { description: STRINGS.files.gifDescription, accept: { 'image/gif': ['.gif'] } };
+        : format === 'mp4'
+          ? { description: STRINGS.files.mp4Description, accept: { 'video/mp4': ['.mp4'] } }
+          : { description: STRINGS.files.gifDescription, accept: { 'image/gif': ['.gif'] } };
   const saveWindow = window as SavePickerWindow;
   if (!saveWindow.showSaveFilePicker) {
     const url = URL.createObjectURL(blob);
@@ -2333,7 +2338,7 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     speed: clampNumber(Number(value.speed ?? DEFAULT_SETTINGS.speed), 0.25, 8),
     playback: isPlayback(value.playback) ? value.playback : DEFAULT_SETTINGS.playback,
     crop: normalizeCrop(value.crop),
-    format: value.format === 'apng' || value.format === 'webp' ? value.format : 'gif',
+    format: value.format === 'apng' || value.format === 'webp' || value.format === 'mp4' ? value.format : 'gif',
     caption: normalizeCaption(value.caption)
   };
 }

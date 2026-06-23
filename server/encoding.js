@@ -79,7 +79,7 @@ export function dimensionLockForPreset(preset) {
 // Discord stickers must be APNG, so the sticker preset forces the APNG output format.
 export function resolveFormat(rawFormat, preset) {
   if (preset === 'sticker') return 'apng';
-  if (rawFormat === 'apng' || rawFormat === 'webp') return rawFormat;
+  if (rawFormat === 'apng' || rawFormat === 'webp' || rawFormat === 'mp4') return rawFormat;
   return 'gif';
 }
 

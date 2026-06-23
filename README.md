@@ -11,7 +11,7 @@ GIFM v0.3.0 is a local GIF maker and compressor for Discord-ready animated GIFs.
 - Discord Free 10 MB, Nitro Basic 50 MB, Full Nitro 500 MB, Emoji 256 KB, icon/avatar, and custom target presets.
 - Video-to-GIF conversion from common video files.
 - Existing GIF recompression through the same palette workflow.
-- Output as animated GIF, APNG (Discord stickers), or animated WebP (Discord-native and much smaller than GIF).
+- Output as animated GIF, APNG (Discord stickers), animated WebP (Discord-native, much smaller than GIF), or muted MP4 (Discord autoplays inline).
 - Multi-file batch submission through the same local queue and current preset.
 - Timeline editor for long videos with exact timecodes, playhead start/end marking, saved GIF cuts, and export-one/export-all actions.
 - Prepared source sessions so one long video can be staged once and reused for many GIF cuts without re-uploading it each time.

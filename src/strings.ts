@@ -119,10 +119,12 @@ const en = {
       options: {
         gif: 'Animated GIF',
         apng: 'APNG (sticker)',
-        webp: 'Animated WebP'
+        webp: 'Animated WebP',
+        mp4: 'MP4 (silent loop)'
       },
       apngNote: 'APNG keeps full color for Discord stickers. gifsicle optimization and the gifski encoder do not apply.',
-      webpNote: 'Animated WebP is much smaller than GIF and plays natively in Discord (except animated avatars, which require GIF).'
+      webpNote: 'Animated WebP is much smaller than GIF and plays natively in Discord (except animated avatars, which require GIF).',
+      mp4Note: 'Discord autoplays muted MP4 inline. This is the smallest, highest-quality option, but is a video file, not an image.'
     },
     bayerScale: {
       label: 'Bayer scale'
@@ -375,7 +377,8 @@ const en = {
   files: {
     gifDescription: 'GIF image',
     apngDescription: 'APNG image',
-    webpDescription: 'WebP image'
+    webpDescription: 'WebP image',
+    mp4Description: 'MP4 video'
   },
   format: {
     zeroBytes: '0 B',

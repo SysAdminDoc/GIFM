@@ -353,6 +353,27 @@ async function assertEncodeFeatureMatrix() {
   if (webpBytes.length >= gifJob.outputBytes) {
     throw new Error(`WebP (${webpBytes.length}) should be smaller than GIF (${gifJob.outputBytes}) for the same source.`);
   }
+
+  // MP4 silent-loop export: verify a muted faststart H.264 served as video/mp4.
+  const mp4Job = await waitForJob((await startMediaJob(bytes, 'feature-mp4.mp4', featureSettings({ format: 'mp4' }))).id, 45000);
+  if (mp4Job.status !== 'complete') {
+    throw new Error(`MP4 job did not complete: ${JSON.stringify(mp4Job, null, 2)}\n${serverLog}`);
+  }
+  const mp4Download = await fetch(`${baseUrl}${mp4Job.downloadUrl}`);
+  if (mp4Download.headers.get('content-type') !== 'video/mp4') {
+    throw new Error(`MP4 download should be video/mp4, got ${mp4Download.headers.get('content-type')}`);
+  }
+  const mp4Bytes = Buffer.from(await mp4Download.arrayBuffer());
+  const mp4Path = path.join(smokeDir, 'probe-check.mp4');
+  await fs.writeFile(mp4Path, mp4Bytes);
+  try {
+    const codec = (await captureStdout(ffprobeStatic.path, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', mp4Path])).trim();
+    const audioStreams = (await captureStdout(ffprobeStatic.path, ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', mp4Path])).trim();
+    if (codec !== 'h264') throw new Error(`MP4 should be H.264, got ${codec}`);
+    if (audioStreams) throw new Error(`MP4 should have no audio, got streams: ${audioStreams}`);
+  } finally {
+    await fs.rm(mp4Path, { force: true });
+  }
 }
 
 async function probeDimensions(bytes, ext) {
