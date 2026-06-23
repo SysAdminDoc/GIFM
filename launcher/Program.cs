@@ -68,6 +68,7 @@ internal static class Program
                 return 0;
             }
 
+            EnsureWebView2Runtime(appDir, logWriter);
             ApplicationConfiguration.Initialize();
             return RunDesktopShell(url, webViewDataDir, logWriter, server, startedServer);
         }
@@ -91,6 +92,50 @@ internal static class Program
             {
                 StopServer(server);
             }
+        }
+    }
+
+    static void EnsureWebView2Runtime(string appDir, TextWriter logWriter)
+    {
+        try
+        {
+            var version = CoreWebView2Environment.GetAvailableBrowserVersionString();
+            if (!string.IsNullOrEmpty(version))
+            {
+                Log(logWriter, $"WebView2 runtime {version} detected.");
+                return;
+            }
+        }
+        catch (Exception error)
+        {
+            Log(logWriter, $"WebView2 runtime not detected: {error.Message}");
+        }
+
+        var bootstrapper = Path.Combine(appDir, "MicrosoftEdgeWebview2Setup.exe");
+        if (!File.Exists(bootstrapper))
+        {
+            Log(logWriter, "WebView2 runtime missing and no bundled bootstrapper was found; the desktop shell may fail to load.");
+            return;
+        }
+
+        try
+        {
+            Log(logWriter, "Installing the Microsoft Edge WebView2 Runtime via the bundled bootstrapper...");
+            var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = bootstrapper,
+                Arguments = "/silent /install",
+                UseShellExecute = true
+            });
+            if (process is not null)
+            {
+                process.WaitForExit(180000);
+                Log(logWriter, process.HasExited ? $"WebView2 bootstrapper exited with {process.ExitCode}." : "WebView2 bootstrapper timed out.");
+            }
+        }
+        catch (Exception error)
+        {
+            Log(logWriter, $"WebView2 bootstrapper failed: {error.Message}");
         }
     }
 

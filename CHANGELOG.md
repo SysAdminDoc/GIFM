@@ -18,6 +18,7 @@
 - Added an APNG output format and a Sticker 512 KB target that exports a square 320x320 animated PNG for Discord stickers.
 - Added top/bottom meme caption overlays rendered with a bundled SIL OFL font (Anton), burned into the output before scaling.
 - Added locale switching with a Spanish translation and a topbar language selector; missing keys fall back to English.
+- Bundled the Microsoft Edge WebView2 bootstrapper in the portable package and made `GIFM.exe` auto-install the runtime on first launch when it is missing.
 
 ## v0.2.0 - 2026-06-22
 

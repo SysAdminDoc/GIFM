@@ -51,6 +51,10 @@ await run('dotnet', [
 await copyDirectoryContents(launcherPublishDir, portableDir);
 await fs.rm(launcherPublishDir, { recursive: true, force: true });
 
+// Bundle the Microsoft Edge WebView2 Evergreen bootstrapper so a clean machine can install the
+// runtime on first launch instead of failing. The bootstrapper is a small (~2 MB) online installer.
+await downloadWebView2Bootstrapper(path.join(portableDir, 'MicrosoftEdgeWebview2Setup.exe'));
+
 await fs.writeFile(
   path.join(portableDir, 'start-gifm.cmd'),
   [
@@ -87,6 +91,21 @@ function run(command, args) {
       resolve();
     });
   });
+}
+
+async function downloadWebView2Bootstrapper(targetPath) {
+  const url = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703';
+  try {
+    const response = await fetch(url, { redirect: 'follow' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length < 100000) throw new Error(`Unexpectedly small download (${buffer.length} bytes)`);
+    await fs.writeFile(targetPath, buffer);
+    console.log(`Bundled WebView2 bootstrapper: ${targetPath} (${buffer.length} bytes)`);
+  } catch (error) {
+    // Non-fatal: the launcher still shows guidance if the runtime is missing and the bootstrapper is absent.
+    console.warn(`Warning: could not bundle WebView2 bootstrapper (${error.message}). The package will rely on the user installing WebView2 manually.`);
+  }
 }
 
 async function copyDirectoryContents(sourceDir, targetDir) {
