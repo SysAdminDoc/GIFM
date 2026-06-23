@@ -50,7 +50,7 @@ npm run package:portable
 npm run package:smoke
 ```
 
-The portable artifact is written to `release/GIFM-v<version>-win-x64/` and zipped beside it. It includes a desktop `GIFM.exe`, the built client, Express server, current Node runtime, `node_modules`, bundled FFmpeg/FFprobe modules, caption font assets, the Microsoft Edge WebView2 bootstrapper, and a `start-gifm.cmd` compatibility wrapper. Launch `GIFM.exe` to open GIFM as a Windows desktop app with its local processing service managed in the background. To update a portable copy, replace the folder with a newly generated package.
+The portable artifact is written to `release/GIFM-v<version>-win-x64/` and zipped beside it. It includes a desktop `GIFM.exe`, the built client, Express server, current Node runtime, production-only `node_modules` (devDependencies and non-Windows FFprobe binaries are pruned), bundled FFmpeg/FFprobe, caption font assets, the Microsoft Edge WebView2 bootstrapper, and a `start-gifm.cmd` compatibility wrapper. Launch `GIFM.exe` to open GIFM as a Windows desktop app with its local processing service managed in the background. To update a portable copy, replace the folder with a newly generated package.
 
 GIFM's desktop shell requires the Microsoft Edge WebView2 Runtime, which ships with current Windows 11. If it is missing, `GIFM.exe` runs the bundled `MicrosoftEdgeWebview2Setup.exe` bootstrapper on first launch to install it (this needs an internet connection once); otherwise install the runtime from Microsoft and relaunch.
 

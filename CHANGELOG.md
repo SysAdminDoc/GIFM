@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Pruned the portable Windows package to production dependencies only (dropped playwright/typescript/vite devDependencies, server test files, and non-Windows FFprobe binaries), shrinking bundled `node_modules` from ~562 MB to ~234 MB.
+
 ## v0.3.0 - 2026-06-23
 
 - Added an optional gifsicle `-O3` post-optimization pass with lossy LZW compression as an auto-fit lever, detected from `PATH` or `GIFM_GIFSICLE_PATH`, surfaced as an "Optimize with gifsicle" toggle and an optimizer diagnostics row.

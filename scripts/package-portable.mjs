@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,13 +24,18 @@ await fs.mkdir(path.join(portableDir, 'node'), { recursive: true });
 
 await Promise.all([
   fs.cp(path.join(rootDir, 'dist'), path.join(portableDir, 'dist'), { recursive: true }),
-  fs.cp(path.join(rootDir, 'server'), path.join(portableDir, 'server'), { recursive: true }),
+  fs.cp(path.join(rootDir, 'server'), path.join(portableDir, 'server'), {
+    recursive: true,
+    // Test files are dev-only and must not ship in the released app.
+    filter: (source) => !source.endsWith('.test.js')
+  }),
   fs.cp(path.join(rootDir, 'assets'), path.join(portableDir, 'assets'), { recursive: true }),
-  fs.cp(path.join(rootDir, 'node_modules'), path.join(portableDir, 'node_modules'), { recursive: true }),
   fs.copyFile(path.join(rootDir, 'package.json'), path.join(portableDir, 'package.json')),
   fs.copyFile(path.join(rootDir, 'package-lock.json'), path.join(portableDir, 'package-lock.json')),
   fs.copyFile(process.execPath, path.join(portableDir, 'node', 'node.exe'))
 ]);
+
+await copyProductionModules(rootDir, portableDir);
 
 await run('dotnet', [
   'publish',
@@ -74,6 +79,37 @@ await run('powershell', [
 
 console.log(`Portable package: ${portableDir}`);
 console.log(`Portable ZIP: ${zipPath}`);
+
+async function copyProductionModules(sourceRoot, targetRoot) {
+  // Copy only the resolved production dependency closure (network-free), excluding devDependencies
+  // such as playwright/typescript/vite that bloat the released package by ~150 MB.
+  const output = execSync('npm ls --omit=dev --all --parseable', { cwd: sourceRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const sourceModules = path.join(sourceRoot, 'node_modules');
+  const targetModules = path.join(targetRoot, 'node_modules');
+  const seen = new Set();
+
+  for (const line of output.split(/\r?\n/)) {
+    const depPath = line.trim();
+    if (!depPath || !depPath.includes(`${path.sep}node_modules${path.sep}`)) continue;
+    const relative = path.relative(sourceModules, depPath);
+    if (relative.startsWith('..') || seen.has(relative)) continue;
+    seen.add(relative);
+    // Copy the package's own files but skip any nested node_modules (each nested prod dep is listed
+    // separately by `npm ls`, so this avoids dragging in dev-only nested trees).
+    await fs.cp(depPath, path.join(targetModules, relative), {
+      recursive: true,
+      filter: (src) => {
+        const rel = path.relative(depPath, src);
+        return !rel.split(path.sep).includes('node_modules');
+      }
+    });
+  }
+
+  // The portable package targets Windows only, so drop ffprobe-static's macOS/Linux binaries (~230 MB).
+  for (const platform of ['darwin', 'linux']) {
+    await fs.rm(path.join(targetModules, 'ffprobe-static', 'bin', platform), { recursive: true, force: true });
+  }
+}
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
