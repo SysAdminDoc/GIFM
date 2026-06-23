@@ -31,6 +31,7 @@ const ALLOW_REMOTE = process.env.GIFM_ALLOW_REMOTE === '1';
 const GIFSKI_PATH = process.env.GIFM_GIFSKI_PATH ? path.resolve(process.env.GIFM_GIFSKI_PATH) : '';
 const GIFSICLE_CONFIGURED = Boolean(process.env.GIFM_GIFSICLE_PATH);
 const GIFSICLE_PATH = GIFSICLE_CONFIGURED ? path.resolve(process.env.GIFM_GIFSICLE_PATH) : 'gifsicle';
+const YTDLP_PATH = process.env.GIFM_YTDLP_PATH ? path.resolve(process.env.GIFM_YTDLP_PATH) : 'yt-dlp';
 const MAX_UPLOAD_BYTES = parseByteLimit(process.env.GIFM_MAX_UPLOAD_BYTES, process.env.GIFM_MAX_UPLOAD_MB, 20 * 1024 * 1024 * 1024);
 const DATA_MAX_BYTES = parseByteLimit(process.env.GIFM_DATA_MAX_BYTES, process.env.GIFM_DATA_MAX_MB, 25 * 1024 * 1024 * 1024);
 const DATA_MAX_AGE_MS = parseHours(process.env.GIFM_DATA_MAX_AGE_HOURS, 24) * 60 * 60 * 1000;
@@ -160,6 +161,32 @@ app.post('/api/sources', runUpload, async (request, response, next) => {
     response.status(201).json(publicSource(prepared));
   } catch (error) {
     if (request.file?.path) await removeFile(request.file.path);
+    next(error);
+  }
+});
+
+app.post('/api/import-url', async (request, response, next) => {
+  let downloadedPath = '';
+  try {
+    const url = typeof request.body?.url === 'string' ? request.body.url.trim() : '';
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      sendApiError(response, new ApiError(400, 'INVALID_URL', 'Enter a valid http(s) video URL.'));
+      return;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      sendApiError(response, new ApiError(400, 'INVALID_URL', 'Only http and https URLs can be imported.'));
+      return;
+    }
+
+    downloadedPath = await downloadWithYtDlp(url);
+    const prepared = await registerPreparedSource({ filePath: downloadedPath, inputName: path.basename(downloadedPath) });
+    downloadedPath = '';
+    response.status(201).json(publicSource(prepared));
+  } catch (error) {
+    if (downloadedPath) await removeFile(downloadedPath);
     next(error);
   }
 });
@@ -601,6 +628,87 @@ function runUpload(request, response, next) {
       return;
     }
     next();
+  });
+}
+
+async function registerPreparedSource({ filePath, inputName }) {
+  const mediaCheck = await inspectUploadedMedia(filePath);
+  if (!mediaCheck.ok) {
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_CONTENT', 'The downloaded file does not look like a supported GIF or video container.');
+  }
+
+  const metadata = await ffprobe(filePath);
+  const source = sourceMetadata(metadata);
+  if (!source.video) {
+    throw new ApiError(422, 'NO_VIDEO_STREAM', 'No video stream was found in the downloaded file.');
+  }
+
+  const stat = await fs.stat(filePath);
+  const id = randomUUID();
+  const prepared = {
+    id,
+    inputPath: filePath,
+    inputName,
+    inputSize: stat.size,
+    sourceKind: mediaCheck.kind,
+    createdAt: new Date().toISOString(),
+    lastUsedAt: new Date().toISOString(),
+    metadata: {
+      durationSec: source.durationSec,
+      width: source.width,
+      height: source.height,
+      fps: source.fps,
+      codec: source.codec,
+      rotation: source.rotation
+    }
+  };
+
+  sources.set(id, prepared);
+  await enforceDataRetention(new Set([prepared.inputPath]));
+  return prepared;
+}
+
+function downloadWithYtDlp(url) {
+  return new Promise((resolve, reject) => {
+    const id = randomUUID();
+    const outputTemplate = path.join(uploadDir, `url-${id}.%(ext)s`);
+    const args = [
+      '--no-playlist',
+      '--no-warnings',
+      '--no-progress',
+      '-f',
+      'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio/best',
+      '--max-filesize',
+      String(MAX_UPLOAD_BYTES),
+      '-o',
+      outputTemplate,
+      url
+    ];
+    const child = spawn(YTDLP_PATH, args, { windowsHide: true });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (error) => {
+      if (error?.code === 'ENOENT') {
+        reject(new ApiError(400, 'YTDLP_UNAVAILABLE', 'yt-dlp was not found. Install yt-dlp on PATH or set GIFM_YTDLP_PATH to enable URL import.'));
+        return;
+      }
+      reject(error);
+    });
+    child.on('close', async (code) => {
+      if (code !== 0) {
+        reject(new ApiError(422, 'URL_DOWNLOAD_FAILED', stderr.trim().split(/\r?\n/).slice(-3).join(' ') || 'Could not download the video from that URL.'));
+        return;
+      }
+      const names = await fs.readdir(uploadDir).catch(() => []);
+      const match = names.find((name) => name.startsWith(`url-${id}.`));
+      if (!match) {
+        reject(new ApiError(422, 'URL_DOWNLOAD_FAILED', 'The download produced no file.'));
+        return;
+      }
+      resolve(path.join(uploadDir, match));
+    });
   });
 }
 

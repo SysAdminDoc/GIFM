@@ -1005,6 +1005,21 @@ textarea:focus-visible {
   gap: 10px;
 }
 
+.url-import {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.url-import input {
+  height: 40px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

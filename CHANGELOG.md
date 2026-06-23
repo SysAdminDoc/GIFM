@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added URL import: paste a video URL to download it via yt-dlp (from PATH or `GIFM_YTDLP_PATH`) and stage it as a prepared source; missing yt-dlp degrades gracefully.
 - Added rotate (90/180/270) and horizontal/vertical flip controls.
 - Added color filters (grayscale, invert, sepia) and a saturation slider.
 - Added an MP4 silent-loop output format (muted faststart H.264) that Discord autoplays inline at the smallest size; the auto-fit loop drives CRF.

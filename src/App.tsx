@@ -596,6 +596,43 @@ function GifmApp() {
     );
   };
 
+  const importFromUrl = async (url: string) => {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    setSourceBusy(true);
+    setNotice(STRINGS.notices.importingUrl);
+    try {
+      const response = await fetch('/api/import-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: trimmed })
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response, STRINGS.errors.importFailed));
+      }
+      const prepared = (await response.json()) as SourceSession;
+      setFile(null);
+      setBatchFiles([]);
+      setObjectUrl('');
+      setSourceSession(prepared);
+      setSourceMeta({
+        durationSec: prepared.durationSec,
+        width: prepared.width,
+        height: prepared.height,
+        fps: prepared.fps,
+        codec: prepared.codec,
+        rotation: prepared.rotation,
+        probeSource: 'server',
+        frameSampled: false
+      });
+      setNotice(STRINGS.notices.sourcePrepared(prepared.inputName));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : STRINGS.errors.importFailed);
+    } finally {
+      setSourceBusy(false);
+    }
+  };
+
   const prepareSource = async () => {
     if (!file) throw new Error(STRINGS.errors.noSourceFile);
     if (sourceSession && sourceSession.inputName === file.name && sourceSession.inputSize === file.size) {
@@ -893,6 +930,8 @@ function GifmApp() {
               {STRINGS.input.browse}
             </button>
           </div>
+
+          <UrlImportRow busy={sourceBusy} onImport={importFromUrl} />
 
           <div className="source-strip">
             <StatusTile label={STRINGS.target.title} value={formatBytes(targetBytes)} tone="cyan" />
@@ -1383,6 +1422,31 @@ function NumberField({
         <em>{suffix}</em>
       </div>
     </label>
+  );
+}
+
+function UrlImportRow({ busy, onImport }: { busy: boolean; onImport: (url: string) => void }) {
+  const [url, setUrl] = useState('');
+  return (
+    <div className="url-import">
+      <input
+        type="url"
+        value={url}
+        placeholder={STRINGS.input.urlPlaceholder}
+        aria-label={STRINGS.input.urlAria}
+        onChange={(event) => setUrl(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && url.trim() && !busy) {
+            event.preventDefault();
+            onImport(url);
+          }
+        }}
+      />
+      <button type="button" className="secondary-button" disabled={busy || !url.trim()} onClick={() => onImport(url)}>
+        {busy ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+        {STRINGS.input.importUrl}
+      </button>
+    </div>
   );
 }
 

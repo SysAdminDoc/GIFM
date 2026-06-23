@@ -100,6 +100,15 @@ $env:GIFM_GIFSICLE_PATH = "C:\Tools\gifsicle.exe"
 npm run dev
 ```
 
+## Optional URL Import
+
+Paste a video URL into the import field to download it with [yt-dlp](https://github.com/yt-dlp/yt-dlp). GIFM does not bundle yt-dlp; install it on `PATH` or point `GIFM_YTDLP_PATH` at the binary. Downloads are capped at the upload limit and staged as a prepared source for trimming and export.
+
+```powershell
+$env:GIFM_YTDLP_PATH = "C:\Tools\yt-dlp.exe"
+npm run dev
+```
+
 ## Local Safety Controls
 
 GIFM binds to `127.0.0.1` by default and rejects non-local hosts unless `GIFM_ALLOW_REMOTE=1` is set on a trusted network. Uploads are limited to 20 GB by default and are checked before FFmpeg runs.
