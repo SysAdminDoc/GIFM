@@ -162,6 +162,18 @@ export const STRINGS = {
     squareNote: {
       emoji: 'Emoji output is center-cropped to a square 128x128 GIF to meet Discord’s animated emoji requirement.',
       avatar: 'Avatar output is center-cropped to a square GIF for Discord avatars and server icons.'
+    },
+    speed: {
+      label: 'Speed',
+      option: (value: number) => `${value}x`
+    },
+    playback: {
+      label: 'Playback',
+      options: {
+        normal: 'Normal',
+        reverse: 'Reverse',
+        boomerang: 'Boomerang'
+      }
     }
   },
   input: {

@@ -85,6 +85,14 @@ test('parseSettings clamps the custom target and quality', () => {
   assert.equal(parseSettings({ gifskiQuality: 0 }).gifskiQuality, 1);
 });
 
+test('parseSettings clamps speed and validates playback', () => {
+  assert.equal(parseSettings({ speed: 99 }).speed, 8);
+  assert.equal(parseSettings({ speed: 0 }).speed, 0.25);
+  assert.equal(parseSettings({}).speed, 1);
+  assert.equal(parseSettings({ playback: 'boomerang' }).playback, 'boomerang');
+  assert.equal(parseSettings({ playback: 'nonsense' }).playback, 'normal');
+});
+
 test('parseSettings honours the maxTrimStartSec ceiling argument', () => {
   assert.equal(parseSettings({ startSec: 500 }, 100).startSec, 100);
 });

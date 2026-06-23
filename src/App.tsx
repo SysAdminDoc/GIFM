@@ -36,11 +36,13 @@ import { STRINGS } from './strings';
 
 const VERSION = '0.2.0';
 const TARGET_PROFILES = STRINGS.target.profiles;
+const SPEED_OPTIONS = [0.25, 0.5, 1, 1.5, 2, 3, 4];
 
 type TargetPreset = typeof TARGET_PROFILES[number]['id'];
 type DitherMode = 'sierra2_4a' | 'bayer' | 'floyd_steinberg' | 'none';
 type PaletteMode = 'diff' | 'full' | 'single';
 type EncoderBackend = 'ffmpeg' | 'gifski';
+type Playback = 'normal' | 'reverse' | 'boomerang';
 
 type Settings = {
   targetPreset: TargetPreset;
@@ -58,6 +60,8 @@ type Settings = {
   optimize: boolean;
   gifskiQuality: number;
   loopCount: number;
+  speed: number;
+  playback: Playback;
 };
 
 type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
@@ -234,7 +238,9 @@ const DEFAULT_SETTINGS: Settings = {
   allowTrim: false,
   optimize: true,
   gifskiQuality: 90,
-  loopCount: 0
+  loopCount: 0,
+  speed: 1,
+  playback: 'normal'
 };
 
 const SETTINGS_KEY = 'gifm:settings:v1';
@@ -1004,6 +1010,22 @@ function SettingsPanel({
         <NumberField label={STRINGS.settings.fps} value={settings.fps} min={5} max={30} step={1} suffix={STRINGS.settings.units.fps} onChange={(value) => update('fps', value)} />
         <NumberField label={STRINGS.settings.start} value={settings.startSec} min={0} max={health?.maxTrimStartSec ?? MAX_TRIM_START_SEC} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('startSec', value)} />
         <NumberField label={STRINGS.settings.duration} value={settings.durationSec} min={0.5} max={60} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('durationSec', value)} />
+        <label className="select-field">
+          <span>{STRINGS.settings.speed.label}</span>
+          <select value={String(settings.speed)} onChange={(event) => update('speed', clampNumber(Number(event.target.value), 0.25, 8))}>
+            {SPEED_OPTIONS.map((value) => (
+              <option key={value} value={String(value)}>{STRINGS.settings.speed.option(value)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="select-field">
+          <span>{STRINGS.settings.playback.label}</span>
+          <select value={settings.playback} onChange={(event) => update('playback', event.target.value as Playback)}>
+            <option value="normal">{STRINGS.settings.playback.options.normal}</option>
+            <option value="reverse">{STRINGS.settings.playback.options.reverse}</option>
+            <option value="boomerang">{STRINGS.settings.playback.options.boomerang}</option>
+          </select>
+        </label>
         {settings.targetPreset === 'emoji'
           ? <p className="profile-note">{STRINGS.settings.squareNote.emoji}</p>
           : settings.targetPreset === 'avatar'
@@ -1917,7 +1939,8 @@ function estimateOutputBytes(settings: Settings, sourceMeta: SourceMeta) {
   const sourceHeight = sourceMeta.height ?? settings.width;
   const scale = settings.width / Math.max(1, sourceWidth);
   const height = Math.max(1, sourceHeight * scale);
-  const frames = Math.max(1, duration * settings.fps);
+  const playbackFactor = settings.playback === 'boomerang' ? 2 : 1;
+  const frames = Math.max(1, (duration / Math.max(0.25, settings.speed)) * settings.fps * playbackFactor);
   const paletteFactor = clampNumber(settings.colors / 256, 0.15, 1);
   return Math.round(settings.width * height * frames * 0.18 * paletteFactor);
 }
@@ -2132,7 +2155,9 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     allowTrim: Boolean(value.allowTrim ?? DEFAULT_SETTINGS.allowTrim),
     optimize: Boolean(value.optimize ?? DEFAULT_SETTINGS.optimize),
     gifskiQuality: Math.round(clampNumber(Number(value.gifskiQuality ?? DEFAULT_SETTINGS.gifskiQuality), 1, 100)),
-    loopCount: normalizeLoopCount(value.loopCount)
+    loopCount: normalizeLoopCount(value.loopCount),
+    speed: clampNumber(Number(value.speed ?? DEFAULT_SETTINGS.speed), 0.25, 8),
+    playback: isPlayback(value.playback) ? value.playback : DEFAULT_SETTINGS.playback
   };
 }
 
@@ -2146,6 +2171,10 @@ function isPaletteMode(value: unknown): value is PaletteMode {
 
 function isEncoderBackend(value: unknown): value is EncoderBackend {
   return value === 'ffmpeg' || value === 'gifski';
+}
+
+function isPlayback(value: unknown): value is Playback {
+  return value === 'normal' || value === 'reverse' || value === 'boomerang';
 }
 
 function normalizeLoopCount(value: unknown): number {

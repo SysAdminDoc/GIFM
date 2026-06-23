@@ -976,13 +976,17 @@ function parseSettings(raw) {
   return parseSettingsRaw(raw, MAX_TRIM_START_SEC);
 }
 
-function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false }) {
+function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal' }) {
   const filters = [];
   if (dedupeFrames) {
     filters.push('mpdecimate', 'setpts=N/FRAME_RATE/TB');
   }
   if (frameDropModulo > 0) {
     filters.push(`select='not(eq(mod(n\\,${frameDropModulo})\\,0))'`, 'setpts=N/FRAME_RATE/TB');
+  }
+  if (speed && speed !== 1) {
+    // Rescale presentation timestamps before resampling so fps sampling sees the new playback rate.
+    filters.push(`setpts=PTS/${speed}`);
   }
   filters.push(`fps=${fps}`);
   if (square) {
@@ -991,7 +995,14 @@ function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = 
   } else {
     filters.push(`scale=${width}:-2:flags=lanczos`);
   }
-  return filters.join(',');
+  let chain = filters.join(',');
+  if (playback === 'reverse') {
+    chain += ',reverse';
+  } else if (playback === 'boomerang') {
+    // Play forward, then the reversed clip, as a seamless bounce. Doubles the frame count, so auto-fit compensates.
+    chain += ',split[fwd][bwd];[bwd]reverse[rev];[fwd][rev]concat=n=2';
+  }
+  return chain;
 }
 
 function strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, optimizeEnabled = false, square = false }) {
@@ -1122,7 +1133,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-i',
       job.inputPath,
       '-vf',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback })},palettegen=max_colors=${colors}:stats_mode=${job.settings.paletteMode}`,
       '-frames:v',
       '1',
       '-y',
@@ -1146,7 +1157,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-i',
       palettePath,
       '-lavfi',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
+      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle`,
       '-loop',
       String(job.settings.loopCount),
       '-y',
@@ -1177,7 +1188,7 @@ async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSe
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square }),
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback }),
       '-pix_fmt',
       'yuv420p',
       '-f',

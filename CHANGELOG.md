@@ -10,6 +10,7 @@
 - Added a Boosted 100 MB target preset for Level 3 server boost upload limits.
 - Upgraded lucide-react to v1.x for a smaller dependency footprint.
 - Improved auto-fit convergence with prediction-based frame-rate steps and deeper width cuts when far over target, reaching the size target in fewer encode passes.
+- Added a playback speed control (0.25x-4x) and reverse/boomerang playback modes, applied through both the FFmpeg and gifski pipelines and accounted for in the size estimate.
 
 ## v0.2.0 - 2026-06-22
 

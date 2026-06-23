@@ -101,7 +101,9 @@ export function parseSettings(raw, maxTrimStartSec = DEFAULT_MAX_TRIM_START_SEC)
     allowTrim: Boolean(parsed.allowTrim ?? false),
     optimize: Boolean(parsed.optimize ?? true),
     gifskiQuality: Math.round(clamp(Number(parsed.gifskiQuality ?? 90), 1, 100)),
-    loopCount: parseLoopCount(parsed.loopCount)
+    loopCount: parseLoopCount(parsed.loopCount),
+    speed: clamp(Number(parsed.speed ?? 1), 0.25, 8),
+    playback: ['normal', 'reverse', 'boomerang'].includes(parsed.playback) ? parsed.playback : 'normal'
   };
 }
 
