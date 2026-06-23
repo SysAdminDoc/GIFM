@@ -118,9 +118,11 @@ const en = {
       label: 'Output format',
       options: {
         gif: 'Animated GIF',
-        apng: 'APNG (sticker)'
+        apng: 'APNG (sticker)',
+        webp: 'Animated WebP'
       },
-      apngNote: 'APNG keeps full color for Discord stickers. gifsicle optimization and the gifski encoder do not apply.'
+      apngNote: 'APNG keeps full color for Discord stickers. gifsicle optimization and the gifski encoder do not apply.',
+      webpNote: 'Animated WebP is much smaller than GIF and plays natively in Discord (except animated avatars, which require GIF).'
     },
     bayerScale: {
       label: 'Bayer scale'
@@ -372,7 +374,8 @@ const en = {
   },
   files: {
     gifDescription: 'GIF image',
-    apngDescription: 'APNG image'
+    apngDescription: 'APNG image',
+    webpDescription: 'WebP image'
   },
   format: {
     zeroBytes: '0 B',

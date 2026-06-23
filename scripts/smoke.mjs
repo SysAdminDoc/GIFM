@@ -335,6 +335,24 @@ async function assertEncodeFeatureMatrix() {
   if (dims.width !== 320 || dims.height !== 320) {
     throw new Error(`Sticker output should be 320x320, got ${dims.width}x${dims.height}`);
   }
+
+  // Animated WebP export: verify a valid RIFF/WEBP file served as image/webp and smaller than the GIF.
+  const gifJob = await waitForJob((await startMediaJob(bytes, 'feature-gifbaseline.mp4', featureSettings({ format: 'gif' }))).id, 45000);
+  const webpJob = await waitForJob((await startMediaJob(bytes, 'feature-webp.mp4', featureSettings({ format: 'webp' }))).id, 45000);
+  if (webpJob.status !== 'complete') {
+    throw new Error(`WebP job did not complete: ${JSON.stringify(webpJob, null, 2)}\n${serverLog}`);
+  }
+  const webpDownload = await fetch(`${baseUrl}${webpJob.downloadUrl}`);
+  if (webpDownload.headers.get('content-type') !== 'image/webp') {
+    throw new Error(`WebP download should be image/webp, got ${webpDownload.headers.get('content-type')}`);
+  }
+  const webpBytes = Buffer.from(await webpDownload.arrayBuffer());
+  if (webpBytes.slice(0, 4).toString('ascii') !== 'RIFF' || webpBytes.slice(8, 12).toString('ascii') !== 'WEBP') {
+    throw new Error('WebP output is not a valid RIFF/WEBP file.');
+  }
+  if (webpBytes.length >= gifJob.outputBytes) {
+    throw new Error(`WebP (${webpBytes.length}) should be smaller than GIF (${gifJob.outputBytes}) for the same source.`);
+  }
 }
 
 async function probeDimensions(bytes, ext) {

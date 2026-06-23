@@ -289,8 +289,9 @@ app.get('/api/jobs/zip', async (request, response, next) => {
     for (const id of ids) {
       const job = jobs.get(id);
       if (!job || job.status !== 'complete' || !job.outputPath || !existsSync(job.outputPath)) continue;
-      const format = path.extname(job.outputPath).toLowerCase() === '.png' ? 'apng' : 'gif';
-      const ext = format === 'apng' ? 'png' : 'gif';
+      const outExt = path.extname(job.outputPath).toLowerCase();
+      const format = outExt === '.png' ? 'apng' : outExt === '.webp' ? 'webp' : 'gif';
+      const ext = format === 'apng' ? 'png' : format === 'webp' ? 'webp' : 'gif';
       let name = downloadName(job.inputName, format);
       let suffix = 1;
       while (usedNames.has(name)) {
@@ -347,9 +348,11 @@ app.get('/api/jobs/:id/download', (request, response) => {
     return;
   }
 
-  const isApng = path.extname(job.outputPath).toLowerCase() === '.png';
-  response.setHeader('Content-Type', isApng ? 'image/apng' : 'image/gif');
-  response.setHeader('Content-Disposition', `attachment; filename="${downloadName(job.inputName, isApng ? 'apng' : 'gif')}"`);
+  const ext = path.extname(job.outputPath).toLowerCase();
+  const format = ext === '.png' ? 'apng' : ext === '.webp' ? 'webp' : 'gif';
+  const mime = format === 'apng' ? 'image/apng' : format === 'webp' ? 'image/webp' : 'image/gif';
+  response.setHeader('Content-Type', mime);
+  response.setHeader('Content-Disposition', `attachment; filename="${downloadName(job.inputName, format)}"`);
   createReadStream(job.outputPath).pipe(response);
 });
 
@@ -456,9 +459,12 @@ async function processJob(job) {
   let frameDropModulo = 0;
   let gifsicleLossy = 0;
   const isApng = job.settings.format === 'apng';
-  const outputExt = isApng ? 'png' : 'gif';
-  // gifsicle only optimizes GIFs, so it is skipped for the APNG sticker format.
-  const optimizeEnabled = !isApng && job.settings.optimize && runtimeInfo.gifsicle.available;
+  const isWebp = job.settings.format === 'webp';
+  const outputExt = isApng ? 'png' : isWebp ? 'webp' : 'gif';
+  // gifsicle only optimizes GIFs, so it is skipped for the APNG and WebP formats.
+  const optimizeEnabled = !isApng && !isWebp && job.settings.optimize && runtimeInfo.gifsicle.available;
+  // WebP has a built-in lossy quality knob, so let the auto-fit loop drive it via the lossy lever.
+  const allowLossy = optimizeEnabled || isWebp;
   const maxAttempts = job.settings.autoFit ? 10 : 1;
   let lastOutputPath = '';
   let bestOutputPath = '';
@@ -477,11 +483,13 @@ async function processJob(job) {
 
     const attemptRecord = { attempt, width, fps, colors, durationSec, strategy, dedupeFrames, frameDropModulo, gifsicleLossy };
     job.attempts.push(attemptRecord);
-    job.stage = isApng ? `Attempt ${attempt}: apng` : job.settings.encoderBackend === 'gifski' ? `Attempt ${attempt}: gifski` : `Attempt ${attempt}: palette`;
+    job.stage = isApng ? `Attempt ${attempt}: apng` : isWebp ? `Attempt ${attempt}: webp` : job.settings.encoderBackend === 'gifski' ? `Attempt ${attempt}: gifski` : `Attempt ${attempt}: palette`;
     log(job, `Attempt ${attempt}: ${width}px, ${fps} fps, ${colors} colors, ${durationSec.toFixed(2)} sec, ${strategy}`);
 
     if (isApng) {
       await encodeWithApng({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square: dimensionLock.square });
+    } else if (isWebp) {
+      await encodeWithWebp({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square: dimensionLock.square, gifsicleLossy });
     } else if (job.settings.encoderBackend === 'gifski') {
       await encodeWithGifski({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square: dimensionLock.square });
     } else {
@@ -498,7 +506,7 @@ async function processJob(job) {
     attemptRecord.outputBytes = stat.size;
     lastOutputPath = outputPath;
     log(job, `Attempt ${attempt} output: ${formatBytes(stat.size)}`);
-    const rejectedLargerGif = !isApng && job.sourceKind === 'gif' && stat.size >= job.inputSize;
+    const rejectedLargerGif = !isApng && !isWebp && job.sourceKind === 'gif' && stat.size >= job.inputSize;
     attemptRecord.rejected = rejectedLargerGif;
 
     if (rejectedLargerGif) {
@@ -535,7 +543,7 @@ async function processJob(job) {
       dedupeFrames,
       frameDropModulo,
       gifsicleLossy,
-      allowLossy: optimizeEnabled,
+      allowLossy,
       durationSec,
       outputBytes: stat.size,
       targetBytes: job.targetBytes,
@@ -562,7 +570,7 @@ async function processJob(job) {
     throw new ApiError(422, 'NO_OUTPUT', 'No GIF output was produced.');
   }
 
-  if (!isApng && job.sourceKind === 'gif' && !bestOutputPath) {
+  if (!isApng && !isWebp && job.sourceKind === 'gif' && !bestOutputPath) {
     throw new ApiError(422, 'OUTPUT_NOT_SMALLER', 'The generated GIF was larger than the source GIF, so GIFM kept the source unchanged.');
   }
 
@@ -1257,6 +1265,37 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
   );
 }
 
+async function encodeWithWebp({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square = false, gifsicleLossy = 0 }) {
+  // libwebp encodes animated WebP directly (no palette). The auto-fit lossy lever maps to -quality,
+  // and the loop convention (0 = infinite, -1 = play once) maps to -loop.
+  const quality = Math.max(15, Math.min(90, Math.round(80 - gifsicleLossy * 0.4)));
+  const loops = job.settings.loopCount === 0 ? 0 : job.settings.loopCount === -1 ? 1 : job.settings.loopCount;
+  await runFfmpeg(
+    [
+      ...trimArgs(startSec, durationSec),
+      '-i',
+      job.inputPath,
+      '-vf',
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '' }),
+      '-c:v',
+      'libwebp',
+      '-loop',
+      String(loops),
+      '-quality',
+      String(quality),
+      '-compression_level',
+      '6',
+      '-y',
+      outputPath
+    ],
+    job,
+    `Attempt ${attempt}: webp`,
+    5,
+    95,
+    durationSec
+  );
+}
+
 async function encodeWithApng({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square = false }) {
   // APNG keeps full colour, so no palette pass is needed; -plays maps the loop convention (0 = infinite, 1 = once).
   const plays = job.settings.loopCount === 0 ? 0 : job.settings.loopCount === -1 ? 1 : job.settings.loopCount;
@@ -1547,7 +1586,7 @@ function safeBaseName(name) {
 }
 
 function downloadName(inputName, format = 'gif') {
-  const ext = format === 'apng' ? 'png' : 'gif';
+  const ext = format === 'apng' ? 'png' : format === 'webp' ? 'webp' : 'gif';
   return `${safeBaseName(inputName)}-gifm.${ext}`;
 }
 
