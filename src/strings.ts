@@ -137,6 +137,10 @@ const en = {
       label: 'Bayer scale'
     },
     paletteMode: 'Palette mode',
+    perFramePalette: {
+      label: 'Per-frame palette',
+      description: 'Compute a fresh palette for every frame (higher fidelity for fast-cutting clips, larger files). GIF only.'
+    },
     encoder: 'Encoder',
     units: {
       px: 'px',

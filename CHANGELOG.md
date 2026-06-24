@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a per-frame palette quality mode (GIF) that computes a fresh palette for every frame for higher fidelity on fast-cutting clips.
 - Added a headless CLI (`npm run cli`) that converts files or watches a folder using the same local encode engine.
 - Added clipboard paste (paste a copied image/video to load it) and browser-tab URL drops (dragging a media URL routes through the URL importer).
 - Added animated AVIF as a max-compression output format (via bundled libaom-av1); Discord plays it, avatars still require GIF.

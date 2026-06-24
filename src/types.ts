@@ -26,6 +26,7 @@ export type Settings = {
   dither: DitherMode;
   bayerScale: number;
   paletteMode: PaletteMode;
+  perFramePalette: boolean;
   encoderBackend: EncoderBackend;
   autoFit: boolean;
   allowTrim: boolean;

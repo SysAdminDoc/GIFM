@@ -323,6 +323,7 @@ async function assertEncodeFeatureMatrix() {
     { label: 'bayer', settings: featureSettings({ dither: 'bayer', bayerScale: 3 }), expect: 'dither=bayer:bayer_scale=3' },
     { label: 'loop-once', settings: featureSettings({ loopCount: -1 }), expect: '-loop -1' },
     { label: 'caption', settings: featureSettings({ caption: { top: 'TOP', bottom: 'BOTTOM' } }), expect: 'drawtext' },
+    { label: 'per-frame-palette', settings: featureSettings({ perFramePalette: true }), expect: ':new=1' },
     { label: 'rotate', settings: featureSettings({ rotate: 90 }), expect: 'transpose=1' },
     { label: 'flip', settings: featureSettings({ flipH: true, flipV: true }), expect: 'hflip,vflip' },
     { label: 'grayscale', settings: featureSettings({ colorFilter: 'grayscale' }), expect: 'hue=s=0' },

@@ -75,6 +75,7 @@ const DEFAULT_SETTINGS: Settings = {
   dither: 'sierra2_4a',
   bayerScale: 5,
   paletteMode: 'diff',
+  perFramePalette: false,
   encoderBackend: 'ffmpeg',
   autoFit: true,
   allowTrim: false,
@@ -1092,6 +1093,12 @@ function SettingsPanel({
             <option value="single">{STRINGS.settings.paletteModeOptions.single}</option>
           </select>
         </label>
+        <ToggleField
+          label={STRINGS.settings.perFramePalette.label}
+          description={STRINGS.settings.perFramePalette.description}
+          checked={settings.perFramePalette}
+          onChange={(checked) => update('perFramePalette', checked)}
+        />
 
         <label className="select-field">
           <span>{STRINGS.settings.format.label}</span>
@@ -2383,6 +2390,7 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     dither: isDitherMode(value.dither) ? value.dither : DEFAULT_SETTINGS.dither,
     bayerScale: Math.round(clampNumber(Number(value.bayerScale ?? DEFAULT_SETTINGS.bayerScale), 0, 5)),
     paletteMode: isPaletteMode(value.paletteMode) ? value.paletteMode : DEFAULT_SETTINGS.paletteMode,
+    perFramePalette: Boolean(value.perFramePalette ?? DEFAULT_SETTINGS.perFramePalette),
     encoderBackend: isEncoderBackend(value.encoderBackend) ? value.encoderBackend : DEFAULT_SETTINGS.encoderBackend,
     autoFit: Boolean(value.autoFit ?? DEFAULT_SETTINGS.autoFit),
     allowTrim: Boolean(value.allowTrim ?? DEFAULT_SETTINGS.allowTrim),

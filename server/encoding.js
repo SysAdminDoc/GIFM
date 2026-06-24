@@ -106,6 +106,7 @@ export function parseSettings(raw, maxTrimStartSec = DEFAULT_MAX_TRIM_START_SEC)
     dither: ['sierra2_4a', 'bayer', 'floyd_steinberg', 'none'].includes(parsed.dither) ? parsed.dither : 'sierra2_4a',
     bayerScale: Math.round(clamp(Number(parsed.bayerScale ?? 5), 0, 5)),
     paletteMode: ['diff', 'full', 'single'].includes(parsed.paletteMode) ? parsed.paletteMode : 'diff',
+    perFramePalette: Boolean(parsed.perFramePalette ?? false),
     encoderBackend: parsed.encoderBackend === 'gifski' ? 'gifski' : 'ffmpeg',
     autoFit: Boolean(parsed.autoFit ?? true),
     allowTrim: Boolean(parsed.allowTrim ?? false),
