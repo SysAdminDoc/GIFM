@@ -32,218 +32,37 @@ import {
   useState
 } from 'react';
 import { probeClientMedia } from './clientPreflight';
+import { usePollJobs } from './jobPolling';
 import { STRINGS, setActiveLocale, LOCALE_LABELS, type Locale } from './strings';
+import {
+  TARGET_PROFILES,
+  type TargetPreset,
+  type DitherMode,
+  type PaletteMode,
+  type EncoderBackend,
+  type OutputFormat,
+  type Theme,
+  type Playback,
+  type CropRect,
+  type Rotation,
+  type ColorFilter,
+  type OverlayPosition,
+  type OverlaySettings,
+  type Settings,
+  type Job,
+  type SourceMeta,
+  type HealthInfo,
+  type SavedPreset,
+  type RecentOutput,
+  type BatchJob,
+  type SourceSession,
+  type TimelineClip,
+  type SavePickerWindow,
+  type ApiErrorPayload
+} from './types';
 
 const VERSION = '0.3.0';
-const TARGET_PROFILES = STRINGS.target.profiles;
 const SPEED_OPTIONS = [0.25, 0.5, 1, 1.5, 2, 3, 4];
-
-type TargetPreset = typeof TARGET_PROFILES[number]['id'];
-type DitherMode = 'sierra2_4a' | 'bayer' | 'floyd_steinberg' | 'none';
-type PaletteMode = 'diff' | 'full' | 'single';
-type EncoderBackend = 'ffmpeg' | 'gifski';
-type OutputFormat = 'gif' | 'apng' | 'webp' | 'mp4';
-type Theme = 'dark' | 'light' | 'high-contrast';
-type Playback = 'normal' | 'reverse' | 'boomerang';
-type CropRect = { enabled: boolean; x: number; y: number; w: number; h: number };
-type Rotation = 0 | 90 | 180 | 270;
-type ColorFilter = 'none' | 'grayscale' | 'invert' | 'sepia';
-type OverlayPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
-type OverlaySettings = { enabled: boolean; id: string; position: OverlayPosition; scale: number; opacity: number };
-
-type Settings = {
-  targetPreset: TargetPreset;
-  targetMb: number;
-  width: number;
-  fps: number;
-  startSec: number;
-  durationSec: number;
-  colors: number;
-  dither: DitherMode;
-  bayerScale: number;
-  paletteMode: PaletteMode;
-  encoderBackend: EncoderBackend;
-  autoFit: boolean;
-  allowTrim: boolean;
-  optimize: boolean;
-  gifskiQuality: number;
-  loopCount: number;
-  speed: number;
-  playback: Playback;
-  crop: CropRect;
-  format: OutputFormat;
-  caption: { top: string; bottom: string };
-  overlay: OverlaySettings;
-  rotate: Rotation;
-  flipH: boolean;
-  flipV: boolean;
-  colorFilter: ColorFilter;
-  saturation: number;
-};
-
-type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
-
-type Attempt = {
-  attempt: number;
-  width: number;
-  fps: number;
-  colors: number;
-  durationSec: number;
-  strategy?: string;
-  rejected?: boolean;
-  outputBytes?: number;
-};
-
-type Job = {
-  id: string;
-  status: JobStatus;
-  progress: number;
-  stage: string;
-  queuePosition?: number;
-  inputName: string;
-  inputSize: number;
-  outputBytes?: number;
-  targetBytes: number;
-  downloadUrl?: string;
-  startedAt: string;
-  completedAt?: string;
-  error?: string;
-  errorCode?: string;
-  warnings: string[];
-  logs: string[];
-  commands?: CommandRecord[];
-  attempts: Attempt[];
-  settings: Settings;
-};
-
-type CommandRecord = {
-  stage: string;
-  tool: string;
-  args: string[];
-  command: string;
-};
-
-type SourceMeta = {
-  durationSec: number | null;
-  width: number | null;
-  height: number | null;
-  fps: number | null;
-  codec: string;
-  rotation: number;
-  probeSource?: 'client' | 'server';
-  frameSampled?: boolean;
-};
-
-type HealthInfo = {
-  version: string;
-  ffmpeg: {
-    available: boolean;
-    path: string;
-    version: string;
-  };
-  ffprobe: {
-    available: boolean;
-    path: string;
-    version: string;
-  };
-  gifski: {
-    available: boolean;
-    path: string;
-    version: string;
-    license: string;
-  };
-  gifsicle?: {
-    available: boolean;
-    configured: boolean;
-    path: string;
-    version: string;
-    license: string;
-  };
-  font?: {
-    available: boolean;
-    path: string;
-    license: string;
-  };
-  platform: {
-    os: string;
-    arch: string;
-    node: string;
-  };
-  maxUploadBytes?: number;
-  maxTrimStartSec?: number;
-  preparedSources?: number;
-};
-
-type SavedPreset = {
-  id: string;
-  name: string;
-  settings: Settings;
-};
-
-type RecentOutput = {
-  id: string;
-  inputName: string;
-  outputBytes: number;
-  targetBytes: number;
-  profileLabel: string;
-  downloadUrl: string;
-  completedAt: string;
-};
-
-type BatchJob = {
-  localId: string;
-  inputName: string;
-  inputSize: number;
-  job?: Job;
-  status: 'pending' | 'submitted' | 'failed';
-  error?: string;
-};
-
-type SourceSession = {
-  id: string;
-  inputName: string;
-  inputSize: number;
-  sourceKind: string;
-  createdAt: string;
-  lastUsedAt: string;
-  durationSec: number | null;
-  width: number | null;
-  height: number | null;
-  fps: number | null;
-  codec: string;
-  rotation: number;
-};
-
-type TimelineClip = {
-  id: string;
-  name: string;
-  startSec: number;
-  durationSec: number;
-  createdAt: string;
-};
-
-type SavePickerWindow = Window & {
-  showSaveFilePicker?: (options: {
-    id?: string;
-    suggestedName?: string;
-    types?: Array<{
-      description: string;
-      accept: Record<string, string[]>;
-    }>;
-  }) => Promise<{
-    createWritable: () => Promise<{
-      write: (data: Blob) => Promise<void>;
-      close: () => Promise<void>;
-    }>;
-  }>;
-};
-
-type ApiErrorPayload = {
-  error?: string | {
-    code?: string;
-    message?: string;
-  };
-};
 
 const DEFAULT_SETTINGS: Settings = {
   targetPreset: 'free',
@@ -2384,30 +2203,6 @@ async function readApiError(response: Response, fallback: string) {
   return payload?.error?.message ?? fallback;
 }
 
-async function fetchJob(id: string) {
-  const response = await fetch(`/api/jobs/${id}`);
-  if (!response.ok) {
-    throw new Error(await readApiError(response, `${STRINGS.errors.statusFailed} (${response.status})`));
-  }
-  return response.json() as Promise<Job>;
-}
-
-// Polls the given job ids on an interval and applies any successful updates. Shared by the single-job
-// view and the batch queue so there is one polling loop instead of two duplicated effects.
-function usePollJobs(ids: string[], onUpdates: (jobs: Job[]) => void, intervalMs = 800) {
-  const idsKey = ids.join(',');
-  const callbackRef = useRef(onUpdates);
-  callbackRef.current = onUpdates;
-  useEffect(() => {
-    if (!idsKey) return undefined;
-    const pollIds = idsKey.split(',');
-    const interval = window.setInterval(async () => {
-      const updates = (await Promise.all(pollIds.map((id) => fetchJob(id).catch(() => null)))).filter((value): value is Job => Boolean(value));
-      if (updates.length) callbackRef.current(updates);
-    }, intervalMs);
-    return () => window.clearInterval(interval);
-  }, [idsKey, intervalMs]);
-}
 
 async function saveJobOutput(job: Job) {
   if (!job.downloadUrl) throw new Error(STRINGS.errors.outputUnavailable);
