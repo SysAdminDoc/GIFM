@@ -76,6 +76,17 @@ The UI smoke test serves the built app and verifies the default English interfac
 
 Caption overlays render with the Anton typeface bundled under the SIL Open Font License 1.1 at `assets/fonts/` (license text in `assets/fonts/Anton-OFL.txt`).
 
+## Headless CLI
+
+Convert without the UI using the same local engine:
+
+```powershell
+npm run cli -- input.mp4 --target free --format gif --width 480 --out .
+npm run cli -- --watch .\incoming --target nitro-basic --format webp --out .\gifs
+```
+
+Options: `--target`, `--format` (gif/apng/webp/mp4/avif), `--width`, `--fps`, `--duration`, `--start`, `--out`. The CLI starts the local server, submits the job, and writes the result to the output directory. `--watch <folder>` auto-converts new video/GIF files dropped into the folder until interrupted.
+
 ## Output Location
 
 Generated GIFs are stored under `data/output/`. Uploaded sources, smoke artifacts, and temporary work files stay under `data/`; the directory is ignored by Git.

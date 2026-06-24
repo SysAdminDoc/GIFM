@@ -14,6 +14,7 @@
     "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
     "preview": "node server/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "cli": "node scripts/gifm-cli.mjs",
     "test:unit": "node --test server/*.test.js",
     "test:smoke": "node scripts/smoke.mjs",
     "test:ui": "npm run build && node scripts/ui-smoke.mjs",
