@@ -350,10 +350,33 @@ function GifmApp() {
     chooseFiles(event.currentTarget.files ?? undefined);
   };
 
+  useEffect(() => {
+    // Paste an image/video (e.g. a copied screenshot) anywhere outside a text field to load it.
+    const onPaste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      const pasted = Array.from(event.clipboardData?.files ?? []).filter((item) => item.type.startsWith('image/') || item.type.startsWith('video/'));
+      if (pasted.length) {
+        event.preventDefault();
+        chooseFiles(pasted);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [chooseFiles]);
+
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragActive(false);
-    chooseFiles(event.dataTransfer.files);
+    if (event.dataTransfer.files.length) {
+      chooseFiles(event.dataTransfer.files);
+      return;
+    }
+    // A drag from a browser tab carries a URL rather than a file; route it through the URL importer.
+    const uri = (event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain')).trim();
+    if (/^https?:\/\//i.test(uri)) {
+      void importFromUrl(uri);
+    }
   };
 
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
