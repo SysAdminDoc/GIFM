@@ -460,45 +460,21 @@ function GifmApp() {
     return () => controller.abort();
   }, [file, objectUrl]);
 
-  useEffect(() => {
-    if (!job || isTerminalJob(job)) {
-      return undefined;
+  // A single polling hook drives both the active single job and any running batch jobs.
+  const activePollIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (job && !isTerminalJob(job)) ids.add(job.id);
+    for (const item of batchJobs) {
+      if (item.job && !isTerminalJob(item.job)) ids.add(item.job.id);
     }
+    return [...ids];
+  }, [job, batchJobs]);
 
-    const interval = window.setInterval(async () => {
-      try {
-        const response = await fetch(`/api/jobs/${job.id}`);
-        if (!response.ok) {
-          throw new Error(`${STRINGS.errors.statusFailed} (${response.status})`);
-        }
-        const nextJob = (await response.json()) as Job;
-        setJob(nextJob);
-      } catch (error) {
-        setNotice(error instanceof Error ? error.message : STRINGS.errors.statusFailed);
-      }
-    }, 800);
-
-    return () => window.clearInterval(interval);
-  }, [job]);
-
-  useEffect(() => {
-    const activeJobs = batchJobs
-      .map((item) => item.job)
-      .filter((item): item is Job => item ? !isTerminalJob(item) : false);
-    if (!activeJobs.length) return undefined;
-
-    const interval = window.setInterval(async () => {
-      const updates = await Promise.all(activeJobs.map((item) => fetchJob(item.id).catch(() => null)));
-      setBatchJobs((current) => current.map((item) => {
-        const nextJob = updates.find((update) => update?.id === item.job?.id);
-        return nextJob ? { ...item, job: nextJob } : item;
-      }));
-      const currentJobUpdate = updates.find((update): update is Job => Boolean(update && update.id === job?.id));
-      if (currentJobUpdate) setJob(currentJobUpdate);
-    }, 800);
-
-    return () => window.clearInterval(interval);
-  }, [batchJobs, job?.id]);
+  usePollJobs(activePollIds, (updates) => {
+    const byId = new Map(updates.map((update) => [update.id, update]));
+    setJob((current) => (current && byId.has(current.id) ? byId.get(current.id)! : current));
+    setBatchJobs((current) => current.map((item) => (item.job && byId.has(item.job.id) ? { ...item, job: byId.get(item.job.id)! } : item)));
+  });
 
   useEffect(() => {
     if (job?.status !== 'complete' || !job.downloadUrl || !job.outputBytes) return;
@@ -2414,6 +2390,23 @@ async function fetchJob(id: string) {
     throw new Error(await readApiError(response, `${STRINGS.errors.statusFailed} (${response.status})`));
   }
   return response.json() as Promise<Job>;
+}
+
+// Polls the given job ids on an interval and applies any successful updates. Shared by the single-job
+// view and the batch queue so there is one polling loop instead of two duplicated effects.
+function usePollJobs(ids: string[], onUpdates: (jobs: Job[]) => void, intervalMs = 800) {
+  const idsKey = ids.join(',');
+  const callbackRef = useRef(onUpdates);
+  callbackRef.current = onUpdates;
+  useEffect(() => {
+    if (!idsKey) return undefined;
+    const pollIds = idsKey.split(',');
+    const interval = window.setInterval(async () => {
+      const updates = (await Promise.all(pollIds.map((id) => fetchJob(id).catch(() => null)))).filter((value): value is Job => Boolean(value));
+      if (updates.length) callbackRef.current(updates);
+    }, intervalMs);
+    return () => window.clearInterval(interval);
+  }, [idsKey, intervalMs]);
 }
 
 async function saveJobOutput(job: Job) {

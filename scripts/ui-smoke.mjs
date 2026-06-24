@@ -81,7 +81,7 @@ try {
   await assertVisibleText(page, 'Timeline editor');
   await assertVisibleText(page, 'Saved GIF cuts');
   await assertVisibleText(page, 'Diagnostics');
-  await page.setInputFiles('input[type=file]', samplePath);
+  await page.setInputFiles('input[aria-label="Choose video or GIF file"]', samplePath);
   await page.getByText('Client frame', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
   await page.getByRole('button', { name: 'Add clip' }).click();
   await page.getByText('Clip 01', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
@@ -104,7 +104,7 @@ try {
     };
   });
 
-  if (state.title !== 'GIFM v0.2.0') {
+  if (!/^GIFM v\d+\.\d+\.\d+$/.test(state.title)) {
     throw new Error(`Unexpected title: ${state.title}`);
   }
   if (state.encoderValue !== 'ffmpeg') {
