@@ -337,6 +337,12 @@ const en = {
     download: 'Download',
     open: 'Open',
     downloadGif: 'Download GIF',
+    downloadFormats: {
+      gif: 'Download GIF',
+      apng: 'Download APNG',
+      webp: 'Download WebP',
+      mp4: 'Download MP4'
+    },
     openOutput: 'Open output',
     saveAs: 'Save as',
     altText: 'Alt text',
@@ -442,11 +448,12 @@ const en = {
 } as const;
 
 export type UiStrings = typeof en;
-export type Locale = 'en' | 'es';
+export type Locale = 'en' | 'es' | 'fr';
 
 export const LOCALE_LABELS: Record<Locale, string> = {
   en: 'English',
-  es: 'Espanol'
+  es: 'Espanol',
+  fr: 'Francais'
 };
 
 // Spanish overrides for the visible interface chrome. Any key omitted here falls back to English
@@ -539,9 +546,39 @@ function deepMerge<T>(base: T, override: DeepPartial<T> | undefined): T {
   return result as T;
 }
 
+// French overrides for the visible interface chrome; omitted keys fall back to English.
+const frOverrides = {
+  app: {
+    subtitle: (version: string) => `v${version} createur de GIF local`,
+    ready: 'Pret pour une video ou un GIF',
+    localOnly: 'Local uniquement',
+    ffmpegReady: 'FFmpeg pret',
+    theme: {
+      label: 'Theme',
+      options: { dark: 'Sombre', light: 'Clair', highContrast: 'Contraste eleve' }
+    }
+  },
+  input: {
+    heading: 'Deposez une video ou un GIF',
+    browse: 'Parcourir',
+    importUrl: 'Importer une URL',
+    startEncoding: 'Lancer l\'encodage',
+    reset: 'Reinitialiser'
+  },
+  target: { title: 'Cible', subtitle: 'Controles de taille pour Discord' },
+  preview: { title: 'Apercu', noFile: 'Aucun fichier selectionne' },
+  output: { title: 'Sortie', saveAs: 'Enregistrer sous' },
+  settings: {
+    width: 'Largeur',
+    duration: 'Duree',
+    speed: { label: 'Vitesse', option: (value: number) => `${value}x` }
+  }
+};
+
 const LOCALES: Record<Locale, UiStrings> = {
   en,
-  es: deepMerge(en, esOverrides as DeepPartial<UiStrings>)
+  es: deepMerge(en, esOverrides as DeepPartial<UiStrings>),
+  fr: deepMerge(en, frOverrides as DeepPartial<UiStrings>)
 };
 
 let activeLocale: Locale = 'en';

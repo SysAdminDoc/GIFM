@@ -1887,7 +1887,7 @@ function PreviewPanel({
             <div className="download-grid">
               <a className="primary-button" href={job.downloadUrl} download>
                 <Download aria-hidden="true" />
-                {STRINGS.output.downloadGif}
+                {STRINGS.output.downloadFormats[job.settings.format]}
               </a>
               <button type="button" className="secondary-button" onClick={onReveal}>
                 <MonitorDown aria-hidden="true" />

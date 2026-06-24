@@ -139,9 +139,12 @@ try {
   await page.evaluate(() => window.localStorage.setItem('gifm:locale:v1', JSON.stringify('es')));
   await page.reload({ waitUntil: 'load' });
   await assertVisibleText(page, 'Suelta un video o GIF');
+  await page.evaluate(() => window.localStorage.setItem('gifm:locale:v1', JSON.stringify('fr')));
+  await page.reload({ waitUntil: 'load' });
+  await assertVisibleText(page, 'Deposez une video ou un GIF');
   await page.evaluate(() => window.localStorage.removeItem('gifm:locale:v1'));
 
-  console.log('UI smoke passed: English strings render and the Spanish locale switches.');
+  console.log('UI smoke passed: English strings render and the Spanish and French locales switch.');
 } finally {
   await browser?.close().catch(() => {});
   server.kill();
