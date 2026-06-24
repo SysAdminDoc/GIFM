@@ -1081,6 +1081,7 @@ function SettingsPanel({
             <option value="apng">{STRINGS.settings.format.options.apng}</option>
             <option value="webp">{STRINGS.settings.format.options.webp}</option>
             <option value="mp4">{STRINGS.settings.format.options.mp4}</option>
+            <option value="avif">{STRINGS.settings.format.options.avif}</option>
           </select>
         </label>
         {settings.targetPreset === 'sticker' || settings.format === 'apng'
@@ -1089,11 +1090,13 @@ function SettingsPanel({
             ? <p className="profile-note">{STRINGS.settings.format.webpNote}</p>
             : settings.format === 'mp4'
               ? <p className="profile-note">{STRINGS.settings.format.mp4Note}</p>
-              : null}
+              : settings.format === 'avif'
+                ? <p className="profile-note">{STRINGS.settings.format.avifNote}</p>
+                : null}
 
         <label className="select-field">
           <span>{STRINGS.settings.encoder}</span>
-          <select value={settings.encoderBackend} disabled={settings.format !== 'gif' || settings.targetPreset === 'sticker'} onChange={(event) => update('encoderBackend', event.target.value as EncoderBackend)}>
+          <select value={settings.encoderBackend} disabled={(settings.format !== 'gif') || settings.targetPreset === 'sticker'} onChange={(event) => update('encoderBackend', event.target.value as EncoderBackend)}>
             <option value="ffmpeg">{STRINGS.settings.encoderOptions.ffmpeg}</option>
             <option value="gifski" disabled={!health?.gifski?.available}>{STRINGS.settings.encoderOptions.gifski}</option>
           </select>
@@ -2213,16 +2216,16 @@ async function saveJobOutput(job: Job) {
 
   const blob = await response.blob();
   const format = job.settings.format;
-  const ext = format === 'apng' ? 'png' : format === 'webp' ? 'webp' : format === 'mp4' ? 'mp4' : 'gif';
+  const ext = format === 'apng' ? 'png' : format === 'webp' ? 'webp' : format === 'mp4' ? 'mp4' : format === 'avif' ? 'avif' : 'gif';
   const suggestedName = `${safeFileBase(job.inputName)}-gifm.${ext}`;
-  const fileType: { description: string; accept: Record<string, string[]> } =
-    format === 'apng'
-      ? { description: STRINGS.files.apngDescription, accept: { 'image/apng': ['.png'] } }
-      : format === 'webp'
-        ? { description: STRINGS.files.webpDescription, accept: { 'image/webp': ['.webp'] } }
-        : format === 'mp4'
-          ? { description: STRINGS.files.mp4Description, accept: { 'video/mp4': ['.mp4'] } }
-          : { description: STRINGS.files.gifDescription, accept: { 'image/gif': ['.gif'] } };
+  const acceptByFormat: Record<OutputFormat, { description: string; accept: Record<string, string[]> }> = {
+    apng: { description: STRINGS.files.apngDescription, accept: { 'image/apng': ['.png'] } },
+    webp: { description: STRINGS.files.webpDescription, accept: { 'image/webp': ['.webp'] } },
+    mp4: { description: STRINGS.files.mp4Description, accept: { 'video/mp4': ['.mp4'] } },
+    avif: { description: STRINGS.files.avifDescription, accept: { 'image/avif': ['.avif'] } },
+    gif: { description: STRINGS.files.gifDescription, accept: { 'image/gif': ['.gif'] } }
+  };
+  const fileType = acceptByFormat[format];
   const saveWindow = window as SavePickerWindow;
   if (!saveWindow.showSaveFilePicker) {
     const url = URL.createObjectURL(blob);
@@ -2366,7 +2369,7 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     speed: clampNumber(Number(value.speed ?? DEFAULT_SETTINGS.speed), 0.25, 8),
     playback: isPlayback(value.playback) ? value.playback : DEFAULT_SETTINGS.playback,
     crop: normalizeCrop(value.crop),
-    format: value.format === 'apng' || value.format === 'webp' || value.format === 'mp4' ? value.format : 'gif',
+    format: (['apng', 'webp', 'mp4', 'avif'] as string[]).includes(String(value.format)) ? (value.format as OutputFormat) : 'gif',
     caption: normalizeCaption(value.caption),
     overlay: normalizeOverlay(value.overlay),
     rotate: ([0, 90, 180, 270] as const).includes(value.rotate as Rotation) ? (value.rotate as Rotation) : 0,

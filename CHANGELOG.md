@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added animated AVIF as a max-compression output format (via bundled libaom-av1); Discord plays it, avatars still require GIF.
 - Made the download button label format-aware (Download GIF/APNG/WebP/MP4) and added a French locale.
 - Added a Windows "Make GIF with GIFM" right-click shell verb: `GIFM.exe` accepts a file argument and stages it, and the portable package ships opt-in `register-shell.ps1` / `unregister-shell.ps1` (per-user, no admin).
 - Added an image overlay layer (logo/sticker/watermark) with position, size, and opacity controls, burned into the output before encoding.

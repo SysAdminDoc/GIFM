@@ -399,6 +399,20 @@ async function assertEncodeFeatureMatrix() {
     await fs.rm(mp4Path, { force: true });
   }
 
+  // Animated AVIF export: verify a valid av1/ftyp file served as image/avif.
+  const avifJob = await waitForJob((await startMediaJob(bytes, 'feature-avif.mp4', featureSettings({ format: 'avif' }))).id, 60000);
+  if (avifJob.status !== 'complete') {
+    throw new Error(`AVIF job did not complete: ${JSON.stringify(avifJob, null, 2)}\n${serverLog}`);
+  }
+  const avifDownload = await fetch(`${baseUrl}${avifJob.downloadUrl}`);
+  if (avifDownload.headers.get('content-type') !== 'image/avif') {
+    throw new Error(`AVIF download should be image/avif, got ${avifDownload.headers.get('content-type')}`);
+  }
+  const avifBytes = Buffer.from(await avifDownload.arrayBuffer());
+  if (avifBytes.slice(4, 8).toString('ascii') !== 'ftyp') {
+    throw new Error('AVIF output is not a valid ISO-BMFF/ftyp file.');
+  }
+
   // Image overlay: upload an image, then encode with it and assert the movie/overlay filter is used.
   const overlayPng = path.join(smokeDir, 'overlay.png');
   await run(ffmpegPath, ['-hide_banner', '-f', 'lavfi', '-i', 'color=c=red:size=40x40:duration=0.1', '-frames:v', '1', '-y', overlayPng]);

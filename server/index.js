@@ -390,8 +390,8 @@ app.get('/api/jobs/zip', async (request, response, next) => {
       const job = jobs.get(id);
       if (!job || job.status !== 'complete' || !job.outputPath || !existsSync(job.outputPath)) continue;
       const outExt = path.extname(job.outputPath).toLowerCase();
-      const format = outExt === '.png' ? 'apng' : outExt === '.webp' ? 'webp' : outExt === '.mp4' ? 'mp4' : 'gif';
-      const ext = format === 'apng' ? 'png' : format === 'webp' ? 'webp' : format === 'mp4' ? 'mp4' : 'gif';
+      const format = outExt === '.png' ? 'apng' : outExt === '.webp' ? 'webp' : outExt === '.mp4' ? 'mp4' : outExt === '.avif' ? 'avif' : 'gif';
+      const ext = format === 'apng' ? 'png' : ['webp', 'mp4', 'avif'].includes(format) ? format : 'gif';
       let name = downloadName(job.inputName, format);
       let suffix = 1;
       while (usedNames.has(name)) {
@@ -449,8 +449,8 @@ app.get('/api/jobs/:id/download', (request, response) => {
   }
 
   const ext = path.extname(job.outputPath).toLowerCase();
-  const format = ext === '.png' ? 'apng' : ext === '.webp' ? 'webp' : ext === '.mp4' ? 'mp4' : 'gif';
-  const mime = format === 'apng' ? 'image/apng' : format === 'webp' ? 'image/webp' : format === 'mp4' ? 'video/mp4' : 'image/gif';
+  const format = ext === '.png' ? 'apng' : ext === '.webp' ? 'webp' : ext === '.mp4' ? 'mp4' : ext === '.avif' ? 'avif' : 'gif';
+  const mime = format === 'apng' ? 'image/apng' : format === 'webp' ? 'image/webp' : format === 'mp4' ? 'video/mp4' : format === 'avif' ? 'image/avif' : 'image/gif';
   response.setHeader('Content-Type', mime);
   response.setHeader('Content-Disposition', `attachment; filename="${downloadName(job.inputName, format)}"`);
   createReadStream(job.outputPath).pipe(response);
@@ -614,11 +614,12 @@ async function processJob(job) {
   const isApng = job.settings.format === 'apng';
   const isWebp = job.settings.format === 'webp';
   const isMp4 = job.settings.format === 'mp4';
-  const outputExt = isApng ? 'png' : isWebp ? 'webp' : isMp4 ? 'mp4' : 'gif';
-  // gifsicle only optimizes GIFs, so it is skipped for the APNG, WebP, and MP4 formats.
-  const optimizeEnabled = !isApng && !isWebp && !isMp4 && job.settings.optimize && runtimeInfo.gifsicle.available;
-  // WebP and MP4 have a built-in lossy quality knob, so let the auto-fit loop drive it via the lossy lever.
-  const allowLossy = optimizeEnabled || isWebp || isMp4;
+  const isAvif = job.settings.format === 'avif';
+  const outputExt = isApng ? 'png' : isWebp ? 'webp' : isMp4 ? 'mp4' : isAvif ? 'avif' : 'gif';
+  // gifsicle only optimizes GIFs, so it is skipped for the non-GIF formats.
+  const optimizeEnabled = !isApng && !isWebp && !isMp4 && !isAvif && job.settings.optimize && runtimeInfo.gifsicle.available;
+  // WebP/MP4/AVIF have a built-in lossy quality knob, so let the auto-fit loop drive it via the lossy lever.
+  const allowLossy = optimizeEnabled || isWebp || isMp4 || isAvif;
   const maxAttempts = job.settings.autoFit ? 10 : 1;
   let lastOutputPath = '';
   let bestOutputPath = '';
@@ -637,7 +638,7 @@ async function processJob(job) {
 
     const attemptRecord = { attempt, width, fps, colors, durationSec, strategy, dedupeFrames, frameDropModulo, gifsicleLossy };
     job.attempts.push(attemptRecord);
-    job.stage = isApng ? `Attempt ${attempt}: apng` : isWebp ? `Attempt ${attempt}: webp` : isMp4 ? `Attempt ${attempt}: mp4` : job.settings.encoderBackend === 'gifski' ? `Attempt ${attempt}: gifski` : `Attempt ${attempt}: palette`;
+    job.stage = isApng ? `Attempt ${attempt}: apng` : isWebp ? `Attempt ${attempt}: webp` : isMp4 ? `Attempt ${attempt}: mp4` : isAvif ? `Attempt ${attempt}: avif` : job.settings.encoderBackend === 'gifski' ? `Attempt ${attempt}: gifski` : `Attempt ${attempt}: palette`;
     log(job, `Attempt ${attempt}: ${width}px, ${fps} fps, ${colors} colors, ${durationSec.toFixed(2)} sec, ${strategy}`);
 
     if (isApng) {
@@ -646,6 +647,8 @@ async function processJob(job) {
       await encodeWithWebp({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square: dimensionLock.square, gifsicleLossy });
     } else if (isMp4) {
       await encodeWithMp4({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square: dimensionLock.square, gifsicleLossy });
+    } else if (isAvif) {
+      await encodeWithAvif({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square: dimensionLock.square, gifsicleLossy });
     } else if (job.settings.encoderBackend === 'gifski') {
       await encodeWithGifski({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square: dimensionLock.square });
     } else {
@@ -662,7 +665,7 @@ async function processJob(job) {
     attemptRecord.outputBytes = stat.size;
     lastOutputPath = outputPath;
     log(job, `Attempt ${attempt} output: ${formatBytes(stat.size)}`);
-    const rejectedLargerGif = !isApng && !isWebp && !isMp4 && job.sourceKind === 'gif' && stat.size >= job.inputSize;
+    const rejectedLargerGif = !isApng && !isWebp && !isMp4 && !isAvif && job.sourceKind === 'gif' && stat.size >= job.inputSize;
     attemptRecord.rejected = rejectedLargerGif;
 
     if (rejectedLargerGif) {
@@ -726,7 +729,7 @@ async function processJob(job) {
     throw new ApiError(422, 'NO_OUTPUT', 'No GIF output was produced.');
   }
 
-  if (!isApng && !isWebp && !isMp4 && job.sourceKind === 'gif' && !bestOutputPath) {
+  if (!isApng && !isWebp && !isMp4 && !isAvif && job.sourceKind === 'gif' && !bestOutputPath) {
     throw new ApiError(422, 'OUTPUT_NOT_SMALLER', 'The generated GIF was larger than the source GIF, so GIFM kept the source unchanged.');
   }
 
@@ -1560,6 +1563,37 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
   );
 }
 
+async function encodeWithAvif({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square = false, gifsicleLossy = 0 }) {
+  // Animated AVIF via libaom. cpu-used 8 keeps the slow reference encoder usable; the lossy lever drives CRF.
+  const crf = Math.max(20, Math.min(50, Math.round(30 + gifsicleLossy * 0.12)));
+  await runFfmpeg(
+    [
+      ...trimArgs(startSec, durationSec),
+      '-i',
+      job.inputPath,
+      '-vf',
+      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' }),
+      '-c:v',
+      'libaom-av1',
+      '-crf',
+      String(crf),
+      '-b:v',
+      '0',
+      '-cpu-used',
+      '8',
+      '-pix_fmt',
+      'yuv420p',
+      '-y',
+      outputPath
+    ],
+    job,
+    `Attempt ${attempt}: avif`,
+    5,
+    95,
+    durationSec
+  );
+}
+
 async function encodeWithMp4({ job, attempt, outputPath, startSec, durationSec, width, fps, dedupeFrames, frameDropModulo, square = false, gifsicleLossy = 0 }) {
   // Discord autoplays muted MP4 inline, so a silent faststart H.264 is the smallest "GIF-like" deliverable.
   // The auto-fit lossy lever maps to CRF (higher = smaller); loop count does not apply to MP4.
@@ -1914,7 +1948,7 @@ function safeBaseName(name) {
 }
 
 function downloadName(inputName, format = 'gif') {
-  const ext = format === 'apng' ? 'png' : format === 'webp' ? 'webp' : format === 'mp4' ? 'mp4' : 'gif';
+  const ext = format === 'apng' ? 'png' : ['webp', 'mp4', 'avif'].includes(format) ? format : 'gif';
   return `${safeBaseName(inputName)}-gifm.${ext}`;
 }
 

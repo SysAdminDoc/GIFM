@@ -125,11 +125,13 @@ const en = {
         gif: 'Animated GIF',
         apng: 'APNG (sticker)',
         webp: 'Animated WebP',
-        mp4: 'MP4 (silent loop)'
+        mp4: 'MP4 (silent loop)',
+        avif: 'Animated AVIF'
       },
       apngNote: 'APNG keeps full color for Discord stickers. gifsicle optimization and the gifski encoder do not apply.',
       webpNote: 'Animated WebP is much smaller than GIF and plays natively in Discord (except animated avatars, which require GIF).',
-      mp4Note: 'Discord autoplays muted MP4 inline. This is the smallest, highest-quality option, but is a video file, not an image.'
+      mp4Note: 'Discord autoplays muted MP4 inline. This is the smallest, highest-quality option, but is a video file, not an image.',
+      avifNote: 'Animated AVIF gives the smallest files but encodes slowly. Discord plays it; avatars still require GIF.'
     },
     bayerScale: {
       label: 'Bayer scale'
@@ -341,7 +343,8 @@ const en = {
       gif: 'Download GIF',
       apng: 'Download APNG',
       webp: 'Download WebP',
-      mp4: 'Download MP4'
+      mp4: 'Download MP4',
+      avif: 'Download AVIF'
     },
     openOutput: 'Open output',
     saveAs: 'Save as',
@@ -435,7 +438,8 @@ const en = {
     gifDescription: 'GIF image',
     apngDescription: 'APNG image',
     webpDescription: 'WebP image',
-    mp4Description: 'MP4 video'
+    mp4Description: 'MP4 video',
+    avifDescription: 'AVIF image'
   },
   format: {
     zeroBytes: '0 B',
