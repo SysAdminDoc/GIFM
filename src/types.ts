@@ -173,6 +173,11 @@ export type SourceSession = {
   rotation: number;
 };
 
+export type LoopCandidate = {
+  timeSec: number;
+  ssim: number;
+};
+
 export type TimelineClip = {
   id: string;
   name: string;

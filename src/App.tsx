@@ -57,6 +57,7 @@ import {
   type BatchJob,
   type SourceSession,
   type TimelineClip,
+  type LoopCandidate,
   type SavePickerWindow,
   type ApiErrorPayload
 } from './types';
@@ -158,6 +159,8 @@ function GifmApp() {
   const [sourceMeta, setSourceMeta] = useState<SourceMeta | null>(null);
   const [sourceSession, setSourceSession] = useState<SourceSession | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
+  const [loopCandidates, setLoopCandidates] = useState<LoopCandidate[]>([]);
+  const [loopBusy, setLoopBusy] = useState(false);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
   const [selectedClipId, setSelectedClipId] = useState('');
   const [health, setHealth] = useState<HealthInfo | null>(null);
@@ -554,6 +557,24 @@ function GifmApp() {
     setNotice(STRINGS.notices.clipAdded(name));
   };
 
+  const findLoops = async () => {
+    if (!sourceSession || loopBusy) return;
+    setLoopBusy(true);
+    setLoopCandidates([]);
+    try {
+      const response = await fetch(`/api/sources/${sourceSession.id}/loops`);
+      if (response.ok) {
+        const data = await response.json();
+        setLoopCandidates(data.loops ?? []);
+        if (!data.loops?.length) setNotice(STRINGS.notices.noLoopsFound);
+      }
+    } catch {
+      setNotice(STRINGS.errors.probeFailed);
+    } finally {
+      setLoopBusy(false);
+    }
+  };
+
   const deleteTimelineClip = (id: string) => {
     const clip = timelineClips.find((item) => item.id === id);
     setTimelineClips((current) => current.filter((item) => item.id !== id));
@@ -847,6 +868,9 @@ function GifmApp() {
             onPrepareSource={() => {
               void prepareSource().catch((error) => setNotice(error instanceof Error ? error.message : STRINGS.errors.sourcePrepareFailed));
             }}
+            onFindLoops={findLoops}
+            loopCandidates={loopCandidates}
+            loopBusy={loopBusy}
             sourceSession={sourceSession}
             sourceBusy={sourceBusy}
             exportBusy={busy}
@@ -1009,6 +1033,9 @@ function TimelineEditor({
   onExportAll,
   onImportClip,
   onPrepareSource,
+  onFindLoops,
+  loopCandidates,
+  loopBusy,
   sourceSession,
   sourceBusy,
   exportBusy
@@ -1029,6 +1056,9 @@ function TimelineEditor({
   onExportAll: () => void;
   onImportClip: (name: string, startSec: number, durationSec: number) => void;
   onPrepareSource: () => void;
+  onFindLoops: () => void;
+  loopCandidates: LoopCandidate[];
+  loopBusy: boolean;
   sourceSession: SourceSession | null;
   sourceBusy: boolean;
   exportBusy: boolean;
@@ -1170,7 +1200,25 @@ function TimelineEditor({
         <button type="button" className="secondary-button" disabled={!selectedClip} onClick={() => selectedClip && onUpdateClip(selectedClip.id)}>
           {STRINGS.timeline.updateClip}
         </button>
+        <button type="button" className="secondary-button" disabled={!sourceSession || loopBusy} onClick={onFindLoops}>
+          {loopBusy ? <Loader2 className="spin" aria-hidden="true" /> : null}
+          {STRINGS.timeline.findLoops}
+        </button>
       </div>
+
+      {loopCandidates.length > 0 ? (
+        <div className="loop-suggestions">
+          <strong>{STRINGS.timeline.loopSuggestions}</strong>
+          {loopCandidates.map((c, i) => (
+            <button key={i} type="button" className="secondary-button" onClick={() => {
+              setSettings((current) => ({ ...current, startSec: 0, durationSec: c.timeSec }));
+              onSeekPreview(c.timeSec);
+            }}>
+              {formatTimecode(c.timeSec)} ({Math.round(c.ssim * 100)}%)
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="metadata-grid" aria-label={STRINGS.trim.metadataAria}>
         <span>

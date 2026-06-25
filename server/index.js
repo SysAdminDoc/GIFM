@@ -163,6 +163,52 @@ app.get('/api/jobs/history', (_request, response) => {
   response.json(list);
 });
 
+app.get('/api/sources/:id/loops', async (request, response, next) => {
+  try {
+    const source = sources.get(request.params.id);
+    if (!source || !source.inputPath || !existsSync(source.inputPath)) {
+      sendApiError(response, new ApiError(404, 'SOURCE_NOT_FOUND', 'Source not found.'));
+      return;
+    }
+    const duration = source.metadata?.durationSec ?? 0;
+    if (duration < 1) {
+      response.json({ loops: [] });
+      return;
+    }
+
+    const sampleCount = Math.min(Math.floor(duration), 30);
+    const loopDir = path.join(workDir, `loop-${randomUUID()}`);
+    await fs.mkdir(loopDir, { recursive: true });
+
+    try {
+      const refPath = path.join(loopDir, 'ref.png');
+      await runFfmpegSimple(['-ss', '0', '-i', source.inputPath, '-frames:v', '1', '-vf', 'scale=160:-2', '-y', refPath]);
+
+      const candidates = [];
+      for (let i = 1; i <= sampleCount; i++) {
+        const t = (i / sampleCount) * duration;
+        const framePath = path.join(loopDir, `f${i}.png`);
+        try {
+          await runFfmpegSimple(['-ss', String(t), '-i', source.inputPath, '-frames:v', '1', '-vf', 'scale=160:-2', '-y', framePath]);
+          const ssim = await computeSsimSimple(refPath, framePath);
+          if (ssim !== null && ssim > 0.6) {
+            candidates.push({ timeSec: Number(t.toFixed(2)), ssim: Number(ssim.toFixed(4)) });
+          }
+        } catch {
+          // Skip frames that fail to extract.
+        }
+      }
+
+      candidates.sort((a, b) => b.ssim - a.ssim);
+      response.json({ loops: candidates.slice(0, 5) });
+    } finally {
+      await fs.rm(loopDir, { recursive: true, force: true }).catch(() => {});
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/sources', runUpload, async (request, response, next) => {
   try {
     if (!request.file) {
@@ -785,11 +831,11 @@ async function processJob(job) {
       job.stage = 'Complete';
       job.status = 'complete';
       job.completedAt = new Date().toISOString();
-      await probeOutputMetadata(job);
       await cleanupOutputCandidates(job, outputPath);
       await cleanupWork(job.id);
       await cleanupInput(job);
       await enforceDataRetention(new Set([job.outputPath]));
+      await probeOutputMetadata(job);
       saveManifest();
       notifyJobUpdate(job);
       log(job, `Complete: ${formatBytes(stat.size)} fits ${formatBytes(job.targetBytes)} target`);
@@ -848,11 +894,11 @@ async function processJob(job) {
   job.status = 'complete';
   job.completedAt = new Date().toISOString();
   job.warnings.push(`Final GIF is ${formatBytes(finalStat.size)}, which is above the ${formatBytes(job.targetBytes)} target.`);
-  await probeOutputMetadata(job);
   await cleanupOutputCandidates(job, finalOutputPath);
   await cleanupWork(job.id);
   await cleanupInput(job);
   await enforceDataRetention(new Set([job.outputPath]));
+  await probeOutputMetadata(job);
   saveManifest();
   notifyJobUpdate(job);
   log(job, `Complete with warning: ${formatBytes(finalStat.size)} exceeds target`);
@@ -1345,6 +1391,36 @@ async function saveManifest() {
   } catch {
     // Non-fatal — manifest is a convenience, not a hard requirement.
   }
+}
+
+function runFfmpegSimple(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath, ['-hide_banner', '-protocol_whitelist', 'file,pipe', ...args], { windowsHide: true, timeout: 15000 });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) reject(new Error(stderr.trim().split(/\r?\n/).slice(-4).join('\n') || `ffmpeg exited with code ${code}`));
+      else resolve();
+    });
+  });
+}
+
+function computeSsimSimple(refPath, comparePath) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath, [
+      '-hide_banner', '-protocol_whitelist', 'file,pipe',
+      '-i', refPath, '-i', comparePath,
+      '-lavfi', 'ssim', '-f', 'null', '-'
+    ], { windowsHide: true, timeout: 10000 });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', reject);
+    child.on('close', () => {
+      const match = stderr.match(/All:([0-9.]+)/);
+      resolve(match ? Number(match[1]) : null);
+    });
+  });
 }
 
 function assertLocalBinding() {

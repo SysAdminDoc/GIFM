@@ -68,7 +68,8 @@ const en = {
     submittingClips: (count: number) => `Submitting ${count} clip export${count === 1 ? '' : 's'}`,
     clipJobsSubmitted: 'Clip exports submitted',
     selectionCleared: 'Selection cleared',
-    recentCleared: 'Recent outputs cleared'
+    recentCleared: 'Recent outputs cleared',
+    noLoopsFound: 'No strong loop points found in this clip'
   },
   target: {
     title: 'Target',
@@ -338,6 +339,8 @@ const en = {
     previewStart: 'Preview start',
     addClip: 'Add clip',
     updateClip: 'Update clip',
+    findLoops: 'Find loops',
+    loopSuggestions: 'Loop points',
     sourceReady: 'Source prepared once',
     sourceReadyBody: (name: string, size: string) => `${name} (${size}) can export saved clips without another upload.`,
     sourceNotReady: 'Source not prepared',
