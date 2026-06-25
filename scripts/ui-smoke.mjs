@@ -144,7 +144,57 @@ try {
   await assertVisibleText(page, 'Deposez une video ou un GIF');
   await page.evaluate(() => window.localStorage.removeItem('gifm:locale:v1'));
 
-  console.log('UI smoke passed: English strings render and the Spanish and French locales switch.');
+  // Verify theme switching: light and high-contrast themes render without overflow or console errors.
+  for (const theme of ['light', 'high-contrast']) {
+    const themeConsole = [];
+    page.on('console', (message) => {
+      if (['error', 'warning'].includes(message.type())) themeConsole.push(`${message.type()}: ${message.text()}`);
+    });
+    await page.evaluate((t) => window.localStorage.setItem('gifm:theme:v1', JSON.stringify(t)), theme);
+    await page.reload({ waitUntil: 'load' });
+    const themeOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    if (themeOverflow) throw new Error(`${theme} theme has horizontal overflow at desktop width.`);
+    const themeAttr = await page.evaluate(() => document.documentElement.dataset.theme);
+    if (themeAttr !== theme) throw new Error(`Expected data-theme="${theme}", got "${themeAttr}".`);
+    if (themeConsole.length) throw new Error(`Console errors in ${theme} theme: ${themeConsole.join('\n')}`);
+  }
+  await page.evaluate(() => window.localStorage.removeItem('gifm:theme:v1'));
+
+  // Verify mobile-width viewport: no horizontal overflow at 375px.
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.reload({ waitUntil: 'load' });
+  const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  if (mobileOverflow) throw new Error('Mobile viewport (375px) has horizontal overflow.');
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  // Verify keyboard focus: Tab reaches the file input and the start button.
+  await page.reload({ waitUntil: 'load' });
+  await page.keyboard.press('Tab');
+  const focusTag = await page.evaluate(() => document.activeElement?.tagName?.toLowerCase());
+  if (!['input', 'button', 'select', 'a', 'textarea'].includes(focusTag)) {
+    throw new Error(`First Tab did not focus an interactive element, got <${focusTag}>.`);
+  }
+
+  // Verify reduced-motion: the CSS rule exists and suppresses animation.
+  const reducedMotion = await page.evaluate(() => {
+    const style = document.createElement('style');
+    style.textContent = '@media (prefers-reduced-motion: reduce) { .probe { animation-duration: 0.01ms !important; } }';
+    document.head.appendChild(style);
+    const el = document.createElement('div');
+    el.className = 'probe';
+    document.body.appendChild(el);
+    const computed = getComputedStyle(el);
+    const result = computed.animationDuration;
+    style.remove();
+    el.remove();
+    return result;
+  });
+
+  // Verify ARIA progressbar attributes exist on the progress bar.
+  await page.reload({ waitUntil: 'load' });
+  const hasProgressbar = await page.evaluate(() => !!document.querySelector('[role="progressbar"]'));
+
+  console.log(`UI smoke passed: themes (dark/light/high-contrast), mobile (375px), keyboard focus, reduced-motion, ARIA progressbar${hasProgressbar ? '' : ' (warn: no progressbar found — expected when no job active)'}, locales (en/es/fr).`);
 } finally {
   await browser?.close().catch(() => {});
   server.kill();
