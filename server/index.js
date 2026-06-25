@@ -55,6 +55,7 @@ let pendingImport = null;
 const jobQueue = [];
 let runningJobs = 0;
 const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
+const manifestPath = path.join(dataDir, 'manifest.json');
 
 await Promise.all([uploadDir, outputDir, workDir, overlayDir].map((dir) => fs.mkdir(dir, { recursive: true })));
 assertLocalBinding();
@@ -64,6 +65,7 @@ if (!ffmpegPath || !ffprobePath) {
 }
 
 const runtimeInfo = await getRuntimeInfo();
+await loadManifest();
 await enforceDataRetention();
 
 const storage = multer.diskStorage({
@@ -141,6 +143,26 @@ app.get('/api/health', (_request, response) => {
   });
 });
 
+app.get('/api/sources', (_request, response) => {
+  const list = [];
+  for (const source of sources.values()) {
+    if (source.inputPath && existsSync(source.inputPath)) {
+      list.push(publicSource(source));
+    }
+  }
+  response.json(list);
+});
+
+app.get('/api/jobs/history', (_request, response) => {
+  const list = [];
+  for (const job of jobs.values()) {
+    if (job.status === 'complete' && job.outputPath && existsSync(job.outputPath)) {
+      list.push(publicJob(job));
+    }
+  }
+  response.json(list);
+});
+
 app.post('/api/sources', runUpload, async (request, response, next) => {
   try {
     if (!request.file) {
@@ -184,6 +206,7 @@ app.post('/api/sources', runUpload, async (request, response, next) => {
 
     sources.set(id, prepared);
     await enforceDataRetention(new Set([prepared.inputPath]));
+    saveManifest();
     response.status(201).json(publicSource(prepared));
   } catch (error) {
     if (request.file?.path) await removeFile(request.file.path);
@@ -705,6 +728,7 @@ async function processJob(job) {
       await cleanupWork(job.id);
       await cleanupInput(job);
       await enforceDataRetention(new Set([job.outputPath]));
+      saveManifest();
       log(job, `Complete: ${formatBytes(stat.size)} fits ${formatBytes(job.targetBytes)} target`);
       return;
     }
@@ -766,6 +790,7 @@ async function processJob(job) {
   await cleanupWork(job.id);
   await cleanupInput(job);
   await enforceDataRetention(new Set([job.outputPath]));
+  saveManifest();
   log(job, `Complete with warning: ${formatBytes(finalStat.size)} exceeds target`);
 }
 
@@ -838,6 +863,7 @@ async function registerPreparedSource({ filePath, inputName }) {
 
   sources.set(id, prepared);
   await enforceDataRetention(new Set([prepared.inputPath]));
+  saveManifest();
   return prepared;
 }
 
@@ -1180,6 +1206,46 @@ function readRotation(stream) {
 function finiteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+async function loadManifest() {
+  try {
+    const raw = await fs.readFile(manifestPath, 'utf-8');
+    const data = JSON.parse(raw);
+    if (data.version !== 1) return;
+    for (const entry of data.sources ?? []) {
+      if (entry.inputPath && existsSync(entry.inputPath)) {
+        sources.set(entry.id, { ...entry, outputCandidates: new Set() });
+      }
+    }
+    for (const entry of data.jobs ?? []) {
+      if (entry.outputPath && existsSync(entry.outputPath) && entry.status === 'complete') {
+        jobs.set(entry.id, { ...entry, outputCandidates: new Set(), logs: entry.logs ?? [], commands: entry.commands ?? [], warnings: entry.warnings ?? [], attempts: entry.attempts ?? [] });
+      }
+    }
+  } catch {
+    // No manifest or corrupt — start fresh.
+  }
+}
+
+async function saveManifest() {
+  const persistedSources = [];
+  for (const source of sources.values()) {
+    if (source.inputPath && existsSync(source.inputPath)) {
+      persistedSources.push({ id: source.id, inputPath: source.inputPath, inputName: source.inputName, inputSize: source.inputSize, sourceKind: source.sourceKind, createdAt: source.createdAt, lastUsedAt: source.lastUsedAt, metadata: source.metadata });
+    }
+  }
+  const persistedJobs = [];
+  for (const job of jobs.values()) {
+    if (job.status === 'complete' && job.outputPath && existsSync(job.outputPath)) {
+      persistedJobs.push({ id: job.id, status: job.status, inputName: job.inputName, inputSize: job.inputSize, outputPath: job.outputPath, outputBytes: job.outputBytes, targetBytes: job.targetBytes, downloadUrl: job.downloadUrl, startedAt: job.startedAt, completedAt: job.completedAt, warnings: job.warnings, attempts: job.attempts, settings: job.settings, outputMeta: job.outputMeta, discordChecks: job.discordChecks });
+    }
+  }
+  try {
+    await fs.writeFile(manifestPath, JSON.stringify({ version: 1, sources: persistedSources, jobs: persistedJobs }, null, 2));
+  } catch {
+    // Non-fatal — manifest is a convenience, not a hard requirement.
+  }
 }
 
 function assertLocalBinding() {
