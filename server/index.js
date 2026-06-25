@@ -293,6 +293,39 @@ app.post('/api/overlay', (request, response, next) => {
   });
 });
 
+const subtitleUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_request, _file, callback) => callback(null, workDir),
+    filename: (_request, file, callback) => {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      callback(null, `sub-${randomUUID()}${['.srt', '.ass', '.ssa', '.vtt'].includes(ext) ? ext : '.srt'}`);
+    }
+  }),
+  limits: { fileSize: 1 * 1024 * 1024, files: 1, fields: 0, parts: 2, fieldNestingDepth: 1 },
+  fileFilter: (_request, file, callback) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (['.srt', '.ass', '.ssa', '.vtt'].includes(ext)) {
+      callback(null, true);
+      return;
+    }
+    callback(new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Upload an SRT, ASS, SSA, or VTT subtitle file.'));
+  }
+}).single('subtitle');
+
+app.post('/api/subtitle', (request, response, next) => {
+  subtitleUpload(request, response, async (error) => {
+    if (error) {
+      next(error);
+      return;
+    }
+    if (!request.file) {
+      sendApiError(response, new ApiError(400, 'NO_SUBTITLE_FILE', 'No subtitle file was uploaded.'));
+      return;
+    }
+    response.status(201).json({ id: request.file.filename });
+  });
+});
+
 app.post('/api/sources/:id/jobs', async (request, response, next) => {
   try {
     const source = sources.get(request.params.id);
@@ -1515,7 +1548,7 @@ function parseSettings(raw) {
   return parseSettingsRaw(raw, MAX_TRIM_START_SEC);
 }
 
-function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null, caption = null, fontFile = '', rotate = 0, flipH = false, flipV = false, colorFilter = 'none', saturation = 1, overlay = null, overlayPath = '', lilliputCrush = false }) {
+function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null, caption = null, fontFile = '', rotate = 0, flipH = false, flipV = false, colorFilter = 'none', saturation = 1, overlay = null, overlayPath = '', lilliputCrush = false, subtitlePath = '' }) {
   const filters = [];
   if (crop?.enabled) {
     // Crop the source region first so every downstream filter works on the selected rectangle.
@@ -1552,6 +1585,10 @@ function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = 
   let chain = filters.join(',');
   const captionChain = captionFilters({ caption, fontFile, width });
   if (captionChain) chain += `,${captionChain}`;
+  if (subtitlePath) {
+    const escaped = subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+    chain += `,subtitles='${escaped}'`;
+  }
   if (playback === 'reverse') {
     chain += ',reverse';
   } else if (playback === 'boomerang') {
@@ -1588,6 +1625,13 @@ function resolveOverlayPath(id) {
   if (!id || !/^[a-f0-9-]+\.(png|jpe?g|webp|gif)$/i.test(id)) return '';
   const resolved = path.join(overlayDir, id);
   if (path.dirname(resolved) !== overlayDir || !existsSync(resolved)) return '';
+  return resolved;
+}
+
+function resolveSubtitlePath(id) {
+  if (!id || !/^sub-[a-f0-9-]+\.(srt|ass|ssa|vtt)$/i.test(id)) return '';
+  const resolved = path.join(workDir, id);
+  if (path.dirname(resolved) !== workDir || !existsSync(resolved)) return '';
   return resolved;
 }
 
@@ -1734,9 +1778,20 @@ function ffprobe(inputPath, job) {
   });
 }
 
+function buildChainOpts(job, { width, fps, dedupeFrames, frameDropModulo, square = false, lilliputCrush = false }) {
+  return {
+    width, fps, dedupeFrames, frameDropModulo, square,
+    speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop,
+    caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '',
+    rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV,
+    colorFilter: job.settings.colorFilter, saturation: job.settings.saturation,
+    overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '',
+    lilliputCrush, subtitlePath: resolveSubtitlePath(job.settings.subtitleId)
+  };
+}
+
 async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, outputPath, startSec, durationSec, width, fps, colors, dedupeFrames, frameDropModulo, square = false }) {
-  const crush = job.settings.targetPreset !== 'custom';
-  const chainOpts = { width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '', lilliputCrush: crush };
+  const chainOpts = buildChainOpts(job, { width, fps, dedupeFrames, frameDropModulo, square, lilliputCrush: job.settings.targetPreset !== 'custom' });
   await runFfmpeg(
     [
       ...trimArgs(startSec, durationSec),
@@ -1790,7 +1845,7 @@ async function encodeWithAvif({ job, attempt, outputPath, startSec, durationSec,
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' }),
+      videoFilterChain(buildChainOpts(job, { width, fps, dedupeFrames, frameDropModulo, square })),
       '-c:v',
       'libaom-av1',
       '-crf',
@@ -1822,7 +1877,7 @@ async function encodeWithMp4({ job, attempt, outputPath, startSec, durationSec, 
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' }),
+      videoFilterChain(buildChainOpts(job, { width, fps, dedupeFrames, frameDropModulo, square })),
       '-c:v',
       'libx264',
       '-preset',
@@ -1856,7 +1911,7 @@ async function encodeWithWebp({ job, attempt, outputPath, startSec, durationSec,
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' }),
+      videoFilterChain(buildChainOpts(job, { width, fps, dedupeFrames, frameDropModulo, square })),
       '-c:v',
       'libwebp',
       '-loop',
@@ -1885,7 +1940,7 @@ async function encodeWithApng({ job, attempt, outputPath, startSec, durationSec,
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' }),
+      videoFilterChain(buildChainOpts(job, { width, fps, dedupeFrames, frameDropModulo, square })),
       '-f',
       'apng',
       '-plays',
@@ -1918,7 +1973,7 @@ async function encodeWithGifski({ job, attempt, outputPath, startSec, durationSe
       '-i',
       job.inputPath,
       '-vf',
-      videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' }),
+      videoFilterChain(buildChainOpts(job, { width, fps, dedupeFrames, frameDropModulo, square })),
       '-pix_fmt',
       'yuv420p',
       '-f',

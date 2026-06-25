@@ -94,7 +94,8 @@ const DEFAULT_SETTINGS: Settings = {
   colorFilter: 'none',
   saturation: 1,
   gifsicleColorSpace: 'srgb',
-  gifsicleOptDither: 'none'
+  gifsicleOptDither: 'none',
+  subtitleId: ''
 };
 
 const SETTINGS_KEY = 'gifm:settings:v1';
@@ -1065,6 +1066,34 @@ function SettingsPanel({
             {(settings.caption.top || settings.caption.bottom) && health && health.font && !health.font.available
               ? <p className="profile-note">{STRINGS.settings.caption.unavailable}</p>
               : null}
+
+            <div className="subtitle-row">
+              <span>{STRINGS.settings.subtitle.label}</span>
+              <button type="button" className="secondary-button" onClick={async () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.srt,.ass,.ssa,.vtt';
+                input.onchange = async () => {
+                  const file = input.files?.[0];
+                  if (!file) return;
+                  const form = new FormData();
+                  form.set('subtitle', file);
+                  const res = await fetch('/api/subtitle', { method: 'POST', body: form });
+                  if (res.ok) {
+                    const data = await res.json();
+                    update('subtitleId', data.id);
+                  }
+                };
+                input.click();
+              }}>
+                {settings.subtitleId ? STRINGS.settings.subtitle.replace : STRINGS.settings.subtitle.upload}
+              </button>
+              {settings.subtitleId ? (
+                <button type="button" className="secondary-button" onClick={() => update('subtitleId', '')}>
+                  {STRINGS.settings.subtitle.clear}
+                </button>
+              ) : null}
+            </div>
 
             <label className="select-field">
               <span>{STRINGS.settings.rotate.label}</span>
@@ -2581,7 +2610,8 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     colorFilter: (['none', 'grayscale', 'invert', 'sepia'] as const).includes(value.colorFilter as ColorFilter) ? (value.colorFilter as ColorFilter) : 'none',
     saturation: clampNumber(Number(value.saturation ?? 1), 0, 3),
     gifsicleColorSpace: (['srgb', 'oklab'] as const).includes(value.gifsicleColorSpace as 'srgb' | 'oklab') ? (value.gifsicleColorSpace as 'srgb' | 'oklab') : 'srgb',
-    gifsicleOptDither: (['none', 'ordered', 'atkinson'] as const).includes(value.gifsicleOptDither as 'none' | 'ordered' | 'atkinson') ? (value.gifsicleOptDither as 'none' | 'ordered' | 'atkinson') : 'none'
+    gifsicleOptDither: (['none', 'ordered', 'atkinson'] as const).includes(value.gifsicleOptDither as 'none' | 'ordered' | 'atkinson') ? (value.gifsicleOptDither as 'none' | 'ordered' | 'atkinson') : 'none',
+    subtitleId: typeof value.subtitleId === 'string' ? value.subtitleId : ''
   };
 }
 

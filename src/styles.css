@@ -1268,6 +1268,13 @@ textarea:focus-visible {
   color: var(--amber);
 }
 
+.subtitle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
 .output-preview {
   padding: 4px 12px;
 }

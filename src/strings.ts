@@ -236,6 +236,12 @@ const en = {
       placeholder: 'Optional meme text',
       unavailable: 'Caption font missing. Reinstall GIFM to restore assets/fonts.'
     },
+    subtitle: {
+      label: 'Subtitle file',
+      upload: 'Upload SRT/ASS',
+      replace: 'Replace subtitle',
+      clear: 'Remove'
+    },
     overlay: {
       label: 'Image overlay',
       description: 'Burn a logo, sticker, or watermark onto the output.',
