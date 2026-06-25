@@ -123,7 +123,9 @@ export function parseSettings(raw, maxTrimStartSec = DEFAULT_MAX_TRIM_START_SEC)
     flipH: Boolean(parsed.flipH),
     flipV: Boolean(parsed.flipV),
     colorFilter: ['none', 'grayscale', 'invert', 'sepia'].includes(parsed.colorFilter) ? parsed.colorFilter : 'none',
-    saturation: clamp(Number(parsed.saturation ?? 1), 0, 3)
+    saturation: clamp(Number(parsed.saturation ?? 1), 0, 3),
+    gifsicleColorSpace: ['srgb', 'oklab'].includes(parsed.gifsicleColorSpace) ? parsed.gifsicleColorSpace : 'srgb',
+    gifsicleOptDither: ['none', 'ordered', 'atkinson'].includes(parsed.gifsicleOptDither) ? parsed.gifsicleOptDither : 'none'
   };
 }
 

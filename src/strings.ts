@@ -190,6 +190,17 @@ const en = {
       description: 'Run a gifsicle -O3 pass and use lossy compression as an auto-fit lever for smaller GIFs.',
       unavailable: 'gifsicle not detected. Install gifsicle on PATH or set GIFM_GIFSICLE_PATH to enable optimization.'
     },
+    gifsicleColorSpace: {
+      label: 'Color space',
+      srgb: 'sRGB (default)',
+      oklab: 'Oklab (perceptual)'
+    },
+    gifsicleOptDither: {
+      label: 'Optimizer dithering',
+      none: 'None',
+      ordered: 'Ordered',
+      atkinson: 'Atkinson'
+    },
     gifskiQuality: {
       label: 'gifski quality'
     },

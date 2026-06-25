@@ -44,6 +44,8 @@ export type Settings = {
   flipV: boolean;
   colorFilter: ColorFilter;
   saturation: number;
+  gifsicleColorSpace: 'srgb' | 'oklab';
+  gifsicleOptDither: 'none' | 'ordered' | 'atkinson';
 };
 
 export type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';

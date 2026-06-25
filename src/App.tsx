@@ -92,7 +92,9 @@ const DEFAULT_SETTINGS: Settings = {
   flipH: false,
   flipV: false,
   colorFilter: 'none',
-  saturation: 1
+  saturation: 1,
+  gifsicleColorSpace: 'srgb',
+  gifsicleOptDither: 'none'
 };
 
 const SETTINGS_KEY = 'gifm:settings:v1';
@@ -1225,6 +1227,25 @@ function SettingsPanel({
         {!health?.gifsicle?.available
           ? <p className="profile-note">{STRINGS.settings.optimize.unavailable}</p>
           : null}
+        {settings.optimize && health?.gifsicle?.available ? (
+          <>
+            <label className="select-field">
+              <span>{STRINGS.settings.gifsicleColorSpace.label}</span>
+              <select value={settings.gifsicleColorSpace} onChange={(e) => update('gifsicleColorSpace', e.currentTarget.value as 'srgb' | 'oklab')}>
+                <option value="srgb">{STRINGS.settings.gifsicleColorSpace.srgb}</option>
+                <option value="oklab">{STRINGS.settings.gifsicleColorSpace.oklab}</option>
+              </select>
+            </label>
+            <label className="select-field">
+              <span>{STRINGS.settings.gifsicleOptDither.label}</span>
+              <select value={settings.gifsicleOptDither} onChange={(e) => update('gifsicleOptDither', e.currentTarget.value as 'none' | 'ordered' | 'atkinson')}>
+                <option value="none">{STRINGS.settings.gifsicleOptDither.none}</option>
+                <option value="ordered">{STRINGS.settings.gifsicleOptDither.ordered}</option>
+                <option value="atkinson">{STRINGS.settings.gifsicleOptDither.atkinson}</option>
+              </select>
+            </label>
+          </>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.presets.title} description={STRINGS.settings.sections.presets.description}>
@@ -2558,7 +2579,9 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     flipH: Boolean(value.flipH),
     flipV: Boolean(value.flipV),
     colorFilter: (['none', 'grayscale', 'invert', 'sepia'] as const).includes(value.colorFilter as ColorFilter) ? (value.colorFilter as ColorFilter) : 'none',
-    saturation: clampNumber(Number(value.saturation ?? 1), 0, 3)
+    saturation: clampNumber(Number(value.saturation ?? 1), 0, 3),
+    gifsicleColorSpace: (['srgb', 'oklab'] as const).includes(value.gifsicleColorSpace as 'srgb' | 'oklab') ? (value.gifsicleColorSpace as 'srgb' | 'oklab') : 'srgb',
+    gifsicleOptDither: (['none', 'ordered', 'atkinson'] as const).includes(value.gifsicleOptDither as 'none' | 'ordered' | 'atkinson') ? (value.gifsicleOptDither as 'none' | 'ordered' | 'atkinson') : 'none'
   };
 }
 

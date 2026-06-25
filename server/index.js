@@ -1586,6 +1586,9 @@ function runGifsicle(inputPath, outputPath, lossy, job, stage) {
 
     const args = ['-O3'];
     if (lossy > 0) args.push(`--lossy=${Math.round(lossy)}`);
+    if (job.settings.gifsicleColorSpace === 'oklab') args.push('--gamma=oklab');
+    if (job.settings.gifsicleOptDither === 'ordered') args.push('--dither=ordered');
+    else if (job.settings.gifsicleOptDither === 'atkinson') args.push('--dither=atkinson');
     args.push(inputPath, '-o', outputPath);
     const child = spawn(runtimeInfo.gifsicle.path, args, { windowsHide: true });
     recordCommand(job, stage, args, runtimeInfo.gifsicle.path);
