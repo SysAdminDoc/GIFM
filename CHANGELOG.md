@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Security: block SSRF via URL import (reject RFC 1918, loopback, link-local hostnames); remove Host header trust from CSRF middleware; validate frame spec bounds; atomic manifest saves; limit SSE query parameter size.
+- Fix: estimateOutputBytes used width as height fallback instead of 16:9 ratio.
+- Fix: findLoops and extractFrames silently ignored server errors instead of showing error messages.
+- Fix: frame editor used array indices for React keys and state updates, causing stale closure bugs on delete.
+- Fix: frame/loop state persisted across source changes — now cleared when user selects a new file.
+- Fix: subtitle upload had no error handling on network failure.
+- Fix: warning list used text as React key, causing duplicate-key warnings.
+- UX: log panel capped at 200 visible lines with 300px max-height scroll to prevent DOM bloat.
+- UX: removed false draggable attribute from frame images (no drag handler was implemented).
+- Theme: replaced 6 hardcoded hex colors with CSS variable references for full theme support.
+
 ## v0.5.0 - 2026-06-25
 
 - Added a frame-by-frame editor: extract frames from a prepared source, delete unwanted frames, set per-frame delays (centiseconds), and encode the edited sequence as a custom GIF. New server endpoints for frame extraction, serving, and concat-demuxer encoding.
