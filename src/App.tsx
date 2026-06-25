@@ -2064,7 +2064,7 @@ function PreviewPanel({
             <p className="muted-text">{outputSuitability(job)}</p>
             {job.outputMeta ? (
               <p className="muted-text">
-                {job.outputMeta.width}x{job.outputMeta.height}{job.outputMeta.durationSec ? `, ${job.outputMeta.durationSec.toFixed(1)}s` : ''}{job.outputMeta.fps ? `, ${job.outputMeta.fps.toFixed(0)} fps` : ''}
+                {job.outputMeta.width}x{job.outputMeta.height}{job.outputMeta.durationSec ? `, ${job.outputMeta.durationSec.toFixed(1)}s` : ''}{job.outputMeta.fps ? `, ${job.outputMeta.fps.toFixed(0)} fps` : ''}{job.ssim != null ? ` · ${Math.round(job.ssim * 100)}% quality` : ''}
               </p>
             ) : null}
             {job.discordChecks && job.discordChecks.length > 0 ? (

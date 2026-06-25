@@ -848,6 +848,39 @@ async function probeOutputMetadata(job) {
     job.outputMeta = null;
     job.discordChecks = [];
   }
+
+  if (['gif', 'apng'].includes(job.settings.format) && job.inputPath && existsSync(job.inputPath)) {
+    try {
+      job.ssim = await computeSsim(job.inputPath, job.outputPath, job);
+    } catch {
+      job.ssim = null;
+    }
+  }
+}
+
+function computeSsim(sourcePath, outputPath, job) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath, [
+      '-hide_banner', '-protocol_whitelist', 'file,pipe',
+      '-i', sourcePath,
+      '-i', outputPath,
+      '-lavfi', 'ssim',
+      '-f', 'null', '-'
+    ], { windowsHide: true, timeout: 30000 });
+    trackChild(job, child);
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', (error) => { clearTrackedChild(job, child); reject(error); });
+    child.on('close', (code) => {
+      clearTrackedChild(job, child);
+      const match = stderr.match(/All:([0-9.]+)/);
+      if (match) {
+        resolve(Number(match[1]));
+      } else {
+        resolve(null);
+      }
+    });
+  });
 }
 
 function runUpload(request, response, next) {
@@ -2093,7 +2126,8 @@ function publicJob(job) {
     attempts: job.attempts,
     settings: job.settings,
     outputMeta: job.outputMeta ?? null,
-    discordChecks: job.discordChecks ?? []
+    discordChecks: job.discordChecks ?? [],
+    ssim: job.ssim ?? null
   };
 }
 

@@ -104,6 +104,7 @@ export type Job = {
   settings: Settings;
   outputMeta?: OutputMeta | null;
   discordChecks?: DiscordCheck[];
+  ssim?: number | null;
 };
 
 export type SourceMeta = {
