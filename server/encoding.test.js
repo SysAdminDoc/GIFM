@@ -17,7 +17,8 @@ import {
   resolveFormat,
   nextAttempt,
   isProtectedPath,
-  exceedsFrameBudget
+  exceedsFrameBudget,
+  discordTargetChecks
 } from './encoding.js';
 
 test('clamp bounds values and coerces non-finite to min', () => {
@@ -245,6 +246,39 @@ test('exceedsFrameBudget uses a configurable limit', () => {
   const result = exceedsFrameBudget({ width: 100, height: 100, fps: 10, durationSec: 2, maxFramePixels: 100_000 });
   assert.equal(result.exceeds, true);
   assert.equal(result.totalFramePixels, 200_000);
+});
+
+test('discordTargetChecks validates emoji constraints', () => {
+  const checks = discordTargetChecks({ preset: 'emoji', outputBytes: 200 * 1024, width: 128, height: 128, format: 'gif' });
+  assert.ok(checks.length >= 2);
+  assert.ok(checks.every((c) => c.pass));
+});
+
+test('discordTargetChecks flags oversized emoji', () => {
+  const checks = discordTargetChecks({ preset: 'emoji', outputBytes: 300 * 1024, width: 128, height: 128, format: 'gif' });
+  const sizeCheck = checks.find((c) => c.label === 'File size');
+  assert.ok(sizeCheck);
+  assert.equal(sizeCheck.pass, false);
+});
+
+test('discordTargetChecks warns about GIF auto-play threshold', () => {
+  const checks = discordTargetChecks({ preset: 'free', outputBytes: 500 * 1024, width: 320, height: 180, format: 'gif' });
+  const autoPlay = checks.find((c) => c.label === 'Auto-play');
+  assert.ok(autoPlay);
+  assert.equal(autoPlay.pass, false);
+  assert.ok(autoPlay.detail.includes('static thumbnail'));
+});
+
+test('discordTargetChecks warns about Discord server resize', () => {
+  const checks = discordTargetChecks({ preset: 'free', outputBytes: 5 * 1024 * 1024, width: 480, height: 270, format: 'gif' });
+  const resize = checks.find((c) => c.label === 'Server resize');
+  assert.ok(resize);
+  assert.equal(resize.pass, false);
+});
+
+test('discordTargetChecks returns empty for unknown presets', () => {
+  const checks = discordTargetChecks({ preset: 'unknown', outputBytes: 1000, width: 100, height: 100, format: 'gif' });
+  assert.deepEqual(checks, []);
 });
 
 test('isProtectedPath matches exact paths, children, and parents', () => {

@@ -21,7 +21,8 @@ import {
   parseSettings as parseSettingsRaw,
   nextAttempt,
   isProtectedPath,
-  exceedsFrameBudget
+  exceedsFrameBudget,
+  discordTargetChecks
 } from './encoding.js';
 import { buildStoreZip } from './zip.js';
 
@@ -699,6 +700,7 @@ async function processJob(job) {
       job.stage = 'Complete';
       job.status = 'complete';
       job.completedAt = new Date().toISOString();
+      await probeOutputMetadata(job);
       await cleanupOutputCandidates(job, outputPath);
       await cleanupWork(job.id);
       await cleanupInput(job);
@@ -759,11 +761,37 @@ async function processJob(job) {
   job.status = 'complete';
   job.completedAt = new Date().toISOString();
   job.warnings.push(`Final GIF is ${formatBytes(finalStat.size)}, which is above the ${formatBytes(job.targetBytes)} target.`);
+  await probeOutputMetadata(job);
   await cleanupOutputCandidates(job, finalOutputPath);
   await cleanupWork(job.id);
   await cleanupInput(job);
   await enforceDataRetention(new Set([job.outputPath]));
   log(job, `Complete with warning: ${formatBytes(finalStat.size)} exceeds target`);
+}
+
+async function probeOutputMetadata(job) {
+  try {
+    const metadata = await ffprobe(job.outputPath);
+    const source = sourceMetadata(metadata);
+    job.outputMeta = {
+      width: source.width,
+      height: source.height,
+      durationSec: source.durationSec,
+      fps: source.fps,
+      format: job.settings.format
+    };
+    job.discordChecks = discordTargetChecks({
+      preset: job.settings.targetPreset,
+      outputBytes: job.outputBytes,
+      width: source.width ?? 0,
+      height: source.height ?? 0,
+      durationSec: source.durationSec,
+      format: job.settings.format
+    });
+  } catch {
+    job.outputMeta = null;
+    job.discordChecks = [];
+  }
 }
 
 function runUpload(request, response, next) {
@@ -1952,7 +1980,9 @@ function publicJob(job) {
     logs: job.logs.slice(-120),
     commands: job.commands?.slice(-20) ?? [],
     attempts: job.attempts,
-    settings: job.settings
+    settings: job.settings,
+    outputMeta: job.outputMeta ?? null,
+    discordChecks: job.discordChecks ?? []
   };
 }
 

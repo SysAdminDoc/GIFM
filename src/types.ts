@@ -66,6 +66,20 @@ export type CommandRecord = {
   command: string;
 };
 
+export type DiscordCheck = {
+  label: string;
+  pass: boolean;
+  detail: string;
+};
+
+export type OutputMeta = {
+  width: number | null;
+  height: number | null;
+  durationSec: number | null;
+  fps: number | null;
+  format: string;
+};
+
 export type Job = {
   id: string;
   status: JobStatus;
@@ -86,6 +100,8 @@ export type Job = {
   commands?: CommandRecord[];
   attempts: Attempt[];
   settings: Settings;
+  outputMeta?: OutputMeta | null;
+  discordChecks?: DiscordCheck[];
 };
 
 export type SourceMeta = {

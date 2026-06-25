@@ -225,7 +225,75 @@ export function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo,
   };
 }
 
+const DISCORD_AUTOPLAY_BYTES = 256 * 1024;
+const DISCORD_RESIZE_WIDTH = 400;
+const DISCORD_RESIZE_HEIGHT = 300;
+
 const MAX_FRAME_PIXELS = 4_000_000_000;
+
+export function discordTargetChecks({ preset, outputBytes, width, height, durationSec, format }) {
+  const checks = [];
+  const profile = targetProfiles[preset];
+  if (!profile) return checks;
+  const targetBytes = Math.round(profile * 1024 * 1024);
+
+  checks.push({
+    label: 'File size',
+    pass: outputBytes <= targetBytes,
+    detail: `${formatBytes(outputBytes)} / ${formatBytes(targetBytes)} limit`
+  });
+
+  if (preset === 'emoji') {
+    checks.push({
+      label: 'Dimensions',
+      pass: width === 128 && height === 128,
+      detail: `${width}x${height} (128x128 required)`
+    });
+    checks.push({
+      label: 'Format',
+      pass: ['gif', 'png', 'webp', 'avif'].includes(format),
+      detail: `${format} (GIF, WebP, or AVIF accepted)`
+    });
+  } else if (preset === 'sticker') {
+    checks.push({
+      label: 'Dimensions',
+      pass: width === 320 && height === 320,
+      detail: `${width}x${height} (320x320 required)`
+    });
+    checks.push({
+      label: 'Format',
+      pass: format === 'apng' || format === 'png',
+      detail: `${format} (APNG required for animation)`
+    });
+  } else if (preset === 'avatar') {
+    const ok = width === height;
+    checks.push({
+      label: 'Aspect ratio',
+      pass: ok,
+      detail: `${width}x${height} (square required)`
+    });
+  }
+
+  if (['free', 'nitro-basic', 'boosted', 'nitro'].includes(preset) && format === 'gif') {
+    checks.push({
+      label: 'Auto-play',
+      pass: outputBytes <= DISCORD_AUTOPLAY_BYTES,
+      detail: outputBytes <= DISCORD_AUTOPLAY_BYTES
+        ? `${formatBytes(outputBytes)} fits the ${formatBytes(DISCORD_AUTOPLAY_BYTES)} auto-play limit`
+        : `${formatBytes(outputBytes)} exceeds ${formatBytes(DISCORD_AUTOPLAY_BYTES)} — Discord shows a static thumbnail until clicked`
+    });
+
+    if (width > DISCORD_RESIZE_WIDTH || height > DISCORD_RESIZE_HEIGHT) {
+      checks.push({
+        label: 'Server resize',
+        pass: false,
+        detail: `${width}x${height} exceeds Discord's ${DISCORD_RESIZE_WIDTH}x${DISCORD_RESIZE_HEIGHT} box — Discord will resize and re-quantize the palette`
+      });
+    }
+  }
+
+  return checks;
+}
 
 export function exceedsFrameBudget({ width, height, fps, durationSec, playback = 'normal', maxFramePixels = MAX_FRAME_PIXELS }) {
   const w = Number(width) || 0;

@@ -1244,6 +1244,30 @@ textarea:focus-visible {
   color: var(--amber);
 }
 
+.discord-checks {
+  list-style: none;
+  padding: 0 12px;
+  margin: 4px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+}
+
+.discord-checks li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.discord-checks .check-pass {
+  color: var(--lime);
+}
+
+.discord-checks .check-fail {
+  color: var(--amber);
+}
+
 .download-grid {
   display: grid;
   grid-template-columns: 1fr;

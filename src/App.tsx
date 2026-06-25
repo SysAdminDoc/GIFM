@@ -1933,6 +1933,21 @@ function PreviewPanel({
               </span>
             </div>
             <p className="muted-text">{outputSuitability(job)}</p>
+            {job.outputMeta ? (
+              <p className="muted-text">
+                {job.outputMeta.width}x{job.outputMeta.height}{job.outputMeta.durationSec ? `, ${job.outputMeta.durationSec.toFixed(1)}s` : ''}{job.outputMeta.fps ? `, ${job.outputMeta.fps.toFixed(0)} fps` : ''}
+              </p>
+            ) : null}
+            {job.discordChecks && job.discordChecks.length > 0 ? (
+              <ul className="discord-checks" role="list">
+                {job.discordChecks.map((check, i) => (
+                  <li key={i} className={check.pass ? 'check-pass' : 'check-fail'}>
+                    {check.pass ? <CheckCircle2 size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />}
+                    <span>{check.label}: {check.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <div className="download-grid">
               <a className="primary-button" href={job.downloadUrl} download>
                 <Download aria-hidden="true" />
