@@ -9,8 +9,6 @@ export async function fetchJob(id: string): Promise<Job> {
   return response.json() as Promise<Job>;
 }
 
-// Polls the given job ids on an interval and applies any successful updates. Shared by the single-job
-// view and the batch queue so there is one polling loop instead of two duplicated effects.
 export function usePollJobs(ids: string[], onUpdates: (jobs: Job[]) => void, intervalMs = 800) {
   const idsKey = ids.join(',');
   const callbackRef = useRef(onUpdates);
@@ -18,10 +16,30 @@ export function usePollJobs(ids: string[], onUpdates: (jobs: Job[]) => void, int
   useEffect(() => {
     if (!idsKey) return undefined;
     const pollIds = idsKey.split(',');
+
+    const source = new EventSource(`/api/jobs/events?ids=${encodeURIComponent(idsKey)}`);
+    let sseActive = false;
+
+    source.onopen = () => { sseActive = true; };
+    source.onmessage = (event) => {
+      try {
+        const job = JSON.parse(event.data) as Job;
+        callbackRef.current([job]);
+      } catch {
+        // Ignore malformed events.
+      }
+    };
+    source.onerror = () => { sseActive = false; };
+
     const interval = window.setInterval(async () => {
+      if (sseActive) return;
       const updates = (await Promise.all(pollIds.map((id) => fetchJob(id).catch(() => null)))).filter((value): value is Job => Boolean(value));
       if (updates.length) callbackRef.current(updates);
     }, intervalMs);
-    return () => window.clearInterval(interval);
+
+    return () => {
+      source.close();
+      window.clearInterval(interval);
+    };
   }, [idsKey, intervalMs]);
 }

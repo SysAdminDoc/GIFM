@@ -538,6 +538,35 @@ app.post('/api/jobs/:id/webhook', async (request, response, next) => {
   }
 });
 
+const sseClients = new Set();
+
+app.get('/api/jobs/events', (request, response) => {
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  response.write(':ok\n\n');
+
+  const client = { response, ids: new Set(String(request.query.ids || '').split(',').filter(Boolean)) };
+  sseClients.add(client);
+  request.on('close', () => sseClients.delete(client));
+});
+
+function notifyJobUpdate(job) {
+  const data = JSON.stringify(publicJob(job));
+  for (const client of sseClients) {
+    if (client.ids.has(job.id) || client.ids.has('*')) {
+      try {
+        client.response.write(`data: ${data}\n\n`);
+      } catch {
+        sseClients.delete(client);
+      }
+    }
+  }
+}
+
 function isDiscordWebhookUrl(value) {
   let parsed;
   try {
@@ -729,6 +758,7 @@ async function processJob(job) {
       await cleanupInput(job);
       await enforceDataRetention(new Set([job.outputPath]));
       saveManifest();
+      notifyJobUpdate(job);
       log(job, `Complete: ${formatBytes(stat.size)} fits ${formatBytes(job.targetBytes)} target`);
       return;
     }
@@ -791,6 +821,7 @@ async function processJob(job) {
   await cleanupInput(job);
   await enforceDataRetention(new Set([job.outputPath]));
   saveManifest();
+  notifyJobUpdate(job);
   log(job, `Complete with warning: ${formatBytes(finalStat.size)} exceeds target`);
 }
 
@@ -915,6 +946,7 @@ function enqueueJob(job) {
   jobQueue.push(job.id);
   updateQueuePositions();
   log(job, `Queued at position ${job.queuePosition}`);
+  notifyJobUpdate(job);
   pumpJobQueue();
 }
 
@@ -997,6 +1029,7 @@ async function finalizeCancelled(job) {
   job.errorCode = 'JOB_CANCELLED';
   job.completedAt = new Date().toISOString();
   log(job, 'Cancelled by user.');
+  notifyJobUpdate(job);
   await cleanupOutputCandidates(job);
   await cleanupWork(job.id);
   await cleanupInput(job);
@@ -1273,6 +1306,7 @@ async function failJob(job, error) {
   job.errorCode = apiError.code;
   job.completedAt = new Date().toISOString();
   log(job, `ERROR ${apiError.code}: ${apiError.message}`);
+  notifyJobUpdate(job);
   await cleanupOutputCandidates(job);
   await cleanupWork(job.id);
   await cleanupInput(job);
@@ -1893,8 +1927,10 @@ function runFfmpeg(args, job, stage, progressStart, progressEnd, durationSec) {
       const seconds = parseFfmpegTime(text);
       if (seconds !== null && durationSec > 0) {
         const percent = Math.min(1, seconds / durationSec);
+        const prev = job.progress;
         job.progress = Math.max(job.progress, progressStart + percent * (progressEnd - progressStart));
         job.stage = stage;
+        if (Math.floor(job.progress) > Math.floor(prev)) notifyJobUpdate(job);
       }
     });
 
