@@ -95,7 +95,8 @@ const DEFAULT_SETTINGS: Settings = {
   saturation: 1,
   gifsicleColorSpace: 'srgb',
   gifsicleOptDither: 'none',
-  subtitleId: ''
+  subtitleId: '',
+  borderRadius: 0
 };
 
 const SETTINGS_KEY = 'gifm:settings:v1';
@@ -1054,6 +1055,8 @@ function SettingsPanel({
                 </div>
               )
               : null}
+
+            <NumberField label={STRINGS.settings.borderRadius.label} value={settings.borderRadius} min={0} max={48} step={4} suffix="px" onChange={(v) => update('borderRadius', v)} />
 
             <label className="text-field">
               <span>{STRINGS.settings.caption.top}</span>
@@ -2611,7 +2614,8 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     saturation: clampNumber(Number(value.saturation ?? 1), 0, 3),
     gifsicleColorSpace: (['srgb', 'oklab'] as const).includes(value.gifsicleColorSpace as 'srgb' | 'oklab') ? (value.gifsicleColorSpace as 'srgb' | 'oklab') : 'srgb',
     gifsicleOptDither: (['none', 'ordered', 'atkinson'] as const).includes(value.gifsicleOptDither as 'none' | 'ordered' | 'atkinson') ? (value.gifsicleOptDither as 'none' | 'ordered' | 'atkinson') : 'none',
-    subtitleId: typeof value.subtitleId === 'string' ? value.subtitleId : ''
+    subtitleId: typeof value.subtitleId === 'string' ? value.subtitleId : '',
+    borderRadius: Math.round(clampNumber(Number(value.borderRadius ?? 0), 0, 48))
   };
 }
 

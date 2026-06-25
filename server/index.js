@@ -1548,7 +1548,7 @@ function parseSettings(raw) {
   return parseSettingsRaw(raw, MAX_TRIM_START_SEC);
 }
 
-function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null, caption = null, fontFile = '', rotate = 0, flipH = false, flipV = false, colorFilter = 'none', saturation = 1, overlay = null, overlayPath = '', lilliputCrush = false, subtitlePath = '' }) {
+function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null, caption = null, fontFile = '', rotate = 0, flipH = false, flipV = false, colorFilter = 'none', saturation = 1, overlay = null, overlayPath = '', lilliputCrush = false, subtitlePath = '', borderRadius = 0 }) {
   const filters = [];
   if (crop?.enabled) {
     // Crop the source region first so every downstream filter works on the selected rectangle.
@@ -1603,6 +1603,10 @@ function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = 
   if (lilliputCrush) {
     const lut = "clip(floor(val/8)*8+4\\,4\\,252)";
     chain += `,lutrgb=r='${lut}':g='${lut}':b='${lut}'`;
+  }
+  if (borderRadius > 0) {
+    const r = borderRadius;
+    chain += `,format=rgba,geq=lum='lum(X\\,Y)':cb='cb(X\\,Y)':cr='cr(X\\,Y)':a='if(gt(abs(X-W/2)-W/2+${r}\\,0)*gt(abs(Y-H/2)-H/2+${r}\\,0)\\,if(gt(hypot(abs(X-W/2)-W/2+${r}\\,abs(Y-H/2)-H/2+${r})\\,${r})\\,0\\,255)\\,255)'`;
   }
   return chain;
 }
@@ -1786,7 +1790,8 @@ function buildChainOpts(job, { width, fps, dedupeFrames, frameDropModulo, square
     rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV,
     colorFilter: job.settings.colorFilter, saturation: job.settings.saturation,
     overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '',
-    lilliputCrush, subtitlePath: resolveSubtitlePath(job.settings.subtitleId)
+    lilliputCrush, subtitlePath: resolveSubtitlePath(job.settings.subtitleId),
+    borderRadius: job.settings.borderRadius ?? 0
   };
 }
 

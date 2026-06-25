@@ -47,6 +47,7 @@ export type Settings = {
   gifsicleColorSpace: 'srgb' | 'oklab';
   gifsicleOptDither: 'none' | 'ordered' | 'atkinson';
   subtitleId: string;
+  borderRadius: number;
 };
 
 export type JobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';

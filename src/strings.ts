@@ -236,6 +236,9 @@ const en = {
       placeholder: 'Optional meme text',
       unavailable: 'Caption font missing. Reinstall GIFM to restore assets/fonts.'
     },
+    borderRadius: {
+      label: 'Corner radius'
+    },
     subtitle: {
       label: 'Subtitle file',
       upload: 'Upload SRT/ASS',
