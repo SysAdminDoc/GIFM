@@ -190,10 +190,14 @@ export function SettingsPanel({
                   if (!file) return;
                   const form = new FormData();
                   form.set('subtitle', file);
-                  const res = await fetch('/api/subtitle', { method: 'POST', body: form });
-                  if (res.ok) {
-                    const data = await res.json();
-                    update('subtitleId', data.id);
+                  try {
+                    const res = await fetch('/api/subtitle', { method: 'POST', body: form });
+                    if (res.ok) {
+                      const data = await res.json();
+                      update('subtitleId', data.id);
+                    }
+                  } catch {
+                    // Upload failed silently — user can retry.
                   }
                 };
                 input.click();

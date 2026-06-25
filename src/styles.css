@@ -432,7 +432,7 @@ textarea:focus-visible {
 
 .toggle-field input:checked + .toggle-box {
   border-color: var(--lime);
-  background: linear-gradient(135deg, var(--lime), #3ad0a1);
+  background: linear-gradient(135deg, var(--lime), var(--cyan));
 }
 
 .toggle-field input:focus-visible + .toggle-box {
@@ -583,8 +583,8 @@ textarea:focus-visible {
 }
 
 .primary-button {
-  background: linear-gradient(135deg, var(--cyan), #88df72);
-  color: #07100f;
+  background: linear-gradient(135deg, var(--cyan), var(--lime));
+  color: var(--bg);
 }
 
 .secondary-button {
@@ -1023,7 +1023,8 @@ textarea:focus-visible {
   margin: 0;
   padding: 12px;
   overflow: auto;
-  color: #bcd5d1;
+  max-height: 300px;
+  color: var(--text-muted, var(--muted));
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -1040,7 +1041,7 @@ textarea:focus-visible {
   background:
     linear-gradient(45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%),
     linear-gradient(-45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%),
-    #05080b;
+    var(--surface-inset);
   background-size: 22px 22px;
 }
 
@@ -1619,7 +1620,7 @@ textarea:focus-visible {
   max-height: 140px;
   margin: 8px 0 0;
   overflow: auto;
-  color: #bcd5d1;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -1956,7 +1957,7 @@ a.primary-button:hover {
     linear-gradient(45deg, rgba(255, 255, 255, 0.028) 25%, transparent 25%),
     linear-gradient(-45deg, rgba(255, 255, 255, 0.028) 25%, transparent 25%),
     linear-gradient(180deg, rgba(78, 205, 196, 0.05), transparent),
-    #05080b;
+    var(--surface-inset);
   background-size: 22px 22px, 22px 22px, 100% 100%;
 }
 

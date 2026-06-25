@@ -248,6 +248,9 @@ function GifmApp() {
       setSelectedClipId('');
       setPreviewTime(0);
       setPreviewSeekTime(null);
+      setFrameManifest(null);
+      setEditedFrames([]);
+      setLoopCandidates([]);
       return undefined;
     }
     if (!objectUrl) return undefined;
@@ -568,11 +571,13 @@ function GifmApp() {
     setLoopCandidates([]);
     try {
       const response = await fetch(`/api/sources/${sourceSession.id}/loops`);
-      if (response.ok) {
-        const data = await response.json();
-        setLoopCandidates(data.loops ?? []);
-        if (!data.loops?.length) setNotice(STRINGS.notices.noLoopsFound);
+      if (!response.ok) {
+        setNotice(await readApiError(response, STRINGS.errors.probeFailed));
+        return;
       }
+      const data = await response.json();
+      setLoopCandidates(data.loops ?? []);
+      if (!data.loops?.length) setNotice(STRINGS.notices.noLoopsFound);
     } catch {
       setNotice(STRINGS.errors.probeFailed);
     } finally {
@@ -585,11 +590,13 @@ function GifmApp() {
     setFrameBusy(true);
     try {
       const response = await fetch(`/api/sources/${sourceSession.id}/frames`, { method: 'POST' });
-      if (response.ok) {
-        const manifest = await response.json() as FrameManifest;
-        setFrameManifest(manifest);
-        setEditedFrames([...manifest.frames]);
+      if (!response.ok) {
+        setNotice(await readApiError(response, STRINGS.errors.probeFailed));
+        return;
       }
+      const manifest = await response.json() as FrameManifest;
+      setFrameManifest(manifest);
+      setEditedFrames([...manifest.frames]);
     } catch {
       setNotice(STRINGS.errors.probeFailed);
     } finally {
@@ -943,9 +950,9 @@ function GifmApp() {
             </div>
             {editedFrames.length > 0 ? (
               <div className="frame-strip">
-                {editedFrames.map((frame, i) => (
-                  <div key={`${frame.index}-${i}`} className="frame-card">
-                    <img src={frame.url} alt={`Frame ${frame.index + 1}`} draggable />
+                {editedFrames.map((frame) => (
+                  <div key={`frame-${frame.index}`} className="frame-card">
+                    <img src={frame.url} alt={STRINGS.timeline.frameCount(frame.index + 1)} />
                     <div className="frame-controls">
                       <label>
                         <span>{STRINGS.timeline.delayLabel}</span>
@@ -957,11 +964,12 @@ function GifmApp() {
                           value={frame.delayCentiseconds}
                           onChange={(e) => {
                             const delay = Math.max(1, Math.min(1000, Math.round(Number(e.target.value))));
-                            setEditedFrames((prev) => prev.map((f, j) => j === i ? { ...f, delayCentiseconds: delay } : f));
+                            const idx = frame.index;
+                            setEditedFrames((prev) => prev.map((f) => f.index === idx ? { ...f, delayCentiseconds: delay } : f));
                           }}
                         />
                       </label>
-                      <button type="button" className="secondary-button" onClick={() => setEditedFrames((prev) => prev.filter((_, j) => j !== i))}>
+                      <button type="button" className="secondary-button" onClick={() => setEditedFrames((prev) => prev.filter((f) => f.index !== frame.index))}>
                         <Trash2 size={14} aria-hidden="true" />
                         {STRINGS.timeline.deleteFrame}
                       </button>
@@ -1736,8 +1744,8 @@ function ProgressPanel({ job }: { job: Job | null }) {
       </div>
       {job?.warnings.length ? (
         <ul className="warnings">
-          {job.warnings.map((warning) => (
-            <li key={warning}>{warning}</li>
+          {job.warnings.map((warning, i) => (
+            <li key={i}>{warning}</li>
           ))}
         </ul>
       ) : null}
@@ -1754,7 +1762,7 @@ function LogPanel({ job }: { job: Job | null }) {
         <h3>{STRINGS.log.title}</h3>
       </div>
       {hasLogs ? (
-        <pre>{job?.logs.join('\n')}</pre>
+        <pre className="log-scroll">{job?.logs.slice(-200).join('\n')}</pre>
       ) : (
         <div className="log-empty">
           <EmptyState icon={<Terminal aria-hidden="true" />} title={STRINGS.log.emptyTitle} body={STRINGS.log.empty} compact />
@@ -1825,7 +1833,7 @@ function DiagnosticsPanel({
 function estimateOutputBytes(settings: Settings, sourceMeta: SourceMeta) {
   const duration = Math.max(0.5, Math.min(settings.durationSec, sourceMeta.durationSec ?? settings.durationSec));
   const sourceWidth = sourceMeta.width ?? settings.width;
-  const sourceHeight = sourceMeta.height ?? settings.width;
+  const sourceHeight = sourceMeta.height ?? Math.round(sourceWidth * 9 / 16);
   const scale = settings.width / Math.max(1, sourceWidth);
   const height = Math.max(1, sourceHeight * scale);
   const playbackFactor = settings.playback === 'boomerang' ? 2 : 1;

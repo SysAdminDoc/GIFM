@@ -320,13 +320,16 @@ app.post('/api/frames/encode', express.json({ limit: '512kb' }), async (request,
     const concatLines = [];
     for (let i = 0; i < frameSpec.length; i++) {
       const spec = frameSpec[i];
-      const srcFile = `frame-${String(spec.index + 1).padStart(4, '0')}.png`;
+      const idx = Number(spec.index);
+      if (!Number.isInteger(idx) || idx < 0 || idx > 9999) continue;
+      const srcFile = `frame-${String(idx + 1).padStart(4, '0')}.png`;
       const srcPath = path.join(frameDir, srcFile);
       if (!existsSync(srcPath)) continue;
       const destFile = `f${String(i).padStart(4, '0')}.png`;
       const destPath = path.join(concatDir, destFile);
       await fs.copyFile(srcPath, destPath);
-      const delay = Math.max(1, Math.round(spec.delayCentiseconds ?? 10)) / 100;
+      const rawDelay = Number(spec.delayCentiseconds);
+      const delay = Math.max(1, Math.min(1000, Number.isFinite(rawDelay) ? Math.round(rawDelay) : 10)) / 100;
       concatLines.push(`file '${destFile}'`);
       concatLines.push(`duration ${delay}`);
     }
@@ -441,6 +444,10 @@ app.post('/api/import-url', async (request, response, next) => {
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       sendApiError(response, new ApiError(400, 'INVALID_URL', 'Only http and https URLs can be imported.'));
+      return;
+    }
+    if (isPrivateHost(parsed.hostname)) {
+      sendApiError(response, new ApiError(400, 'INVALID_URL', 'URLs pointing to private or loopback addresses are not allowed.'));
       return;
     }
 
@@ -796,7 +803,8 @@ app.get('/api/jobs/events', (request, response) => {
   });
   response.write(':ok\n\n');
 
-  const client = { response, ids: new Set(String(request.query.ids || '').split(',').filter(Boolean)) };
+  const rawIds = String(request.query.ids || '').slice(0, 4000);
+  const client = { response, ids: new Set(rawIds.split(',').filter(Boolean).slice(0, 50)) };
   sseClients.add(client);
   request.on('close', () => sseClients.delete(client));
 });
@@ -1344,8 +1352,7 @@ function rejectCrossSiteWrites(request, response, next) {
       sendApiError(response, new ApiError(403, 'CROSS_SITE_BLOCKED', 'Cross-site requests are not allowed.'));
       return;
     }
-    const host = request.headers['host'] || `${HOST}:${PORT}`;
-    const expectedHosts = new Set([`${HOST}:${PORT}`, HOST, host]);
+    const expectedHosts = new Set([`${HOST}:${PORT}`, HOST, `localhost:${PORT}`, 'localhost']);
     if (!expectedHosts.has(parsed.host)) {
       sendApiError(response, new ApiError(403, 'CROSS_SITE_BLOCKED', 'Cross-site requests are not allowed.'));
       return;
@@ -1511,7 +1518,9 @@ async function saveManifest() {
     }
   }
   try {
-    await fs.writeFile(manifestPath, JSON.stringify({ version: 1, sources: persistedSources, jobs: persistedJobs }, null, 2));
+    const tempPath = `${manifestPath}.tmp`;
+    await fs.writeFile(tempPath, JSON.stringify({ version: 1, sources: persistedSources, jobs: persistedJobs }, null, 2));
+    await fs.rename(tempPath, manifestPath);
   } catch {
     // Non-fatal — manifest is a convenience, not a hard requirement.
   }
@@ -1561,6 +1570,19 @@ function assertLocalBinding() {
 function isLoopbackHost(host) {
   const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+}
+
+function isPrivateHost(hostname) {
+  const h = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h === '::1') return true;
+  if (/^127\./.test(h)) return true;
+  if (/^10\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  if (/^192\.168\./.test(h)) return true;
+  if (/^169\.254\./.test(h)) return true;
+  if (/^0\./.test(h) || h === '0.0.0.0') return true;
+  if (/^fc|^fd|^fe80/i.test(h)) return true;
+  return false;
 }
 
 async function failJob(job, error) {
