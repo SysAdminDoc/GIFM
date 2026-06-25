@@ -20,7 +20,8 @@ import {
   dimensionLockForPreset,
   parseSettings as parseSettingsRaw,
   nextAttempt,
-  isProtectedPath
+  isProtectedPath,
+  exceedsFrameBudget
 } from './encoding.js';
 import { buildStoreZip } from './zip.js';
 
@@ -78,7 +79,10 @@ const upload = multer({
     fileSize: MAX_UPLOAD_BYTES,
     files: 1,
     fields: 1,
-    parts: 4
+    parts: 4,
+    fieldNestingDepth: 1,
+    fieldNameSize: 200,
+    fieldSize: 8192
   },
   fileFilter: (_request, file, callback) => {
     if (isAllowedUploadDescriptor(file)) {
@@ -99,7 +103,7 @@ const overlayUpload = multer({
       callback(null, `${randomUUID()}${['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext) ? ext : '.png'}`);
     }
   }),
-  limits: { fileSize: 16 * 1024 * 1024, files: 1, fields: 0, parts: 2 },
+  limits: { fileSize: 16 * 1024 * 1024, files: 1, fields: 0, parts: 2, fieldNestingDepth: 1, fieldNameSize: 200, fieldSize: 8192 },
   fileFilter: (_request, file, callback) => {
     if (String(file.mimetype || '').startsWith('image/')) {
       callback(null, true);
@@ -112,6 +116,7 @@ const overlayUpload = multer({
 const app = express();
 app.disable('x-powered-by');
 app.use(securityHeaders);
+app.use(rejectCrossSiteWrites);
 app.use(express.json({ limit: '128kb' }));
 
 app.get('/api/health', (_request, response) => {
@@ -602,6 +607,17 @@ async function processJob(job) {
 
   log(job, `Source: ${source.width ?? '?'}x${source.height ?? '?'} ${source.codec ?? 'video'} at ${source.fps ? `${source.fps.toFixed(2)} fps` : '? fps'} for ${durationSec.toFixed(2)} sec`);
 
+  const budgetCheck = exceedsFrameBudget({
+    width: source.width ?? job.settings.width,
+    height: source.height ?? Math.round((source.width ?? job.settings.width) * 9 / 16),
+    fps: source.fps ?? job.settings.fps,
+    durationSec,
+    playback: job.settings.playback
+  });
+  if (budgetCheck.exceeds) {
+    throw new ApiError(422, 'FRAME_BUDGET_EXCEEDED', budgetCheck.message);
+  }
+
   const dimensionLock = dimensionLockForPreset(job.settings.targetPreset);
   let width = dimensionLock.fixedWidth
     ? dimensionLock.fixedWidth
@@ -982,6 +998,38 @@ function killChild(child) {
     }
   }, 2500);
   killTimer.unref?.();
+}
+
+function rejectCrossSiteWrites(request, response, next) {
+  if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS') {
+    next();
+    return;
+  }
+
+  const fetchSite = request.headers['sec-fetch-site'];
+  if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') {
+    sendApiError(response, new ApiError(403, 'CROSS_SITE_BLOCKED', 'Cross-site requests are not allowed.'));
+    return;
+  }
+
+  const origin = request.headers['origin'];
+  if (origin) {
+    let parsed;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      sendApiError(response, new ApiError(403, 'CROSS_SITE_BLOCKED', 'Cross-site requests are not allowed.'));
+      return;
+    }
+    const host = request.headers['host'] || `${HOST}:${PORT}`;
+    const expectedHosts = new Set([`${HOST}:${PORT}`, HOST, host]);
+    if (!expectedHosts.has(parsed.host)) {
+      sendApiError(response, new ApiError(403, 'CROSS_SITE_BLOCKED', 'Cross-site requests are not allowed.'));
+      return;
+    }
+  }
+
+  next();
 }
 
 function securityHeaders(_request, response, next) {
@@ -1723,8 +1771,8 @@ function runFfmpeg(args, job, stage, progressStart, progressEnd, durationSec) {
       return;
     }
 
-    const child = spawn(ffmpegPath, ['-hide_banner', ...args], { windowsHide: true });
-    recordCommand(job, stage, ['-hide_banner', ...args]);
+    const child = spawn(ffmpegPath, ['-hide_banner', '-protocol_whitelist', 'file,pipe', ...args], { windowsHide: true });
+    recordCommand(job, stage, ['-hide_banner', '-protocol_whitelist', 'file,pipe', ...args]);
     trackChild(job, child);
     let stderr = '';
 
@@ -1775,7 +1823,7 @@ function runFfmpegToGifski(ffmpegArgs, gifskiArgs, job, stage, progressStart, pr
       return;
     }
 
-    const ffmpeg = spawn(ffmpegPath, ['-hide_banner', ...ffmpegArgs], {
+    const ffmpeg = spawn(ffmpegPath, ['-hide_banner', '-protocol_whitelist', 'file,pipe', ...ffmpegArgs], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     });
@@ -1783,7 +1831,7 @@ function runFfmpegToGifski(ffmpegArgs, gifskiArgs, job, stage, progressStart, pr
       stdio: ['pipe', 'ignore', 'pipe'],
       windowsHide: true
     });
-    recordCommand(job, `${stage}: ffmpeg pipe`, ['-hide_banner', ...ffmpegArgs]);
+    recordCommand(job, `${stage}: ffmpeg pipe`, ['-hide_banner', '-protocol_whitelist', 'file,pipe', ...ffmpegArgs]);
     recordCommand(job, stage, gifskiArgs, runtimeInfo.gifski.path);
     trackChild(job, ffmpeg);
     trackChild(job, gifski);

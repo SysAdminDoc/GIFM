@@ -130,6 +130,7 @@ try {
   }
 
   await assertWebhookValidation(job.id);
+  await assertCrossSiteRejection();
 
   console.log(`Smoke passed: ${gifBytes.length} bytes, ${job.attempts.length} attempt(s).`);
 } finally {
@@ -308,6 +309,33 @@ async function assertWebhookValidation(jobId) {
       body: JSON.stringify({ webhookUrl: testCase.url })
     });
     await expectApiError(response, 400, testCase.code);
+  }
+}
+
+async function assertCrossSiteRejection() {
+  const crossSiteHeaders = { 'Content-Type': 'application/json', 'Origin': 'https://evil.example.com' };
+  const crossFetchHeaders = { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'cross-site' };
+
+  const originRes = await fetch(`${baseUrl}/api/jobs/nonexistent/cancel`, { method: 'POST', headers: crossSiteHeaders });
+  await expectApiError(originRes, 403, 'CROSS_SITE_BLOCKED');
+
+  const fetchRes = await fetch(`${baseUrl}/api/jobs/nonexistent/cancel`, { method: 'POST', headers: crossFetchHeaders });
+  await expectApiError(fetchRes, 403, 'CROSS_SITE_BLOCKED');
+
+  const sameOriginRes = await fetch(`${baseUrl}/api/jobs/nonexistent/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Origin': `http://127.0.0.1:${port}` }
+  });
+  if (sameOriginRes.status === 403) {
+    throw new Error('Same-origin POST was incorrectly blocked by CSRF guard.');
+  }
+
+  const noOriginRes = await fetch(`${baseUrl}/api/jobs/nonexistent/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (noOriginRes.status === 403) {
+    throw new Error('No-origin POST was incorrectly blocked by CSRF guard (CLI/WebView2 path).');
   }
 }
 

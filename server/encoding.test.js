@@ -16,7 +16,8 @@ import {
   parseOverlay,
   resolveFormat,
   nextAttempt,
-  isProtectedPath
+  isProtectedPath,
+  exceedsFrameBudget
 } from './encoding.js';
 
 test('clamp bounds values and coerces non-finite to min', () => {
@@ -223,6 +224,27 @@ test('nextAttempt terminates when every lever is exhausted', () => {
     durationSec: 6, outputBytes: 20 * 1024 * 1024, targetBytes: 10 * 1024 * 1024, allowTrim: false, minWidth: 120
   });
   assert.equal(next, null);
+});
+
+test('exceedsFrameBudget rejects pathological encode workloads', () => {
+  const normal = exceedsFrameBudget({ width: 480, height: 270, fps: 15, durationSec: 6 });
+  assert.equal(normal.exceeds, false);
+
+  const maxOutput = exceedsFrameBudget({ width: 1280, height: 720, fps: 30, durationSec: 60 });
+  assert.equal(maxOutput.exceeds, false);
+
+  const boomerangMax = exceedsFrameBudget({ width: 1280, height: 720, fps: 30, durationSec: 60, playback: 'boomerang' });
+  assert.equal(boomerangMax.exceeds, false);
+
+  const pathological = exceedsFrameBudget({ width: 3840, height: 2160, fps: 60, durationSec: 60 });
+  assert.equal(pathological.exceeds, true);
+  assert.ok(pathological.message.includes('safety limit'));
+});
+
+test('exceedsFrameBudget uses a configurable limit', () => {
+  const result = exceedsFrameBudget({ width: 100, height: 100, fps: 10, durationSec: 2, maxFramePixels: 100_000 });
+  assert.equal(result.exceeds, true);
+  assert.equal(result.totalFramePixels, 200_000);
 });
 
 test('isProtectedPath matches exact paths, children, and parents', () => {

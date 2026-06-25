@@ -225,6 +225,25 @@ export function nextAttempt({ width, fps, colors, dedupeFrames, frameDropModulo,
   };
 }
 
+const MAX_FRAME_PIXELS = 4_000_000_000;
+
+export function exceedsFrameBudget({ width, height, fps, durationSec, playback = 'normal', maxFramePixels = MAX_FRAME_PIXELS }) {
+  const w = Number(width) || 0;
+  const h = Number(height) || 0;
+  const f = clamp(Number(fps) || 15, 1, 60);
+  const d = clamp(Number(durationSec) || 1, 0.1, 3600);
+  const multiplier = playback === 'boomerang' ? 2 : 1;
+  const totalFramePixels = w * h * f * d * multiplier;
+  if (totalFramePixels > maxFramePixels) {
+    return {
+      exceeds: true,
+      totalFramePixels,
+      message: `The requested encode would produce ${formatBytes(totalFramePixels)} frame-pixels (${w}x${h} at ${f} fps for ${d.toFixed(1)} sec${playback === 'boomerang' ? ', boomerang' : ''}), which exceeds the ${formatBytes(maxFramePixels)} safety limit. Reduce the resolution, frame rate, or duration.`
+    };
+  }
+  return { exceeds: false, totalFramePixels };
+}
+
 export function isProtectedPath(entryPath, protectedPaths) {
   const resolved = path.resolve(entryPath);
   for (const protectedPath of protectedPaths) {
