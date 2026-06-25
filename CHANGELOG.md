@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.5.0 - 2026-06-25
+
+- Added a frame-by-frame editor: extract frames from a prepared source, delete unwanted frames, set per-frame delays (centiseconds), and encode the edited sequence as a custom GIF. New server endpoints for frame extraction, serving, and concat-demuxer encoding.
+- Added seamless loop detection: "Find loops" analyzes a prepared source video and suggests up to 5 trim endpoints where the first and last frames match perceptually (SSIM comparison). Click a suggestion to set the trim duration for a seamless loop.
+- Extracted encoder functions into `server/encoders.js` (614 lines) with a shared `server/context.js` module. `server/index.js` reduced from 2189 to 1615 lines.
+- Extracted SettingsPanel and 8 sub-components into `src/components/SettingsPanel.tsx`, shared utility functions into `src/utils.ts`. `src/App.tsx` reduced from 2539 to ~1900 lines.
+- Fixed output cleanup ordering: probeOutputMetadata now runs after cleanupOutputCandidates to prevent FFmpeg file handle contention on Windows.
+
 ## v0.4.0 - 2026-06-25
 
 - Hardened the local API: CSRF origin/fetch-metadata guards on all POST endpoints, multer fieldNestingDepth limits (CVE-2026-5079), frame-pixel encode budget (rejects 4K@60fps pathological inputs), and FFmpeg `-protocol_whitelist file,pipe` on all invocations.
