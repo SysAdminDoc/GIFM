@@ -1382,7 +1382,7 @@ function parseSettings(raw) {
   return parseSettingsRaw(raw, MAX_TRIM_START_SEC);
 }
 
-function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null, caption = null, fontFile = '', rotate = 0, flipH = false, flipV = false, colorFilter = 'none', saturation = 1, overlay = null, overlayPath = '' }) {
+function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = false, speed = 1, playback = 'normal', crop = null, caption = null, fontFile = '', rotate = 0, flipH = false, flipV = false, colorFilter = 'none', saturation = 1, overlay = null, overlayPath = '', lilliputCrush = false }) {
   const filters = [];
   if (crop?.enabled) {
     // Crop the source region first so every downstream filter works on the selected rectangle.
@@ -1429,6 +1429,10 @@ function videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square = 
   if (overlay?.enabled && overlayPath) {
     const overlayWidth = Math.max(8, Math.round(width * overlay.scale));
     chain += `[ovbase];movie=${overlayPath},scale=${overlayWidth}:-1,format=rgba,colorchannelmixer=aa=${overlay.opacity}[ovwm];[ovbase][ovwm]overlay=${overlayPosition(overlay.position)}`;
+  }
+  if (lilliputCrush) {
+    const lut = "clip(floor(val/8)*8+4\\,4\\,252)";
+    chain += `,lutrgb=r='${lut}':g='${lut}':b='${lut}'`;
   }
   return chain;
 }
@@ -1595,13 +1599,15 @@ function ffprobe(inputPath, job) {
 }
 
 async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, outputPath, startSec, durationSec, width, fps, colors, dedupeFrames, frameDropModulo, square = false }) {
+  const crush = job.settings.targetPreset !== 'custom';
+  const chainOpts = { width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '', lilliputCrush: crush };
   await runFfmpeg(
     [
       ...trimArgs(startSec, durationSec),
       '-i',
       job.inputPath,
       '-vf',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' })},palettegen=max_colors=${colors}:stats_mode=${job.settings.perFramePalette ? 'single' : job.settings.paletteMode}`,
+      `${videoFilterChain(chainOpts)},palettegen=max_colors=${colors}:stats_mode=${job.settings.perFramePalette ? 'single' : job.settings.paletteMode}`,
       '-frames:v',
       '1',
       '-y',
@@ -1625,7 +1631,7 @@ async function encodeWithFfmpeg({ job, attempt, palettePattern, palettePath, out
       '-i',
       palettePath,
       '-lavfi',
-      `${videoFilterChain({ width, fps, dedupeFrames, frameDropModulo, square, speed: job.settings.speed, playback: job.settings.playback, crop: job.settings.crop, caption: job.settings.caption, fontFile: runtimeInfo.font.available ? escapeDrawtextPath(fontPath) : '', rotate: job.settings.rotate, flipH: job.settings.flipH, flipV: job.settings.flipV, colorFilter: job.settings.colorFilter, saturation: job.settings.saturation, overlay: job.settings.overlay, overlayPath: job.settings.overlay.enabled ? escapeMoviePath(resolveOverlayPath(job.settings.overlay.id)) : '' })}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle${job.settings.perFramePalette ? ':new=1' : ''}`,
+      `${videoFilterChain(chainOpts)}[x];[x][1:v]paletteuse=${dither}:diff_mode=rectangle${job.settings.perFramePalette ? ':new=1' : ''}`,
       '-loop',
       String(job.settings.loopCount),
       '-y',
