@@ -1289,6 +1289,83 @@ textarea:focus-visible {
   font-size: 0.85rem;
 }
 
+.frame-editor {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.frame-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.frame-editor-head h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.frame-editor-head span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  flex: 1;
+}
+
+.frame-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+.frame-card {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel-bg);
+  border-radius: 6px;
+  padding: 4px;
+  border: 1px solid var(--border);
+}
+
+.frame-card img {
+  width: 120px;
+  height: auto;
+  border-radius: 4px;
+  display: block;
+}
+
+.frame-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+}
+
+.frame-controls label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.frame-controls input[type="number"] {
+  width: 50px;
+  padding: 2px 4px;
+  font-size: 0.78rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+}
+
+.frame-controls .secondary-button {
+  font-size: 0.72rem;
+  padding: 2px 6px;
+}
+
 .output-preview {
   padding: 4px 12px;
 }

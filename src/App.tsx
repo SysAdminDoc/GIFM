@@ -58,6 +58,8 @@ import {
   type SourceSession,
   type TimelineClip,
   type LoopCandidate,
+  type ExtractedFrame,
+  type FrameManifest,
   type SavePickerWindow,
   type ApiErrorPayload
 } from './types';
@@ -161,6 +163,9 @@ function GifmApp() {
   const [sourceBusy, setSourceBusy] = useState(false);
   const [loopCandidates, setLoopCandidates] = useState<LoopCandidate[]>([]);
   const [loopBusy, setLoopBusy] = useState(false);
+  const [frameManifest, setFrameManifest] = useState<FrameManifest | null>(null);
+  const [editedFrames, setEditedFrames] = useState<ExtractedFrame[]>([]);
+  const [frameBusy, setFrameBusy] = useState(false);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
   const [selectedClipId, setSelectedClipId] = useState('');
   const [health, setHealth] = useState<HealthInfo | null>(null);
@@ -575,6 +580,51 @@ function GifmApp() {
     }
   };
 
+  const extractFrames = async () => {
+    if (!sourceSession || frameBusy) return;
+    setFrameBusy(true);
+    try {
+      const response = await fetch(`/api/sources/${sourceSession.id}/frames`, { method: 'POST' });
+      if (response.ok) {
+        const manifest = await response.json() as FrameManifest;
+        setFrameManifest(manifest);
+        setEditedFrames([...manifest.frames]);
+      }
+    } catch {
+      setNotice(STRINGS.errors.probeFailed);
+    } finally {
+      setFrameBusy(false);
+    }
+  };
+
+  const encodeEditedFrames = async () => {
+    if (!sourceSession || !frameManifest || editedFrames.length < 2 || frameBusy) return;
+    setFrameBusy(true);
+    try {
+      const response = await fetch('/api/frames/encode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceId: sourceSession.id,
+          frameId: frameManifest.frameId,
+          frames: editedFrames.map((f) => ({ index: f.index, delayCentiseconds: f.delayCentiseconds })),
+          settings
+        })
+      });
+      if (response.ok) {
+        const result = await response.json() as Job;
+        setJob(result);
+        setNotice(STRINGS.notices.encodingStarted);
+      } else {
+        setNotice(await readApiError(response, STRINGS.errors.encodeStartFailed));
+      }
+    } catch {
+      setNotice(STRINGS.errors.encodeStartFailed);
+    } finally {
+      setFrameBusy(false);
+    }
+  };
+
   const deleteTimelineClip = (id: string) => {
     const clip = timelineClips.find((item) => item.id === id);
     setTimelineClips((current) => current.filter((item) => item.id !== id));
@@ -875,6 +925,54 @@ function GifmApp() {
             sourceBusy={sourceBusy}
             exportBusy={busy}
           />
+
+          <section className="frame-editor" aria-label={STRINGS.timeline.frameEditor}>
+            <div className="frame-editor-head">
+              <h3>{STRINGS.timeline.frameEditor}</h3>
+              <span>{editedFrames.length > 0 ? STRINGS.timeline.frameCount(editedFrames.length) : ''}</span>
+              <button type="button" className="secondary-button" disabled={!sourceSession || frameBusy} onClick={extractFrames}>
+                {frameBusy ? <Loader2 className="spin" aria-hidden="true" /> : <Scissors aria-hidden="true" />}
+                {frameBusy ? STRINGS.timeline.extracting : STRINGS.timeline.extractFrames}
+              </button>
+              {editedFrames.length >= 2 ? (
+                <button type="button" className="primary-button" disabled={frameBusy} onClick={encodeEditedFrames}>
+                  <Wand2 aria-hidden="true" />
+                  {STRINGS.timeline.encodeFrames}
+                </button>
+              ) : null}
+            </div>
+            {editedFrames.length > 0 ? (
+              <div className="frame-strip">
+                {editedFrames.map((frame, i) => (
+                  <div key={`${frame.index}-${i}`} className="frame-card">
+                    <img src={frame.url} alt={`Frame ${frame.index + 1}`} draggable />
+                    <div className="frame-controls">
+                      <label>
+                        <span>{STRINGS.timeline.delayLabel}</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={1000}
+                          step={1}
+                          value={frame.delayCentiseconds}
+                          onChange={(e) => {
+                            const delay = Math.max(1, Math.min(1000, Math.round(Number(e.target.value))));
+                            setEditedFrames((prev) => prev.map((f, j) => j === i ? { ...f, delayCentiseconds: delay } : f));
+                          }}
+                        />
+                      </label>
+                      <button type="button" className="secondary-button" onClick={() => setEditedFrames((prev) => prev.filter((_, j) => j !== i))}>
+                        <Trash2 size={14} aria-hidden="true" />
+                        {STRINGS.timeline.deleteFrame}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted-text">{STRINGS.timeline.noFrames}</p>
+            )}
+          </section>
 
           <div className="action-row">
             <button type="submit" className="primary-button" disabled={!canStart}>

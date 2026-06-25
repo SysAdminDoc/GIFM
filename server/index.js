@@ -230,6 +230,153 @@ app.get('/api/sources/:id/loops', async (request, response, next) => {
   }
 });
 
+app.post('/api/sources/:id/frames', async (request, response, next) => {
+  try {
+    const source = sources.get(request.params.id);
+    if (!source || !source.inputPath || !existsSync(source.inputPath)) {
+      sendApiError(response, new ApiError(404, 'SOURCE_NOT_FOUND', 'Source not found.'));
+      return;
+    }
+    const duration = source.metadata?.durationSec ?? 0;
+    const fps = source.metadata?.fps ?? 15;
+    if (duration < 0.1) {
+      response.json({ frames: [] });
+      return;
+    }
+
+    const frameId = randomUUID();
+    const frameDir = path.join(workDir, `frames-${frameId}`);
+    await fs.mkdir(frameDir, { recursive: true });
+
+    const targetFps = Math.min(fps, 15);
+    const maxFrames = Math.min(Math.ceil(duration * targetFps), 300);
+    await runFfmpegSimple([
+      '-i', source.inputPath,
+      '-vf', `fps=${targetFps},scale=160:-2`,
+      '-frames:v', String(maxFrames),
+      '-y', path.join(frameDir, 'frame-%04d.png')
+    ]);
+
+    const files = (await fs.readdir(frameDir)).filter((f) => f.startsWith('frame-') && f.endsWith('.png')).sort();
+    const frames = files.map((f, i) => ({
+      index: i,
+      file: f,
+      url: `/api/frames/${frameId}/${f}`,
+      delayCentiseconds: Math.round(100 / targetFps)
+    }));
+
+    response.json({ frameId, fps: targetFps, frameCount: frames.length, frames });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/frames/:frameId/:file', (request, response) => {
+  const { frameId, file } = request.params;
+  if (!/^[a-f0-9-]+$/.test(frameId) || !/^frame-\d{4}\.png$/.test(file)) {
+    sendApiError(response, new ApiError(400, 'INVALID_FRAME_PATH', 'Invalid frame path.'));
+    return;
+  }
+  const framePath = path.join(workDir, `frames-${frameId}`, file);
+  if (!existsSync(framePath)) {
+    sendApiError(response, new ApiError(404, 'FRAME_NOT_FOUND', 'Frame not found.'));
+    return;
+  }
+  response.setHeader('Content-Type', 'image/png');
+  response.setHeader('Cache-Control', 'public, max-age=3600');
+  createReadStream(framePath).pipe(response);
+});
+
+app.post('/api/frames/encode', express.json({ limit: '512kb' }), async (request, response, next) => {
+  try {
+    const { sourceId, frameId, frames: frameSpec, settings: rawSettings } = request.body ?? {};
+    const source = sources.get(sourceId);
+    if (!source || !source.inputPath || !existsSync(source.inputPath)) {
+      sendApiError(response, new ApiError(404, 'SOURCE_NOT_FOUND', 'Source not found.'));
+      return;
+    }
+    if (!frameId || !/^[a-f0-9-]+$/.test(frameId)) {
+      sendApiError(response, new ApiError(400, 'INVALID_FRAME_ID', 'Invalid frame ID.'));
+      return;
+    }
+    if (!Array.isArray(frameSpec) || frameSpec.length < 2 || frameSpec.length > 300) {
+      sendApiError(response, new ApiError(400, 'INVALID_FRAME_SPEC', 'Provide 2-300 frames.'));
+      return;
+    }
+
+    const frameDir = path.join(workDir, `frames-${frameId}`);
+    if (!existsSync(frameDir)) {
+      sendApiError(response, new ApiError(404, 'FRAMES_NOT_FOUND', 'Extracted frames not found. Re-extract from the source.'));
+      return;
+    }
+
+    const settings = parseSettings(rawSettings);
+    const outputExt = settings.format === 'apng' ? 'png' : settings.format === 'webp' ? 'webp' : 'gif';
+    const outputPath = path.join(outputDir, `frame-edit-${randomUUID().slice(0, 8)}.${outputExt}`);
+
+    const concatDir = path.join(workDir, `concat-${randomUUID()}`);
+    await fs.mkdir(concatDir, { recursive: true });
+
+    const concatLines = [];
+    for (let i = 0; i < frameSpec.length; i++) {
+      const spec = frameSpec[i];
+      const srcFile = `frame-${String(spec.index + 1).padStart(4, '0')}.png`;
+      const srcPath = path.join(frameDir, srcFile);
+      if (!existsSync(srcPath)) continue;
+      const destFile = `f${String(i).padStart(4, '0')}.png`;
+      const destPath = path.join(concatDir, destFile);
+      await fs.copyFile(srcPath, destPath);
+      const delay = Math.max(1, Math.round(spec.delayCentiseconds ?? 10)) / 100;
+      concatLines.push(`file '${destFile}'`);
+      concatLines.push(`duration ${delay}`);
+    }
+    if (concatLines.length < 4) {
+      await fs.rm(concatDir, { recursive: true, force: true }).catch(() => {});
+      sendApiError(response, new ApiError(400, 'NO_VALID_FRAMES', 'None of the specified frames could be resolved.'));
+      return;
+    }
+    concatLines.push(`file '${concatLines[concatLines.length - 2].split("'")[1]}'`);
+
+    const concatFile = path.join(concatDir, 'list.txt');
+    await fs.writeFile(concatFile, concatLines.join('\n'));
+
+    try {
+      await runFfmpegSimple([
+        '-f', 'concat', '-safe', '0', '-i', concatFile,
+        '-vf', `scale=${even(clamp(settings.width, 120, 1280))}:-2:flags=lanczos`,
+        '-loop', String(settings.loopCount),
+        '-y', outputPath
+      ]);
+    } catch (encodeError) {
+      await fs.rm(concatDir, { recursive: true, force: true }).catch(() => {});
+      throw encodeError;
+    }
+
+    await fs.rm(concatDir, { recursive: true, force: true }).catch(() => {});
+
+    if (!existsSync(outputPath)) {
+      throw new ApiError(500, 'ENCODE_FAILED', 'Frame encode produced no output.');
+    }
+
+    const stat = await fs.stat(outputPath);
+    const job = createJob({ inputPath: source.inputPath, inputName: source.inputName, inputSize: source.inputSize, sourceKind: source.sourceKind, settings, sourceId });
+    job.status = 'complete';
+    job.outputPath = outputPath;
+    job.outputBytes = stat.size;
+    job.downloadUrl = `/api/jobs/${job.id}/download`;
+    job.completedAt = new Date().toISOString();
+    job.progress = 100;
+    job.stage = 'Complete';
+    job.attempts = [{ attempt: 1, width: settings.width, fps: 0, colors: 256, durationSec: 0, strategy: `${frameSpec.length} edited frames` }];
+    jobs.set(job.id, job);
+    saveManifest();
+
+    response.status(201).json(publicJob(job));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/sources', runUpload, async (request, response, next) => {
   try {
     if (!request.file) {

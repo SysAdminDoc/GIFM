@@ -178,6 +178,20 @@ export type LoopCandidate = {
   ssim: number;
 };
 
+export type ExtractedFrame = {
+  index: number;
+  file: string;
+  url: string;
+  delayCentiseconds: number;
+};
+
+export type FrameManifest = {
+  frameId: string;
+  fps: number;
+  frameCount: number;
+  frames: ExtractedFrame[];
+};
+
 export type TimelineClip = {
   id: string;
   name: string;
