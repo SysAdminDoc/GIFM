@@ -90,7 +90,7 @@ npm run cli -- input.mp4 --target free --format gif --width 480 --out .
 npm run cli -- --watch .\incoming --target nitro-basic --format webp --out .\gifs
 ```
 
-Options: `--target`, `--format` (gif/apng/webp/mp4/avif), `--width`, `--fps`, `--duration`, `--start`, `--out`. The CLI starts the local server, submits the job, and writes the result to the output directory. `--watch <folder>` auto-converts new video/GIF files dropped into the folder until interrupted.
+The CLI supports the full settings surface: `--target`, `--format`, `--width`, `--fps`, `--duration`, `--start`, `--colors`, `--dither`, `--bayer-scale`, `--palette-mode`, `--per-frame-palette`, `--loop`, `--speed`, `--playback`, `--rotate`, `--flip-h`, `--flip-v`, `--color-filter`, `--saturation`, `--crop-x/y/w/h`, `--caption-top/bottom`, `--encoder`, `--gifski-quality`, `--no-optimize`, `--no-auto-fit`, `--allow-trim`, and `--preset <file.json>`. Run `npm run cli -- --help` for the full list. The CLI starts the local server, submits the job, and writes the result to the output directory. `--watch <folder>` auto-converts new video/GIF files dropped into the folder, waiting for stable file size before processing.
 
 ## Output Location
 
