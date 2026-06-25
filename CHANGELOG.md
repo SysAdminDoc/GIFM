@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## v0.3.1 - 2026-06-25
+
+- Refined the premium UI system with dark-first launch, a compact runtime header, richer target/profile rows, icon-led status tiles, grouped advanced transforms, clearer idle progress copy, and updated README screenshot evidence.
 - Added a per-frame palette quality mode (GIF) that computes a fresh palette for every frame for higher fidelity on fast-cutting clips.
 - Added a headless CLI (`npm run cli`) that converts files or watches a folder using the same local encode engine.
 - Added clipboard paste (paste a copied image/video to load it) and browser-tab URL drops (dragging a media URL routes through the URL importer).

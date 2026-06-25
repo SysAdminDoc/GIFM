@@ -104,6 +104,10 @@ const en = {
         title: 'Clip and output',
         description: 'Set dimensions, timing, and frame rate.'
       },
+      transform: {
+        title: 'Advanced transforms',
+        description: 'Crop, captions, overlays, rotation, flips, and color treatments.'
+      },
       encoding: {
         title: 'Encoding strategy',
         description: 'Control palette quality and fitting behavior.'
@@ -403,7 +407,8 @@ const en = {
   },
   progress: {
     aria: 'Encoding progress',
-    idle: 'Idle'
+    idle: 'Ready to encode',
+    readyBody: 'Progress, warnings, and queue state appear here once an export starts.'
   },
   log: {
     aria: 'Log',

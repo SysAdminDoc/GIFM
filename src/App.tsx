@@ -61,7 +61,7 @@ import {
   type ApiErrorPayload
 } from './types';
 
-const VERSION = '0.3.0';
+const VERSION = '0.3.1';
 const SPEED_OPTIONS = [0.25, 0.5, 1, 1.5, 2, 3, 4];
 
 const DEFAULT_SETTINGS: Settings = {
@@ -798,10 +798,10 @@ function GifmApp() {
           <UrlImportRow busy={sourceBusy} onImport={importFromUrl} />
 
           <div className="source-strip">
-            <StatusTile label={STRINGS.target.title} value={formatBytes(targetBytes)} tone="cyan" />
-            <StatusTile label={STRINGS.input.sourceRatio} value={file ? formatRatio(originalRatio) : STRINGS.diagnostics.emptyValue} tone="amber" />
-            <StatusTile label={STRINGS.settings.autoFit.label} value={settings.autoFit ? STRINGS.settings.autoFit.on : STRINGS.settings.autoFit.off} tone={settings.autoFit ? 'lime' : 'muted'} />
-            <StatusTile label={STRINGS.input.queue} value={queueLabel(job)} tone={job?.status === 'queued' ? 'amber' : 'muted'} />
+            <StatusTile icon={<Gauge aria-hidden="true" />} label={STRINGS.target.title} value={formatBytes(targetBytes)} tone="cyan" />
+            <StatusTile icon={<Video aria-hidden="true" />} label={STRINGS.input.sourceRatio} value={file ? formatRatio(originalRatio) : STRINGS.diagnostics.emptyValue} tone="amber" />
+            <StatusTile icon={<CheckCircle2 aria-hidden="true" />} label={STRINGS.settings.autoFit.label} value={settings.autoFit ? STRINGS.settings.autoFit.on : STRINGS.settings.autoFit.off} tone={settings.autoFit ? 'lime' : 'muted'} />
+            <StatusTile icon={<Terminal aria-hidden="true" />} label={STRINGS.input.queue} value={queueLabel(job)} tone={job?.status === 'queued' ? 'amber' : 'muted'} />
           </div>
 
           <TimelineEditor
@@ -948,9 +948,13 @@ function SettingsPanel({
               key={profile.id}
               type="button"
               className={settings.targetPreset === profile.id ? 'selected' : ''}
+              aria-pressed={settings.targetPreset === profile.id}
               onClick={() => setPreset(profile.id)}
             >
-              {profile.label}
+              <span className="target-profile-copy">
+                <strong>{profile.label}</strong>
+                <small>{profile.description}</small>
+              </span>
             </button>
           ))}
         </div>
@@ -990,22 +994,6 @@ function SettingsPanel({
             <option value="boomerang">{STRINGS.settings.playback.options.boomerang}</option>
           </select>
         </label>
-        <ToggleField
-          label={STRINGS.settings.crop.label}
-          description={STRINGS.settings.crop.description}
-          checked={settings.crop.enabled}
-          onChange={(checked) => update('crop', normalizeCrop({ ...settings.crop, enabled: checked, ...(checked && settings.crop.w >= 1 && settings.crop.h >= 1 ? { x: 0.1, y: 0.1, w: 0.8, h: 0.8 } : {}) }))}
-        />
-        {settings.crop.enabled
-          ? (
-            <div className="crop-fields">
-              <CropRange label={STRINGS.settings.crop.x} value={settings.crop.x} max={0.95} onChange={(x) => update('crop', normalizeCrop({ ...settings.crop, x }))} />
-              <CropRange label={STRINGS.settings.crop.y} value={settings.crop.y} max={0.95} onChange={(y) => update('crop', normalizeCrop({ ...settings.crop, y }))} />
-              <CropRange label={STRINGS.settings.crop.w} value={settings.crop.w} max={1} onChange={(w) => update('crop', normalizeCrop({ ...settings.crop, w }))} />
-              <CropRange label={STRINGS.settings.crop.h} value={settings.crop.h} max={1} onChange={(h) => update('crop', normalizeCrop({ ...settings.crop, h }))} />
-            </div>
-          )
-          : null}
         {settings.targetPreset === 'emoji'
           ? <p className="profile-note">{STRINGS.settings.squareNote.emoji}</p>
           : settings.targetPreset === 'sticker'
@@ -1014,45 +1002,72 @@ function SettingsPanel({
               ? <p className="profile-note">{STRINGS.settings.squareNote.avatar}</p>
               : null}
 
-        <label className="text-field">
-          <span>{STRINGS.settings.caption.top}</span>
-          <input type="text" maxLength={120} value={settings.caption.top} placeholder={STRINGS.settings.caption.placeholder} onChange={(event) => update('caption', { ...settings.caption, top: event.target.value })} />
-        </label>
-        <label className="text-field">
-          <span>{STRINGS.settings.caption.bottom}</span>
-          <input type="text" maxLength={120} value={settings.caption.bottom} placeholder={STRINGS.settings.caption.placeholder} onChange={(event) => update('caption', { ...settings.caption, bottom: event.target.value })} />
-        </label>
-        {(settings.caption.top || settings.caption.bottom) && health && health.font && !health.font.available
-          ? <p className="profile-note">{STRINGS.settings.caption.unavailable}</p>
-          : null}
+        <details className="advanced-settings">
+          <summary>
+            <span>
+              <strong>{STRINGS.settings.sections.transform.title}</strong>
+              <small>{STRINGS.settings.sections.transform.description}</small>
+            </span>
+          </summary>
+          <div className="advanced-settings-grid">
+            <ToggleField
+              label={STRINGS.settings.crop.label}
+              description={STRINGS.settings.crop.description}
+              checked={settings.crop.enabled}
+              onChange={(checked) => update('crop', normalizeCrop({ ...settings.crop, enabled: checked, ...(checked && settings.crop.w >= 1 && settings.crop.h >= 1 ? { x: 0.1, y: 0.1, w: 0.8, h: 0.8 } : {}) }))}
+            />
+            {settings.crop.enabled
+              ? (
+                <div className="crop-fields">
+                  <CropRange label={STRINGS.settings.crop.x} value={settings.crop.x} max={0.95} onChange={(x) => update('crop', normalizeCrop({ ...settings.crop, x }))} />
+                  <CropRange label={STRINGS.settings.crop.y} value={settings.crop.y} max={0.95} onChange={(y) => update('crop', normalizeCrop({ ...settings.crop, y }))} />
+                  <CropRange label={STRINGS.settings.crop.w} value={settings.crop.w} max={1} onChange={(w) => update('crop', normalizeCrop({ ...settings.crop, w }))} />
+                  <CropRange label={STRINGS.settings.crop.h} value={settings.crop.h} max={1} onChange={(h) => update('crop', normalizeCrop({ ...settings.crop, h }))} />
+                </div>
+              )
+              : null}
 
-        <label className="select-field">
-          <span>{STRINGS.settings.rotate.label}</span>
-          <select value={String(settings.rotate)} onChange={(event) => update('rotate', Number(event.target.value) as Rotation)}>
-            <option value="0">{STRINGS.settings.rotate.options.none}</option>
-            <option value="90">{STRINGS.settings.rotate.options.cw90}</option>
-            <option value="180">{STRINGS.settings.rotate.options.deg180}</option>
-            <option value="270">{STRINGS.settings.rotate.options.ccw90}</option>
-          </select>
-        </label>
-        <div className="flip-row">
-          <ToggleField label={STRINGS.settings.flipH} description="" checked={settings.flipH} onChange={(checked) => update('flipH', checked)} />
-          <ToggleField label={STRINGS.settings.flipV} description="" checked={settings.flipV} onChange={(checked) => update('flipV', checked)} />
-        </div>
-        <label className="select-field">
-          <span>{STRINGS.settings.colorFilter.label}</span>
-          <select value={settings.colorFilter} onChange={(event) => update('colorFilter', event.target.value as ColorFilter)}>
-            <option value="none">{STRINGS.settings.colorFilter.options.none}</option>
-            <option value="grayscale">{STRINGS.settings.colorFilter.options.grayscale}</option>
-            <option value="invert">{STRINGS.settings.colorFilter.options.invert}</option>
-            <option value="sepia">{STRINGS.settings.colorFilter.options.sepia}</option>
-          </select>
-        </label>
-        <label className="range-field">
-          <span>{STRINGS.settings.saturation.label} <strong>{settings.saturation.toFixed(1)}x</strong></span>
-          <input type="range" min={0} max={3} step={0.1} value={settings.saturation} onChange={(event) => update('saturation', clampNumber(Number(event.target.value), 0, 3))} aria-label={STRINGS.settings.saturation.label} />
-        </label>
-        <OverlayField value={settings.overlay} onChange={(overlay) => update('overlay', overlay)} />
+            <label className="text-field">
+              <span>{STRINGS.settings.caption.top}</span>
+              <input type="text" maxLength={120} value={settings.caption.top} placeholder={STRINGS.settings.caption.placeholder} onChange={(event) => update('caption', { ...settings.caption, top: event.target.value })} />
+            </label>
+            <label className="text-field">
+              <span>{STRINGS.settings.caption.bottom}</span>
+              <input type="text" maxLength={120} value={settings.caption.bottom} placeholder={STRINGS.settings.caption.placeholder} onChange={(event) => update('caption', { ...settings.caption, bottom: event.target.value })} />
+            </label>
+            {(settings.caption.top || settings.caption.bottom) && health && health.font && !health.font.available
+              ? <p className="profile-note">{STRINGS.settings.caption.unavailable}</p>
+              : null}
+
+            <label className="select-field">
+              <span>{STRINGS.settings.rotate.label}</span>
+              <select value={String(settings.rotate)} onChange={(event) => update('rotate', Number(event.target.value) as Rotation)}>
+                <option value="0">{STRINGS.settings.rotate.options.none}</option>
+                <option value="90">{STRINGS.settings.rotate.options.cw90}</option>
+                <option value="180">{STRINGS.settings.rotate.options.deg180}</option>
+                <option value="270">{STRINGS.settings.rotate.options.ccw90}</option>
+              </select>
+            </label>
+            <div className="flip-row">
+              <ToggleField label={STRINGS.settings.flipH} description="" checked={settings.flipH} onChange={(checked) => update('flipH', checked)} />
+              <ToggleField label={STRINGS.settings.flipV} description="" checked={settings.flipV} onChange={(checked) => update('flipV', checked)} />
+            </div>
+            <label className="select-field">
+              <span>{STRINGS.settings.colorFilter.label}</span>
+              <select value={settings.colorFilter} onChange={(event) => update('colorFilter', event.target.value as ColorFilter)}>
+                <option value="none">{STRINGS.settings.colorFilter.options.none}</option>
+                <option value="grayscale">{STRINGS.settings.colorFilter.options.grayscale}</option>
+                <option value="invert">{STRINGS.settings.colorFilter.options.invert}</option>
+                <option value="sepia">{STRINGS.settings.colorFilter.options.sepia}</option>
+              </select>
+            </label>
+            <label className="range-field">
+              <span>{STRINGS.settings.saturation.label} <strong>{settings.saturation.toFixed(1)}x</strong></span>
+              <input type="range" min={0} max={3} step={0.1} value={settings.saturation} onChange={(event) => update('saturation', clampNumber(Number(event.target.value), 0, 3))} aria-label={STRINGS.settings.saturation.label} />
+            </label>
+            <OverlayField value={settings.overlay} onChange={(overlay) => update('overlay', overlay)} />
+          </div>
+        </details>
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.encoding.title} description={STRINGS.settings.sections.encoding.description}>
@@ -1457,7 +1472,7 @@ function ToggleField({
       <span className="toggle-box" aria-hidden="true" />
       <span>
         <strong>{label}</strong>
-        <small>{description}</small>
+        {description ? <small>{description}</small> : null}
       </span>
     </label>
   );
@@ -1814,6 +1829,7 @@ function TimecodeField({
         value={draft}
         inputMode="numeric"
         placeholder="0:00:00"
+        aria-label={label}
         onBlur={commit}
         onChange={(event) => setDraft(event.currentTarget.value)}
       />
@@ -2032,11 +2048,16 @@ function EmptyState({
   );
 }
 
-function StatusTile({ label, value, tone }: { label: string; value: string; tone: 'cyan' | 'amber' | 'lime' | 'muted' }) {
+function StatusTile({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: 'cyan' | 'amber' | 'lime' | 'muted' }) {
   return (
     <div className={`status-tile ${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
+      <span className="status-tile-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span>
+        <span>{label}</span>
+        <strong>{value}</strong>
+      </span>
     </div>
   );
 }
@@ -2049,6 +2070,7 @@ function ProgressPanel({ job }: { job: Job | null }) {
         <strong>{job?.stage ?? STRINGS.progress.idle}</strong>
         <span>{Math.round(progress)}%</span>
       </div>
+      {!job ? <p>{STRINGS.progress.readyBody}</p> : null}
       <div
         className="progress-track"
         role="progressbar"
@@ -2346,8 +2368,7 @@ function loadSettings() {
 function loadTheme(): Theme {
   const stored = readStorage<Theme>(THEME_KEY);
   if (stored === 'dark' || stored === 'light' || stored === 'high-contrast') return stored;
-  // First load with no stored choice: respect the OS preference.
-  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
+  // First load with no stored choice: default to the app's premium dark workspace.
   return 'dark';
 }
 

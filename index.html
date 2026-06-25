@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="GIFM v0.3.0 converts local videos and existing GIFs into Discord-ready animated GIFs."
+      content="GIFM v0.3.1 converts local videos and existing GIFs into Discord-ready animated GIFs."
     />
     <meta name="theme-color" content="#0b0f14" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <title>GIFM v0.3.0</title>
+    <title>GIFM v0.3.1</title>
     <script>
       // Apply the stored (or OS-preferred) theme before paint to avoid a flash of the wrong theme.
       (function () {
@@ -18,7 +18,7 @@
           var stored = JSON.parse(localStorage.getItem('gifm:theme:v1'));
           var theme = stored === 'light' || stored === 'high-contrast' || stored === 'dark'
             ? stored
-            : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+            : 'dark';
           document.documentElement.dataset.theme = theme;
         } catch (error) {
           document.documentElement.dataset.theme = 'dark';
