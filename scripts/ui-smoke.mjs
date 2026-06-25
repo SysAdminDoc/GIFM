@@ -135,13 +135,20 @@ try {
     throw new Error(`Console warnings/errors found: ${consoleMessages.join('\n')}`);
   }
 
-  // Verify locale switching: persist Spanish, reload, and confirm a translated string renders.
+  // Verify locale switching: persist Spanish, reload, and confirm multiple translated strings render.
+  const esChecks = ['Suelta un video o GIF', 'Objetivo', 'Iniciar codificacion', 'Vista previa'];
   await page.evaluate(() => window.localStorage.setItem('gifm:locale:v1', JSON.stringify('es')));
   await page.reload({ waitUntil: 'load' });
-  await assertVisibleText(page, 'Suelta un video o GIF');
+  for (const text of esChecks) await assertVisibleText(page, text);
+  const esOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  if (esOverflow) throw new Error('Spanish locale has horizontal overflow.');
+
+  const frChecks = ['Deposez une video ou un GIF', 'Cible', 'Apercu', 'Largeur'];
   await page.evaluate(() => window.localStorage.setItem('gifm:locale:v1', JSON.stringify('fr')));
   await page.reload({ waitUntil: 'load' });
-  await assertVisibleText(page, 'Deposez une video ou un GIF');
+  for (const text of frChecks) await assertVisibleText(page, text);
+  const frOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  if (frOverflow) throw new Error('French locale has horizontal overflow.');
   await page.evaluate(() => window.localStorage.removeItem('gifm:locale:v1'));
 
   // Verify theme switching: light and high-contrast themes render without overflow or console errors.

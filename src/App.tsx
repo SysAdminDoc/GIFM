@@ -697,6 +697,15 @@ function GifmApp() {
     if (preset) setNotice(STRINGS.notices.presetDeleted(preset.name));
   };
 
+  const importPresets = (incoming: SavedPreset[]) => {
+    setSavedPresets((current) => {
+      const nameSet = new Set(current.map((p) => p.name.toLowerCase()));
+      const fresh = incoming.filter((p) => !nameSet.has(p.name.toLowerCase())).map((p) => ({ ...p, id: crypto.randomUUID() }));
+      return [...fresh, ...current].slice(0, 50);
+    });
+    setNotice(STRINGS.notices.presetsImported(incoming.length));
+  };
+
   const revealRecentOutput = async (id: string) => {
     const response = await fetch(`/api/jobs/${id}/reveal`, { method: 'POST' });
     if (response.ok) {
@@ -764,6 +773,7 @@ function GifmApp() {
           onSavePreset={savePreset}
           onLoadPreset={loadPreset}
           onDeletePreset={deletePreset}
+          onImportPresets={importPresets}
           health={health}
         />
 
@@ -904,6 +914,7 @@ function SettingsPanel({
   onSavePreset,
   onLoadPreset,
   onDeletePreset,
+  onImportPresets,
   health
 }: {
   settings: Settings;
@@ -912,6 +923,7 @@ function SettingsPanel({
   onSavePreset: (name: string) => void;
   onLoadPreset: (id: string) => void;
   onDeletePreset: (id: string) => void;
+  onImportPresets: (presets: SavedPreset[]) => void;
   health: HealthInfo | null;
 }) {
   const [presetName, setPresetName] = useState('');
@@ -1247,6 +1259,49 @@ function SettingsPanel({
               }}
             >
               {STRINGS.presets.delete}
+            </button>
+          </div>
+          <div className="preset-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={savedPresets.length === 0}
+              onClick={() => {
+                const blob = new Blob([JSON.stringify({ version: 1, presets: savedPresets }, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'gifm-presets.json';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              {STRINGS.presets.exportAll}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.json';
+                input.onchange = async () => {
+                  const file = input.files?.[0];
+                  if (!file) return;
+                  try {
+                    const raw = JSON.parse(await file.text());
+                    const imported = Array.isArray(raw?.presets) ? raw.presets : Array.isArray(raw) ? raw : [];
+                    const valid = imported.filter((p: unknown): p is SavedPreset => typeof (p as SavedPreset)?.name === 'string' && typeof (p as SavedPreset)?.settings === 'object');
+                    if (!valid.length) return;
+                    onImportPresets(valid);
+                  } catch {
+                    // Silently reject malformed files.
+                  }
+                };
+                input.click();
+              }}
+            >
+              {STRINGS.presets.importFile}
             </button>
           </div>
         </div>

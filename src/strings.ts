@@ -57,6 +57,7 @@ const en = {
     presetSaved: (name: string) => `Preset saved: ${name}`,
     presetLoaded: (name: string) => `Preset loaded: ${name}`,
     presetDeleted: (name: string) => `Preset deleted: ${name}`,
+    presetsImported: (count: number) => `${count} preset${count === 1 ? '' : 's'} imported`,
     importingUrl: 'Downloading video from URL',
     preparingSource: (name: string) => `Preparing ${name} for repeated clip exports`,
     sourcePrepared: (name: string) => `${name} prepared for clip exports`,
@@ -92,7 +93,9 @@ const en = {
     namePlaceholder: 'Preset name',
     save: 'Save',
     load: 'Load',
-    delete: 'Delete'
+    delete: 'Delete',
+    exportAll: 'Export presets',
+    importFile: 'Import presets'
   },
   settings: {
     sections: {
