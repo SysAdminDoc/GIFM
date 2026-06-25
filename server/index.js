@@ -26,7 +26,7 @@ import {
 } from './encoding.js';
 import { buildStoreZip } from './zip.js';
 
-const VERSION = '0.3.1';
+const VERSION = '0.4.0';
 const PORT = parsePositiveInteger(process.env.GIFM_PORT ?? process.env.PORT, 4174);
 const HOST = (process.env.GIFM_HOST ?? '127.0.0.1').trim() || '127.0.0.1';
 const ALLOW_REMOTE = process.env.GIFM_ALLOW_REMOTE === '1';

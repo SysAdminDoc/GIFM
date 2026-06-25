@@ -1,10 +1,10 @@
 # GIFM
 
-![Version](https://img.shields.io/badge/version-v0.3.1-4ecdc4)
+![Version](https://img.shields.io/badge/version-v0.4.0-4ecdc4)
 ![License](https://img.shields.io/badge/license-MIT-b7e35f)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-ffbd5b)
 
-GIFM v0.3.1 is a local GIF maker and compressor for Discord-ready animated GIFs. It converts MP4, MOV, WebM, AVI, MKV, and existing GIF files with bundled FFmpeg, then retries width, FPS, and palette settings until the output fits the selected target.
+GIFM v0.4.0 is a local GIF maker and compressor for Discord-ready animated GIFs. It converts MP4, MOV, WebM, AVI, MKV, and existing GIF files with bundled FFmpeg, then retries width, FPS, and palette settings until the output fits the selected target.
 
 ## Features
 

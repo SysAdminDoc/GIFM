@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## v0.4.0 - 2026-06-25
+
+- Hardened the local API: CSRF origin/fetch-metadata guards on all POST endpoints, multer fieldNestingDepth limits (CVE-2026-5079), frame-pixel encode budget (rejects 4K@60fps pathological inputs), and FFmpeg `-protocol_whitelist file,pipe` on all invocations.
+- Added Discord target verifier: completed jobs now show probed output dimensions, duration, fps, and a Discord-ready checklist (file size, format, dimensions, 256 KB auto-play threshold, 400x300 server resize warning).
+- Pre-crush GIF palette to Discord's Lilliput quantization grid (values round to `8k+4`) for all Discord target presets, preventing double-degradation when Discord's proxy re-quantizes the palette.
+- Added SSIM quality score: GIF/APNG outputs display a perceptual quality percentage computed via FFmpeg's SSIM filter.
+- Replaced 800ms job polling with Server-Sent Events for real-time progress updates; polling kept as fallback.
+- Added output preview: completed outputs render inline (GIF/APNG/WebP as `<img>`, MP4 as `<video>`).
+- Persist prepared sources and completed jobs across server restarts via a versioned manifest (data/manifest.json); new GET /api/sources and GET /api/jobs/history endpoints.
+- Added Windows CI and release workflows (.github/workflows/ci.yml and release.yml).
+- Brought the headless CLI to full UI-setting parity: all encode settings (colors, dither, palette mode, per-frame palette, loop, speed, playback, crop, caption, overlay, rotate, flip, color filter, saturation, encoder backend, gifski quality, auto-fit, allow-trim, optimize) plus `--preset <file.json>` and `--no-auto-fit`/`--no-optimize` flags. Watch mode now waits for stable file size before converting and handles SIGTERM/SIGBREAK.
+- Expanded UI smoke tests to cover light/high-contrast themes, mobile viewport (375px), keyboard focus, reduced-motion, ARIA progressbar, and multi-string locale sampling for Spanish and French.
+- Added versioned preset import/export (Export/Import JSON buttons in the preset manager).
+- Added timeline clip CSV export/import for batch workflows and LosslessCut/Resolve interop.
+- Exposed gifsicle 1.96 oklab color space (`--gamma=oklab`) and Atkinson dithering when optimization is enabled.
+- Added subtitle/SRT burning via FFmpeg's subtitles filter (upload SRT/ASS/SSA/VTT alongside the source video).
+- Added rounded corner crop (0-48px border radius) with transparent edges via a geq alpha mask.
+
 ## v0.3.1 - 2026-06-25
 
 - Refined the premium UI system with dark-first launch, a compact runtime header, richer target/profile rows, icon-led status tiles, grouped advanced transforms, clearer idle progress copy, and updated README screenshot evidence.
