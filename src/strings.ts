@@ -331,6 +331,8 @@ const en = {
     noClips: 'No cuts saved',
     exportAll: 'Export all cuts',
     exportClip: 'Export',
+    exportCsv: 'Export CSV',
+    importCsv: 'Import CSV',
     deleteClip: (name: string) => `Delete ${name}`,
     emptyTitle: 'Cut list',
     emptyBody: 'Mark start and end points, then add cuts here before exporting GIFs.',

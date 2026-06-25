@@ -540,6 +540,18 @@ function GifmApp() {
     setNotice(STRINGS.notices.clipLoaded(clip.name));
   };
 
+  const importTimelineClip = (name: string, startSec: number, durationSec: number) => {
+    const clip: TimelineClip = {
+      id: crypto.randomUUID(),
+      name,
+      startSec,
+      durationSec,
+      createdAt: new Date().toISOString()
+    };
+    setTimelineClips((current) => [...current, clip]);
+    setNotice(STRINGS.notices.clipAdded(name));
+  };
+
   const deleteTimelineClip = (id: string) => {
     const clip = timelineClips.find((item) => item.id === id);
     setTimelineClips((current) => current.filter((item) => item.id !== id));
@@ -829,6 +841,7 @@ function GifmApp() {
             onDeleteClip={deleteTimelineClip}
             onExportClip={(clip) => exportTimelineClips([clip])}
             onExportAll={() => exportTimelineClips(timelineClips)}
+            onImportClip={importTimelineClip}
             onPrepareSource={() => {
               void prepareSource().catch((error) => setNotice(error instanceof Error ? error.message : STRINGS.errors.sourcePrepareFailed));
             }}
@@ -1617,6 +1630,7 @@ function TimelineEditor({
   onDeleteClip,
   onExportClip,
   onExportAll,
+  onImportClip,
   onPrepareSource,
   sourceSession,
   sourceBusy,
@@ -1636,6 +1650,7 @@ function TimelineEditor({
   onDeleteClip: (id: string) => void;
   onExportClip: (clip: TimelineClip) => void;
   onExportAll: () => void;
+  onImportClip: (name: string, startSec: number, durationSec: number) => void;
   onPrepareSource: () => void;
   sourceSession: SourceSession | null;
   sourceBusy: boolean;
@@ -1821,6 +1836,44 @@ function TimelineEditor({
           <button type="button" className="primary-button" disabled={!clips.length || sourceBusy || exportBusy} onClick={onExportAll}>
             <Wand2 aria-hidden="true" />
             {STRINGS.timeline.exportAll}
+          </button>
+          <button type="button" className="secondary-button" disabled={!clips.length} onClick={() => {
+            const header = 'name,startSec,endSec,durationSec';
+            const rows = clips.map((c) => `${c.name},${c.startSec},${(c.startSec + c.durationSec).toFixed(2)},${c.durationSec}`);
+            const blob = new Blob([header + '\n' + rows.join('\n')], { type: 'text/csv' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'gifm-clips.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }}>
+            {STRINGS.timeline.exportCsv}
+          </button>
+          <button type="button" className="secondary-button" onClick={() => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.csv';
+            input.onchange = async () => {
+              const file = input.files?.[0];
+              if (!file) return;
+              try {
+                const text = await file.text();
+                const lines = text.trim().split(/\r?\n/).slice(1);
+                for (const line of lines) {
+                  const [name, startStr, , durStr] = line.split(',');
+                  if (!name || !startStr || !durStr) continue;
+                  const startSec = Number(startStr);
+                  const durationSec = Number(durStr);
+                  if (!Number.isFinite(startSec) || !Number.isFinite(durationSec) || durationSec <= 0) continue;
+                  onImportClip(name.trim(), startSec, durationSec);
+                }
+              } catch {
+                // Silently reject malformed CSV.
+              }
+            };
+            input.click();
+          }}>
+            {STRINGS.timeline.importCsv}
           </button>
         </div>
         <div className="clip-list">
