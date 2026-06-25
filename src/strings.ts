@@ -357,6 +357,7 @@ const en = {
       mp4: 'Download MP4',
       avif: 'Download AVIF'
     },
+    outputPreviewAlt: 'Encoded output preview',
     openOutput: 'Open output',
     saveAs: 'Save as',
     altText: 'Alt text',

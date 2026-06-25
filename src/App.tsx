@@ -2003,6 +2003,13 @@ function PreviewPanel({
                 ))}
               </ul>
             ) : null}
+            <div className="output-preview">
+              {job.settings.format === 'mp4' ? (
+                <video src={job.downloadUrl} controls muted loop playsInline />
+              ) : (
+                <img src={job.downloadUrl} alt={STRINGS.output.outputPreviewAlt} />
+              )}
+            </div>
             <div className="download-grid">
               <a className="primary-button" href={job.downloadUrl} download>
                 <Download aria-hidden="true" />
