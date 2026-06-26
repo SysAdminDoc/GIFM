@@ -18,10 +18,11 @@ export function ProgressPanel({ job }: { job: Job | null }) {
   const eta = isActive && progress > 3 && elapsed > 2
     ? Math.round((elapsed / progress) * (100 - progress))
     : null;
+  const progressLabel = `${job?.stage ?? STRINGS.progress.idle}, ${Math.round(progress)}%`;
 
   return (
-    <section className="progress-panel" aria-label={STRINGS.progress.aria}>
-      <div>
+    <section className="progress-panel" aria-label={STRINGS.progress.aria} aria-busy={isActive}>
+      <div role="status" aria-live="polite">
         <strong>{job?.stage ?? STRINGS.progress.idle}</strong>
         <span>
           {Math.round(progress)}%
@@ -37,11 +38,12 @@ export function ProgressPanel({ job }: { job: Job | null }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(progress)}
+        aria-valuetext={progressLabel}
       >
         <span style={{ width: `${progress}%` }} />
       </div>
       {job?.warnings.length ? (
-        <ul className="warnings">
+        <ul className="warnings" role="alert">
           {job.warnings.map((warning, i) => (
             <li key={i}>{warning}</li>
           ))}

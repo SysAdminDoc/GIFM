@@ -1,8 +1,17 @@
 import {
+  AlertTriangle,
+  CheckCircle2,
   Download,
+  FileText,
+  FolderOpen,
   Image as ImageIcon,
   Loader2,
-  Settings2
+  Pencil,
+  Save,
+  Settings2,
+  Trash2,
+  UploadCloud,
+  X
 } from 'lucide-react';
 import {
   type PropsWithChildren,
@@ -42,6 +51,7 @@ export function SettingsPanel({
   onRenamePreset,
   onDeletePreset,
   onImportPresets,
+  onNotice,
   health,
   sourceSessionId
 }: {
@@ -53,11 +63,13 @@ export function SettingsPanel({
   onRenamePreset: (id: string, newName: string) => void;
   onDeletePreset: (id: string) => void;
   onImportPresets: (presets: SavedPreset[]) => void;
+  onNotice: (message: string) => void;
   health: HealthInfo | null;
   sourceSessionId: string;
 }) {
   const [presetName, setPresetName] = useState('');
   const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [presetFeedback, setPresetFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     setSettings((current) => ({ ...current, [key]: value }));
   };
@@ -183,37 +195,7 @@ export function SettingsPanel({
               ? <p className="profile-note">{STRINGS.settings.caption.unavailable}</p>
               : null}
 
-            <div className="subtitle-row">
-              <span>{STRINGS.settings.subtitle.label}</span>
-              <button type="button" className="secondary-button" onClick={async () => {
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = '.srt,.ass,.ssa,.vtt';
-                input.onchange = async () => {
-                  const file = input.files?.[0];
-                  if (!file) return;
-                  const form = new FormData();
-                  form.set('subtitle', file);
-                  try {
-                    const res = await fetch('/api/subtitle', { method: 'POST', body: form });
-                    if (res.ok) {
-                      const data = await res.json();
-                      update('subtitleId', data.id);
-                    }
-                  } catch {
-                    // Upload failed silently — user can retry.
-                  }
-                };
-                input.click();
-              }}>
-                {settings.subtitleId ? STRINGS.settings.subtitle.replace : STRINGS.settings.subtitle.upload}
-              </button>
-              {settings.subtitleId ? (
-                <button type="button" className="secondary-button" onClick={() => update('subtitleId', '')}>
-                  {STRINGS.settings.subtitle.clear}
-                </button>
-              ) : null}
-            </div>
+            <SubtitleRow subtitleId={settings.subtitleId} onUpdate={(id) => update('subtitleId', id)} />
 
             <label className="select-field">
               <span>{STRINGS.settings.rotate.label}</span>
@@ -438,14 +420,18 @@ export function SettingsPanel({
             <button
               type="button"
               className="secondary-button"
+              disabled={!presetName.trim()}
               onClick={() => {
                 onSavePreset(presetName);
                 setPresetName('');
+                setPresetFeedback(null);
               }}
             >
+              <Save aria-hidden="true" />
               {STRINGS.presets.save}
             </button>
             <button type="button" className="secondary-button" disabled={!selectedPresetId} onClick={() => onLoadPreset(selectedPresetId)}>
+              <FolderOpen aria-hidden="true" />
               {STRINGS.presets.load}
             </button>
             <button
@@ -455,8 +441,10 @@ export function SettingsPanel({
               onClick={() => {
                 onRenamePreset(selectedPresetId, presetName);
                 setPresetName('');
+                setPresetFeedback(null);
               }}
             >
+              <Pencil aria-hidden="true" />
               {STRINGS.presets.rename}
             </button>
             <button
@@ -466,8 +454,10 @@ export function SettingsPanel({
               onClick={() => {
                 onDeletePreset(selectedPresetId);
                 setSelectedPresetId('');
+                setPresetFeedback(null);
               }}
             >
+              <Trash2 aria-hidden="true" />
               {STRINGS.presets.delete}
             </button>
           </div>
@@ -486,6 +476,7 @@ export function SettingsPanel({
                 URL.revokeObjectURL(url);
               }}
             >
+              <Download aria-hidden="true" />
               {STRINGS.presets.exportAll}
             </button>
             <button
@@ -502,18 +493,30 @@ export function SettingsPanel({
                     const raw = JSON.parse(await file.text());
                     const imported = Array.isArray(raw?.presets) ? raw.presets : Array.isArray(raw) ? raw : [];
                     const valid = imported.filter((p: unknown): p is SavedPreset => typeof (p as SavedPreset)?.name === 'string' && typeof (p as SavedPreset)?.settings === 'object');
-                    if (!valid.length) return;
+                    if (!valid.length) {
+                      setPresetFeedback({ tone: 'error', message: STRINGS.presets.importEmpty });
+                      onNotice(STRINGS.presets.importEmpty);
+                      return;
+                    }
                     onImportPresets(valid);
+                    setPresetFeedback({ tone: 'success', message: STRINGS.presets.imported(valid.length) });
                   } catch {
-                    // Silently reject malformed files.
+                    setPresetFeedback({ tone: 'error', message: STRINGS.presets.importFailed });
+                    onNotice(STRINGS.presets.importFailed);
                   }
                 };
                 input.click();
               }}
             >
+              <UploadCloud aria-hidden="true" />
               {STRINGS.presets.importFile}
             </button>
           </div>
+          {presetFeedback ? (
+            <FeedbackNote tone={presetFeedback.tone}>
+              {presetFeedback.message}
+            </FeedbackNote>
+          ) : null}
         </div>
       </SettingsSection>
     </aside>
@@ -642,6 +645,7 @@ export function WebhookRow({ onSend }: { onSend: (webhookUrl: string) => void })
 
 export function UrlImportRow({ busy, onImport }: { busy: boolean; onImport: (url: string) => void }) {
   const [url, setUrl] = useState('');
+  const trimmed = url.trim();
   return (
     <div className="url-import">
       <input
@@ -651,13 +655,13 @@ export function UrlImportRow({ busy, onImport }: { busy: boolean; onImport: (url
         aria-label={STRINGS.input.urlAria}
         onChange={(event) => setUrl(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && url.trim() && !busy) {
+          if (event.key === 'Enter' && trimmed && !busy) {
             event.preventDefault();
-            onImport(url);
+            onImport(trimmed);
           }
         }}
       />
-      <button type="button" className="secondary-button" disabled={busy || !url.trim()} onClick={() => onImport(url)}>
+      <button type="button" className="secondary-button" disabled={busy || !trimmed} onClick={() => onImport(trimmed)}>
         {busy ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
         {STRINGS.input.importUrl}
       </button>
@@ -734,27 +738,33 @@ type DitherResult = { key: string; label: string; dataUrl: string; bytes: number
 function DitherCompare({ sourceSessionId, width, colors, onSelect }: { sourceSessionId: string; width: number; colors: number; onSelect: (key: string) => void }) {
   const [results, setResults] = useState<DitherResult[]>([]);
   const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState('');
 
   const compare = async () => {
     if (!sourceSessionId || busy) return;
     setBusy(true);
+    setFeedback('');
+    setResults([]);
     try {
       const response = await fetch(`/api/sources/${sourceSessionId}/dither-compare?width=${width}&colors=${colors}`);
       if (response.ok) {
         const data = await response.json();
         setResults(data.results ?? []);
+        if (!data.results?.length) setFeedback(STRINGS.settings.ditherCompare.empty);
+      } else {
+        setFeedback(await readApiError(response, STRINGS.settings.ditherCompare.failed));
       }
     } catch {
-      // Non-critical.
+      setFeedback(STRINGS.settings.ditherCompare.failed);
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="dither-compare">
+    <div className="dither-compare" aria-busy={busy}>
       <button type="button" className="secondary-button" disabled={!sourceSessionId || busy} onClick={compare}>
-        {busy ? <Loader2 className="spin" size={14} aria-hidden="true" /> : null}
+        {busy ? <Loader2 className="spin" size={14} aria-hidden="true" /> : <ImageIcon aria-hidden="true" />}
         {busy ? STRINGS.settings.ditherCompare.busy : STRINGS.settings.ditherCompare.button}
       </button>
       {results.length > 0 ? (
@@ -768,7 +778,67 @@ function DitherCompare({ sourceSessionId, width, colors, onSelect }: { sourceSes
           ))}
         </div>
       ) : null}
+      {feedback ? <FeedbackNote tone="error">{feedback}</FeedbackNote> : null}
     </div>
+  );
+}
+
+function SubtitleRow({ subtitleId, onUpdate }: { subtitleId: string; onUpdate: (id: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const pick = async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.srt,.ass,.ssa,.vtt';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      setBusy(true);
+      setFeedback(null);
+      const form = new FormData();
+      form.set('subtitle', file);
+      try {
+        const res = await fetch('/api/subtitle', { method: 'POST', body: form });
+        if (res.ok) {
+          const data = await res.json();
+          onUpdate(data.id);
+          setFeedback({ tone: 'success', message: STRINGS.settings.subtitle.ready(file.name) });
+        } else {
+          setFeedback({ tone: 'error', message: await readApiError(res, STRINGS.settings.subtitle.uploadFailed) });
+        }
+      } catch {
+        setFeedback({ tone: 'error', message: STRINGS.settings.subtitle.uploadFailed });
+      } finally {
+        setBusy(false);
+      }
+    };
+    input.click();
+  };
+
+  return (
+    <div className="subtitle-row">
+      <span>{STRINGS.settings.subtitle.label}</span>
+      <button type="button" className="secondary-button" disabled={busy} onClick={pick}>
+        {busy ? <Loader2 className="spin" aria-hidden="true" /> : <FileText aria-hidden="true" />}
+        {subtitleId ? STRINGS.settings.subtitle.replace : STRINGS.settings.subtitle.upload}
+      </button>
+      {subtitleId ? (
+        <button type="button" className="secondary-button" onClick={() => { onUpdate(''); setFeedback(null); }}>
+          <X aria-hidden="true" />
+          {STRINGS.settings.subtitle.clear}
+        </button>
+      ) : null}
+      {feedback ? <FeedbackNote tone={feedback.tone}>{feedback.message}</FeedbackNote> : null}
+    </div>
+  );
+}
+
+function FeedbackNote({ tone, children }: PropsWithChildren<{ tone: 'success' | 'error' }>) {
+  return (
+    <p className={`feedback-note ${tone}`} role={tone === 'error' ? 'alert' : 'status'}>
+      {tone === 'error' ? <AlertTriangle aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
+      <span>{children}</span>
+    </p>
   );
 }
 

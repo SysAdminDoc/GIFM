@@ -21,7 +21,7 @@ import {
   exceedsFrameBudget,
   discordTargetChecks
 } from './encoding.js';
-import { escapeDrawtextText, parseFfmpegTime, commandToken } from './encoders.js';
+import { escapeDrawtextText, parseFfmpegTime, commandToken, videoFilterChain, ditherFilter, trimArgs } from './encoders.js';
 
 test('clamp bounds values and coerces non-finite to min', () => {
   assert.equal(clamp(5, 0, 10), 5);
@@ -36,11 +36,14 @@ test('even rounds to the nearest even number with a floor of 2', () => {
   assert.equal(even(1), 2);
 });
 
-test('formatBytes scales units', () => {
+test('formatBytes scales units including GB', () => {
   assert.equal(formatBytes(0), '0 B');
   assert.equal(formatBytes(512), '512 B');
   assert.equal(formatBytes(1024), '1.0 KB');
   assert.equal(formatBytes(10 * 1024 * 1024), '10 MB');
+  assert.equal(formatBytes(1024 * 1024 * 1024), '1.0 GB');
+  assert.equal(formatBytes(10 * 1024 * 1024 * 1024), '10 GB');
+  assert.equal(formatBytes(2.5 * 1024 * 1024 * 1024), '2.5 GB');
 });
 
 test('parseFrameRate handles fractions, zero, and plain numbers', () => {
@@ -361,4 +364,46 @@ test('nextAttempt trims duration when allowTrim is true and all visual levers ar
   assert.ok(next.durationSec < 6);
   assert.equal(next.width, 120);
   assert.equal(next.fps, 6);
+});
+
+test('videoFilterChain produces a basic scale filter for default options', () => {
+  const chain = videoFilterChain({ width: 480, fps: 15, dedupeFrames: false, frameDropModulo: 0 });
+  assert.ok(chain.includes('fps=15'));
+  assert.ok(chain.includes('scale=480:-2:flags=lanczos'));
+  assert.ok(!chain.includes('crop'));
+  assert.ok(!chain.includes('reverse'));
+});
+
+test('videoFilterChain includes crop, square, speed, reverse, and border radius', () => {
+  const chain = videoFilterChain({
+    width: 320, fps: 10, dedupeFrames: false, frameDropModulo: 0,
+    square: true, speed: 2, playback: 'reverse',
+    crop: { enabled: true, x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
+    borderRadius: 12
+  });
+  assert.ok(chain.includes("crop='iw*0.8':'ih*0.8':'iw*0.1':'ih*0.1'"));
+  assert.ok(chain.includes('setpts=PTS/2'));
+  assert.ok(chain.includes("crop='min(iw,ih)':'min(iw,ih)'"));
+  assert.ok(chain.includes('scale=320:320'));
+  assert.ok(chain.includes(',reverse'));
+  assert.ok(chain.includes('geq='));
+});
+
+test('videoFilterChain includes boomerang split/concat', () => {
+  const chain = videoFilterChain({ width: 240, fps: 15, dedupeFrames: false, frameDropModulo: 0, playback: 'boomerang' });
+  assert.ok(chain.includes('split[fwd][bwd]'));
+  assert.ok(chain.includes('[bwd]reverse[rev]'));
+  assert.ok(chain.includes('[fwd][rev]concat=n=2'));
+});
+
+test('ditherFilter returns correct filter strings', () => {
+  assert.equal(ditherFilter('bayer', 3), 'dither=bayer:bayer_scale=3');
+  assert.equal(ditherFilter('floyd_steinberg'), 'dither=floyd_steinberg');
+  assert.equal(ditherFilter('none'), 'dither=none');
+  assert.equal(ditherFilter('sierra2_4a'), 'dither=sierra2_4a');
+});
+
+test('trimArgs produces correct FFmpeg arguments', () => {
+  assert.deepEqual(trimArgs(0, 6), ['-t', '6']);
+  assert.deepEqual(trimArgs(5, 10), ['-ss', '5', '-t', '10']);
 });

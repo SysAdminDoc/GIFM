@@ -47,6 +47,15 @@
 - Security: ZIP batch download rejects requests exceeding the data retention byte limit, preventing OOM from large batch payloads.
 - Accessibility: frame editor strip now uses role="list"/role="listitem" with aria-labels for screen reader visibility.
 - Tests: 2 new tests — bracketed IPv6 in isPrivateHost, nextAttempt allowTrim branch (44 total).
+- Fix: URL-imported sources can now be encoded via the main Submit button. Previously, the button stayed disabled because `canStart` required local files; now it also enables for prepared source sessions and submits via the source-jobs endpoint.
+- Fix: runFfmpegSimple and computeSsimSimple now cap stderr accumulation at 64 KB, consistent with the runFfmpeg fix.
+- Fix: subtitle upload errors are now shown inline instead of silently swallowed.
+- Fix: video preview onTimeUpdate throttled to ~4 updates/sec instead of firing on every browser tick, reducing unnecessary re-renders.
+- Fix: estimate size chip now stays visible during upload instead of hiding when users most need it.
+- Fix: CSV import logs a console warning on parse failure instead of silently swallowing errors.
+- i18n: duplicate clip "copy" suffix, "Upload failed" error, and subtitle upload failure message now use the STRINGS system.
+- Accessibility: frame zoom toggle is now keyboard-accessible via tabIndex, role="button", and Enter/Space handlers.
+- Tests: 5 new tests — formatBytes GB-scale, videoFilterChain basic/crop+square+reverse/boomerang, ditherFilter modes, trimArgs (49 total).
 
 ## v0.5.2 - 2026-06-26
 

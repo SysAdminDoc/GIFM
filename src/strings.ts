@@ -103,7 +103,10 @@ const en = {
     rename: 'Rename',
     delete: 'Delete',
     exportAll: 'Export presets',
-    importFile: 'Import presets'
+    importFile: 'Import presets',
+    imported: (count: number) => `${count} preset${count === 1 ? '' : 's'} ready to use`,
+    importEmpty: 'That file does not contain any usable GIFM presets.',
+    importFailed: 'Could not read that preset file.'
   },
   settings: {
     sections: {
@@ -171,7 +174,9 @@ const en = {
     },
     ditherCompare: {
       button: 'Compare dithers',
-      busy: 'Comparing...'
+      busy: 'Comparing...',
+      empty: 'No dither previews were generated for this source.',
+      failed: 'Could not generate dither previews.'
     },
     paletteModeOptions: {
       diff: 'Scene diff',
@@ -258,7 +263,9 @@ const en = {
       label: 'Subtitle file',
       upload: 'Upload SRT/ASS',
       replace: 'Replace subtitle',
-      clear: 'Remove'
+      clear: 'Remove',
+      ready: (name: string) => `${name} ready for burn-in`,
+      uploadFailed: 'Could not upload subtitle file'
     },
     overlay: {
       label: 'Image overlay',
@@ -381,6 +388,7 @@ const en = {
     exportCsv: 'Export CSV',
     importCsv: 'Import CSV',
     frameAlt: (index: number) => `Frame ${index}`,
+    clipCopyName: (name: string) => `${name} copy`,
     duplicateClip: 'Duplicate clip',
     deleteClip: (name: string) => `Delete ${name}`,
     emptyTitle: 'Cut list',

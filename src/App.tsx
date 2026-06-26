@@ -357,7 +357,7 @@ function GifmApp() {
   }, [file, targetBytes]);
 
   const outputFit = job?.outputBytes ? job.outputBytes <= job.targetBytes : false;
-  const canStart = batchFiles.length > 0 && !busy && job?.status !== 'running' && job?.status !== 'queued';
+  const canStart = (batchFiles.length > 0 || Boolean(sourceSession)) && !busy && job?.status !== 'running' && job?.status !== 'queued';
   const canCancel = job?.status === 'queued' || job?.status === 'running';
 
   const chooseFiles = useCallback((nextFiles?: FileList | File[]) => {
@@ -467,11 +467,34 @@ function GifmApp() {
 
   const startEncoding = async (event: FormEvent) => {
     event.preventDefault();
-    await submitUploadedFiles(
-      batchFiles,
-      settings,
-      batchFiles.length > 1 ? STRINGS.notices.submittingJobs(batchFiles.length) : STRINGS.notices.encodingStarted
-    );
+    if (batchFiles.length > 0) {
+      await submitUploadedFiles(
+        batchFiles,
+        settings,
+        batchFiles.length > 1 ? STRINGS.notices.submittingJobs(batchFiles.length) : STRINGS.notices.encodingStarted
+      );
+      return;
+    }
+    if (sourceSession) {
+      setBusy(true);
+      setNotice(STRINGS.notices.encodingStarted);
+      try {
+        const response = await fetch(`/api/sources/${sourceSession.id}/jobs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ settings })
+        });
+        if (!response.ok) {
+          throw new Error(await readApiError(response, STRINGS.errors.encodeStartFailed));
+        }
+        const nextJob = (await response.json()) as Job;
+        setJob(nextJob);
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : STRINGS.errors.encodeStartFailed);
+      } finally {
+        setBusy(false);
+      }
+    }
   };
 
   const importFromUrl = async (url: string) => {
@@ -678,7 +701,7 @@ function GifmApp() {
     const dupe: TimelineClip = {
       ...clip,
       id: crypto.randomUUID(),
-      name: `${clip.name} copy`,
+      name: STRINGS.timeline.clipCopyName(clip.name),
       createdAt: new Date().toISOString()
     };
     setTimelineClips((current) => [...current, dupe]);
@@ -901,7 +924,7 @@ function GifmApp() {
           </div>
         </div>
         <div className="topbar-meta" aria-live="polite">
-          <div className="topbar-status">
+          <div className="topbar-status" role="status">
             <Gauge aria-hidden="true" />
             <span>{batchFiles.length > 1 ? STRINGS.app.filesSelected(batchFiles.length) : file ? STRINGS.app.sourceSize(formatBytes(file.size)) : STRINGS.app.ready}</span>
           </div>
@@ -948,6 +971,7 @@ function GifmApp() {
           onRenamePreset={renamePreset}
           onDeletePreset={deletePreset}
           onImportPresets={importPresets}
+          onNotice={setNotice}
           health={health}
           sourceSessionId={sourceSession?.id ?? ''}
         />
@@ -1062,7 +1086,10 @@ function GifmApp() {
                       src={frame.url}
                       alt={STRINGS.timeline.frameAlt(frame.index + 1)}
                       className={zoomedFrameIndex === frame.index ? 'frame-zoomed' : ''}
+                      tabIndex={0}
+                      role="button"
                       onClick={() => setZoomedFrameIndex((prev) => prev === frame.index ? null : frame.index)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setZoomedFrameIndex((prev) => prev === frame.index ? null : frame.index); } }}
                     />
                     <div className="frame-controls">
                       <label>
@@ -1128,12 +1155,12 @@ function GifmApp() {
               <RotateCcw aria-hidden="true" />
               {STRINGS.input.reset}
             </button>
-            {sourceMeta && !uploadProgress ? (
+            {sourceMeta ? (
               <span className={`estimate-chip ${estimateOutputBytes(settings, sourceMeta) <= targetBytes ? 'ok' : 'warn'}`}>
                 ~{formatBytes(estimateOutputBytes(settings, sourceMeta))}
               </span>
             ) : null}
-            <span className="notice" aria-live="polite">
+            <span className="notice" role="status" aria-live="polite">
               {uploadProgress !== null ? STRINGS.notices.uploading(uploadProgress) : notice}
             </span>
             {uploadProgress !== null ? (
@@ -1539,8 +1566,8 @@ function TimelineEditor({
                   if (!Number.isFinite(startSec) || !Number.isFinite(durationSec)) continue;
                   onImportClip(name.trim(), startSec, durationSec);
                 }
-              } catch {
-                // Silently reject malformed CSV.
+              } catch (csvError) {
+                console.warn('CSV import failed:', csvError);
               }
             };
             input.click();
@@ -1664,6 +1691,7 @@ function PreviewPanel({
   const [compareMode, setCompareMode] = useState(false);
   const [lilliputPreview, setLilliputPreview] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const lastTimeUpdateRef = useRef(0);
 
   useEffect(() => {
     if (job?.status === 'complete') {
@@ -1738,7 +1766,7 @@ function PreviewPanel({
             style={cropStyle}
             onLoadedMetadata={(event) => onPreviewTime(event.currentTarget.currentTime)}
             onSeeked={(event) => onPreviewTime(event.currentTarget.currentTime)}
-            onTimeUpdate={(event) => onPreviewTime(event.currentTarget.currentTime)}
+            onTimeUpdate={(event) => { const now = Date.now(); if (now - lastTimeUpdateRef.current > 250) { lastTimeUpdateRef.current = now; onPreviewTime(event.currentTarget.currentTime); } }}
           />
         ) : (
           <EmptyState icon={<Video aria-hidden="true" />} title={STRINGS.preview.emptyTitle} body={STRINGS.preview.empty} />

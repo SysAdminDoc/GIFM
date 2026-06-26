@@ -1807,7 +1807,7 @@ function runFfmpegSimple(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(ffmpegPath, ['-hide_banner', '-protocol_whitelist', 'file,pipe', ...args], { windowsHide: true, timeout: 15000 });
     let stderr = '';
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); if (stderr.length > 65536) stderr = stderr.slice(-65536); });
     child.on('error', reject);
     child.on('close', (code) => {
       if (code !== 0) reject(new Error(stderr.trim().split(/\r?\n/).slice(-4).join('\n') || `ffmpeg exited with code ${code}`));
@@ -1824,7 +1824,7 @@ function computeSsimSimple(refPath, comparePath) {
       '-lavfi', 'ssim', '-f', 'null', '-'
     ], { windowsHide: true, timeout: 10000 });
     let stderr = '';
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); if (stderr.length > 65536) stderr = stderr.slice(-65536); });
     child.on('error', reject);
     child.on('close', () => {
       const match = stderr.match(/All:([0-9.]+)/);
