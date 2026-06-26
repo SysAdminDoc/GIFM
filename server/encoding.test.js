@@ -16,6 +16,7 @@ import {
   parseOverlay,
   resolveFormat,
   nextAttempt,
+  isPrivateHost,
   isProtectedPath,
   exceedsFrameBudget,
   discordTargetChecks
@@ -309,4 +310,37 @@ test('commandToken quotes values with spaces', () => {
   assert.equal(commandToken('simple'), 'simple');
   assert.equal(commandToken('has space'), '"has space"');
   assert.equal(commandToken('has"quote'), '"has\\"quote"');
+});
+
+test('isPrivateHost blocks RFC 1918, loopback, and link-local addresses', () => {
+  assert.equal(isPrivateHost('localhost'), true);
+  assert.equal(isPrivateHost('127.0.0.1'), true);
+  assert.equal(isPrivateHost('127.0.0.42'), true);
+  assert.equal(isPrivateHost('10.0.0.1'), true);
+  assert.equal(isPrivateHost('172.16.0.1'), true);
+  assert.equal(isPrivateHost('172.31.255.1'), true);
+  assert.equal(isPrivateHost('192.168.1.1'), true);
+  assert.equal(isPrivateHost('169.254.0.1'), true);
+  assert.equal(isPrivateHost('0.0.0.0'), true);
+  assert.equal(isPrivateHost('::1'), true);
+});
+
+test('isPrivateHost blocks IPv6 private ranges', () => {
+  assert.equal(isPrivateHost('fc00::1'), true);
+  assert.equal(isPrivateHost('fd12:3456::1'), true);
+  assert.equal(isPrivateHost('fe80::1'), true);
+});
+
+test('isPrivateHost blocks IPv6-mapped IPv4 private addresses', () => {
+  assert.equal(isPrivateHost('::ffff:127.0.0.1'), true);
+  assert.equal(isPrivateHost('::ffff:10.0.0.1'), true);
+  assert.equal(isPrivateHost('::ffff:192.168.1.1'), true);
+  assert.equal(isPrivateHost('::ffff:7f00:1'), true);
+});
+
+test('isPrivateHost allows public addresses', () => {
+  assert.equal(isPrivateHost('8.8.8.8'), false);
+  assert.equal(isPrivateHost('1.1.1.1'), false);
+  assert.equal(isPrivateHost('example.com'), false);
+  assert.equal(isPrivateHost('172.32.0.1'), false);
 });

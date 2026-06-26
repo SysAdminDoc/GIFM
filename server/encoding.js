@@ -319,6 +319,25 @@ export function exceedsFrameBudget({ width, height, fps, durationSec, playback =
   return { exceeds: false, totalFramePixels };
 }
 
+export function isPrivateHost(hostname) {
+  const h = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h === '::1') return true;
+  if (/^127\./.test(h)) return true;
+  if (/^10\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  if (/^192\.168\./.test(h)) return true;
+  if (/^169\.254\./.test(h)) return true;
+  if (/^0\./.test(h) || h === '0.0.0.0') return true;
+  if (/^fc|^fd|^fe80/i.test(h)) return true;
+  if (/^::ffff:/i.test(h)) {
+    const mapped = h.replace(/^::ffff:/i, '');
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(mapped)) return isPrivateHost(mapped);
+    return true;
+  }
+  if (/^::$/.test(h) || /^0*:/.test(h)) return true;
+  return false;
+}
+
 export function isProtectedPath(entryPath, protectedPaths) {
   const resolved = path.resolve(entryPath);
   for (const protectedPath of protectedPaths) {

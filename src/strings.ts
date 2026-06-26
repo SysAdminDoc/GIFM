@@ -165,6 +165,10 @@ const en = {
       floydSteinberg: 'Floyd-Steinberg',
       none: 'None'
     },
+    ditherCompare: {
+      button: 'Compare dithers',
+      busy: 'Comparing...'
+    },
     paletteModeOptions: {
       diff: 'Scene diff',
       full: 'Full frame',

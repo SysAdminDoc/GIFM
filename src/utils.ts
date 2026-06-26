@@ -95,10 +95,12 @@ export function uploadWithProgress(
 }
 
 export function formatTimecode(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds < 0) return '0:00:00';
-  const rounded = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(rounded / 3600);
-  const minutes = Math.floor((rounded % 3600) / 60);
-  const wholeSeconds = rounded % 60;
-  return `${hours}:${String(minutes).padStart(2, '0')}:${String(wholeSeconds).padStart(2, '0')}`;
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00:00.00';
+  const clamped = Math.max(0, seconds);
+  const hours = Math.floor(clamped / 3600);
+  const minutes = Math.floor((clamped % 3600) / 60);
+  const secs = clamped % 60;
+  const wholeSeconds = Math.floor(secs);
+  const centiseconds = Math.round((secs - wholeSeconds) * 100);
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(wholeSeconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
 }

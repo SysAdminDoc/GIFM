@@ -21,6 +21,7 @@ import {
   dimensionLockForPreset,
   parseSettings as parseSettingsRaw,
   nextAttempt,
+  isPrivateHost,
   isProtectedPath,
   exceedsFrameBudget,
   discordTargetChecks
@@ -766,6 +767,23 @@ app.post('/api/probe', runUpload, async (request, response, next) => {
   }
 });
 
+app.get('/api/jobs/events', (request, response) => {
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  response.write(':ok\n\n');
+
+  const rawIds = String(request.query.ids || '').slice(0, 4000);
+  const client = { response, ids: new Set(rawIds.split(',').filter(Boolean).slice(0, 50)), connectedAt: Date.now() };
+  sseClients.add(client);
+  const cleanup = () => sseClients.delete(client);
+  request.on('close', cleanup);
+  request.on('error', cleanup);
+});
+
 app.get('/api/jobs/zip', async (request, response, next) => {
   try {
     const ids = String(request.query.ids ?? '').split(',').map((value) => value.trim()).filter(Boolean);
@@ -896,23 +914,6 @@ app.post('/api/jobs/:id/webhook', async (request, response, next) => {
 });
 
 const sseClients = new Set();
-
-app.get('/api/jobs/events', (request, response) => {
-  response.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
-  response.write(':ok\n\n');
-
-  const rawIds = String(request.query.ids || '').slice(0, 4000);
-  const client = { response, ids: new Set(rawIds.split(',').filter(Boolean).slice(0, 50)), connectedAt: Date.now() };
-  sseClients.add(client);
-  const cleanup = () => sseClients.delete(client);
-  request.on('close', cleanup);
-  request.on('error', cleanup);
-});
 
 function notifyJobUpdate(job) {
   const data = JSON.stringify(publicJob(job));
@@ -1121,15 +1122,18 @@ async function processJob(job) {
       job.outputPath = outputPath;
       job.outputBytes = stat.size;
       job.downloadUrl = `/api/jobs/${job.id}/download`;
-      job.progress = 100;
-      job.stage = 'Complete';
-      job.status = 'complete';
-      job.completedAt = new Date().toISOString();
+      job.progress = 98;
+      job.stage = 'Finalizing output';
+      notifyJobUpdate(job);
       await cleanupOutputCandidates(job, outputPath);
       await cleanupWork(job.id);
       await cleanupInput(job);
       await enforceDataRetention(new Set([job.outputPath]));
       await probeOutputMetadata(job);
+      job.progress = 100;
+      job.stage = 'Complete';
+      job.status = 'complete';
+      job.completedAt = new Date().toISOString();
       saveManifest();
       notifyJobUpdate(job);
       log(job, `Complete: ${formatBytes(stat.size)} fits ${formatBytes(job.targetBytes)} target`);
@@ -1183,16 +1187,19 @@ async function processJob(job) {
   job.outputPath = finalOutputPath;
   job.outputBytes = finalStat.size;
   job.downloadUrl = `/api/jobs/${job.id}/download`;
-  job.progress = 100;
-  job.stage = 'Complete with warning';
-  job.status = 'complete';
-  job.completedAt = new Date().toISOString();
+  job.progress = 98;
+  job.stage = 'Finalizing output';
+  notifyJobUpdate(job);
   job.warnings.push(`Final GIF is ${formatBytes(finalStat.size)}, which is above the ${formatBytes(job.targetBytes)} target.`);
   await cleanupOutputCandidates(job, finalOutputPath);
   await cleanupWork(job.id);
   await cleanupInput(job);
   await enforceDataRetention(new Set([job.outputPath]));
   await probeOutputMetadata(job);
+  job.progress = 100;
+  job.stage = 'Complete with warning';
+  job.status = 'complete';
+  job.completedAt = new Date().toISOString();
   saveManifest();
   notifyJobUpdate(job);
   log(job, `Complete with warning: ${formatBytes(finalStat.size)} exceeds target`);
@@ -1706,19 +1713,6 @@ function isLoopbackHost(host) {
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
 }
 
-function isPrivateHost(hostname) {
-  const h = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
-  if (h === 'localhost' || h === '::1') return true;
-  if (/^127\./.test(h)) return true;
-  if (/^10\./.test(h)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  if (/^192\.168\./.test(h)) return true;
-  if (/^169\.254\./.test(h)) return true;
-  if (/^0\./.test(h) || h === '0.0.0.0') return true;
-  if (/^fc|^fd|^fe80/i.test(h)) return true;
-  return false;
-}
-
 async function failJob(job, error) {
   const apiError = normalizeError(error);
   job.status = 'failed';
@@ -1806,8 +1800,8 @@ async function enforceOverlayRetention(keepName = '') {
   entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
   let kept = 0;
   for (const entry of entries) {
-    kept += 1;
     if (entry.name === keepName) continue;
+    kept += 1;
     if (kept > 30 || now - entry.mtimeMs > DATA_MAX_AGE_MS) {
       await fs.rm(entry.path, { force: true });
     }
@@ -1951,7 +1945,11 @@ function ffprobe(inputPath, job) {
         reject(new Error(stderr.trim() || `ffprobe exited with code ${code}`));
         return;
       }
-      resolve(JSON.parse(stdout));
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        reject(new Error('ffprobe returned invalid JSON.'));
+      }
     });
   });
 }

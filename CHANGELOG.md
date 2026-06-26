@@ -4,6 +4,14 @@
 
 - Video thumbnail scrubbing on timeline hover: hovering over the timeline rail shows a floating preview thumbnail of the video at that timecode, with the closest extracted frame and a timecode label.
 - Dither mode visual comparison grid: a "Compare dithers" button in the encoding settings generates side-by-side previews of all 4 dither modes (Sierra 2-4A, Bayer, Floyd-Steinberg, None) from the prepared source at current width/color settings. Click a result to select that dither mode. Shows per-mode file size.
+- Fix: SSE real-time job updates were never delivered — the `/api/jobs/events` endpoint was registered after the parameterized `/api/jobs/:id` route, so Express matched "events" as a job ID and returned 404. Jobs fell back to 800ms polling. Now SSE connects correctly and jobs update in real time.
+- Fix: timecode display now shows centisecond precision (e.g., `0:00:02.50` instead of `0:00:02`) so sub-second trim adjustments are visible in the timeline, clip list, and summary fields.
+- Fix: overlay retention counter skipped the keep-file before incrementing, causing one extra stale overlay to survive cleanup under high churn.
+- Fix: ffprobe JSON parse failure now returns a descriptive error instead of an unhandled SyntaxError.
+- Security: SSRF hostname check now blocks IPv6-mapped IPv4 private addresses (e.g., `::ffff:127.0.0.1`, `::ffff:10.0.0.1`) and the IPv6 unspecified address. Extracted `isPrivateHost` into the testable encoding module.
+- UX: width field minimum lowered from 160 to 120 to match the server-side validation floor, allowing narrower outputs for small-target presets.
+- i18n: dither comparison button text now uses the locale string system instead of hardcoded English.
+- Tests: 4 new isPrivateHost tests covering RFC 1918, IPv6, IPv6-mapped IPv4, and public address classification (42 total).
 
 ## v0.5.2 - 2026-06-26
 

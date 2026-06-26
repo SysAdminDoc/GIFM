@@ -1561,7 +1561,7 @@ function TimecodeField({
         type="text"
         value={draft}
         inputMode="numeric"
-        placeholder="0:00:00"
+        placeholder="0:00:00.00"
         aria-label={label}
         onBlur={commit}
         onChange={(event) => setDraft(event.currentTarget.value)}
