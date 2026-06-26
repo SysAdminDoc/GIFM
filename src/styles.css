@@ -386,7 +386,7 @@ textarea:focus-visible {
 
 .preset-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
   gap: 6px;
 }
 
@@ -802,6 +802,8 @@ textarea:focus-visible {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
+  cursor: crosshair;
+  user-select: none;
   background:
     linear-gradient(90deg, rgba(78, 205, 196, 0.06) 1px, transparent 1px),
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
@@ -1447,6 +1449,13 @@ textarea:focus-visible {
   height: auto;
   border-radius: 4px;
   display: block;
+  cursor: zoom-in;
+  transition: width var(--transition);
+}
+
+.frame-card img.frame-zoomed {
+  width: 320px;
+  cursor: zoom-out;
 }
 
 .frame-controls {

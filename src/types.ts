@@ -200,6 +200,7 @@ export type TimelineClip = {
   startSec: number;
   durationSec: number;
   createdAt: string;
+  sourceKey?: string;
 };
 
 export type SavePickerWindow = Window & {

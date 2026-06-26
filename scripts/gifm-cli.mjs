@@ -129,6 +129,7 @@ async function convert(inputPath) {
   let job = await started.json();
   process.stderr.write(`Encoding ${path.basename(inputPath)} -> ${settings.format} (target ${settings.targetPreset})\n`);
 
+  let lastProgress = -1;
   const deadline = Date.now() + 300000;
   while (Date.now() < deadline) {
     await delay(700);
@@ -136,7 +137,13 @@ async function convert(inputPath) {
     if (job.status === 'complete') break;
     if (job.status === 'failed') throw new Error(`Encode failed: ${job.error}`);
     if (job.status === 'cancelled') throw new Error('Encode cancelled');
+    const pct = Math.round(job.progress ?? 0);
+    if (pct !== lastProgress) {
+      lastProgress = pct;
+      process.stderr.write(`\r  ${job.stage ?? 'Encoding'} ${pct}%`);
+    }
   }
+  if (lastProgress >= 0) process.stderr.write('\n');
   if (job.status !== 'complete') throw new Error('Encode timed out');
 
   const download = await fetch(`${baseUrl}${job.downloadUrl}`);

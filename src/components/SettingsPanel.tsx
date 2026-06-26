@@ -39,6 +39,7 @@ export function SettingsPanel({
   savedPresets,
   onSavePreset,
   onLoadPreset,
+  onRenamePreset,
   onDeletePreset,
   onImportPresets,
   health,
@@ -49,6 +50,7 @@ export function SettingsPanel({
   savedPresets: SavedPreset[];
   onSavePreset: (name: string) => void;
   onLoadPreset: (id: string) => void;
+  onRenamePreset: (id: string, newName: string) => void;
   onDeletePreset: (id: string) => void;
   onImportPresets: (presets: SavedPreset[]) => void;
   health: HealthInfo | null;
@@ -445,6 +447,17 @@ export function SettingsPanel({
             </button>
             <button type="button" className="secondary-button" disabled={!selectedPresetId} onClick={() => onLoadPreset(selectedPresetId)}>
               {STRINGS.presets.load}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={!selectedPresetId || !presetName.trim()}
+              onClick={() => {
+                onRenamePreset(selectedPresetId, presetName);
+                setPresetName('');
+              }}
+            >
+              {STRINGS.presets.rename}
             </button>
             <button
               type="button"

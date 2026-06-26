@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   ClipboardCopy,
   Columns2,
+  Copy,
   Download,
   EyeOff,
   FileDown,
@@ -21,7 +22,7 @@ import {
   Wand2
 } from 'lucide-react';
 import { SettingsPanel, WebhookRow, UrlImportRow, NumberField } from './components/SettingsPanel';
-import { clampNumber, evenNumber, formatBytes, profileFor, normalizeCrop, normalizeLoopCount, readStorage, writeStorage, readApiError, uploadWithProgress, formatTimecode } from './utils';
+import { clampNumber, evenNumber, formatBytes, profileFor, normalizeCrop, normalizeLoopCount, readStorage, writeStorage, useDebouncedStorage, readApiError, uploadWithProgress, formatTimecode } from './utils';
 import {
   Component,
   type ChangeEvent,
@@ -196,9 +197,7 @@ function GifmApp() {
     writeStorage(LOCALE_KEY, locale);
   }, [locale]);
 
-  useEffect(() => {
-    writeStorage(SETTINGS_KEY, settings);
-  }, [settings]);
+  useDebouncedStorage(SETTINGS_KEY, settings, 400);
 
   useEffect(() => {
     writeStorage(PRESETS_KEY, savedPresets);
@@ -208,9 +207,7 @@ function GifmApp() {
     writeStorage(RECENTS_KEY, recentOutputs);
   }, [recentOutputs]);
 
-  useEffect(() => {
-    writeStorage(CLIPS_KEY, timelineClips);
-  }, [timelineClips]);
+  useDebouncedStorage(CLIPS_KEY, timelineClips, 400);
 
   useEffect(() => {
     fetch('/api/health')
@@ -367,7 +364,9 @@ function GifmApp() {
     setBatchJobs([]);
     setJob(null);
     setSourceSession(null);
-    setTimelineClips([]);
+    const key = `${nextFile.name}:${nextFile.size}`;
+    const stored = loadTimelineClips().filter((c) => c.sourceKey === key);
+    setTimelineClips(stored);
     setSelectedClipId('');
     setPreviewTime(0);
     setPreviewSeekTime(null);
@@ -555,8 +554,9 @@ function GifmApp() {
   };
 
   const addTimelineClip = () => {
-    if (!file) return;
-    const clip = makeTimelineClip(timelineClips.length + 1, settings);
+    if (!file && !sourceSession) return;
+    const key = sourceKeyFor(file, sourceSession);
+    const clip = makeTimelineClip(timelineClips.length + 1, settings, key);
     setTimelineClips((current) => [...current, clip]);
     setSelectedClipId(clip.id);
     setNotice(STRINGS.notices.clipAdded(clip.name));
@@ -664,6 +664,20 @@ function GifmApp() {
     setTimelineClips((current) => current.filter((item) => item.id !== id));
     if (selectedClipId === id) setSelectedClipId('');
     if (clip) setNotice(STRINGS.notices.clipDeleted(clip.name));
+  };
+
+  const duplicateTimelineClip = (id: string) => {
+    const clip = timelineClips.find((item) => item.id === id);
+    if (!clip) return;
+    const dupe: TimelineClip = {
+      ...clip,
+      id: crypto.randomUUID(),
+      name: `${clip.name} copy`,
+      createdAt: new Date().toISOString()
+    };
+    setTimelineClips((current) => [...current, dupe]);
+    setSelectedClipId(dupe.id);
+    setNotice(STRINGS.notices.clipAdded(dupe.name));
   };
 
   const exportTimelineClips = async (clipsToExport: TimelineClip[]) => {
@@ -810,6 +824,13 @@ function GifmApp() {
     setNotice(STRINGS.notices.presetLoaded(preset.name));
   };
 
+  const renamePreset = (id: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setSavedPresets((current) => current.map((item) => item.id === id ? { ...item, name: trimmed } : item));
+    setNotice(STRINGS.notices.presetRenamed(trimmed));
+  };
+
   const deletePreset = (id: string) => {
     const preset = savedPresets.find((item) => item.id === id);
     setSavedPresets((current) => current.filter((item) => item.id !== id));
@@ -891,6 +912,7 @@ function GifmApp() {
           savedPresets={savedPresets}
           onSavePreset={savePreset}
           onLoadPreset={loadPreset}
+          onRenamePreset={renamePreset}
           onDeletePreset={deletePreset}
           onImportPresets={importPresets}
           health={health}
@@ -947,6 +969,7 @@ function GifmApp() {
             onUpdateClip={updateTimelineClip}
             onApplyClip={applyTimelineClip}
             onDeleteClip={deleteTimelineClip}
+            onDuplicateClip={duplicateTimelineClip}
             onExportClip={(clip) => exportTimelineClips([clip])}
             onExportAll={() => exportTimelineClips(timelineClips)}
             onImportClip={importTimelineClip}
@@ -999,7 +1022,15 @@ function GifmApp() {
                     }}
                     onDragEnd={() => { dragFrameRef.current = null; }}
                   >
-                    <img src={frame.url} alt={STRINGS.timeline.frameCount(frame.index + 1)} />
+                    <img src={frame.url} alt={STRINGS.timeline.frameCount(frame.index + 1)} onClick={(e) => {
+                      const img = e.currentTarget;
+                      if (img.classList.contains('frame-zoomed')) {
+                        img.classList.remove('frame-zoomed');
+                      } else {
+                        document.querySelectorAll('.frame-zoomed').forEach((el) => el.classList.remove('frame-zoomed'));
+                        img.classList.add('frame-zoomed');
+                      }
+                    }} />
                     <div className="frame-controls">
                       <label>
                         <span>{STRINGS.timeline.delayLabel}</span>
@@ -1080,7 +1111,10 @@ function GifmApp() {
           </div>
 
           <ProgressPanel job={job} />
-          <BatchQueue jobs={batchJobs} onSelectJob={setJob} onRevealJob={revealRecentOutput} onSaveAs={saveOutputAs} onCancelJob={cancelBatchJob} />
+          <BatchQueue jobs={batchJobs} onSelectJob={setJob} onRevealJob={revealRecentOutput} onSaveAs={saveOutputAs} onCancelJob={cancelBatchJob} onCancelAll={async () => {
+            const cancellable = batchJobs.filter((item) => item.job?.status === 'queued' || item.job?.status === 'running');
+            await Promise.all(cancellable.map((item) => item.job ? cancelBatchJob(item.job.id) : Promise.resolve()));
+          }} />
           <LogPanel job={job} />
           <DiagnosticsPanel health={health} sourceMeta={sourceMeta} settings={settings} job={job} onCopyText={copyText} />
         </section>
@@ -1116,13 +1150,15 @@ function BatchQueue({
   onSelectJob,
   onRevealJob,
   onSaveAs,
-  onCancelJob
+  onCancelJob,
+  onCancelAll
 }: {
   jobs: BatchJob[];
   onSelectJob: (job: Job) => void;
   onRevealJob: (id: string) => void;
   onSaveAs: (job: Job) => void;
   onCancelJob: (id: string) => void;
+  onCancelAll: () => void;
 }) {
   if (!jobs.length) return null;
 
@@ -1130,10 +1166,18 @@ function BatchQueue({
     .filter((item) => item.job?.status === 'complete' && item.job.downloadUrl)
     .map((item) => item.job!.id);
 
+  const cancellableCount = jobs.filter((item) => item.job?.status === 'queued' || item.job?.status === 'running').length;
+
   return (
     <section className="batch-panel" aria-label={STRINGS.batch.aria}>
       <div className="output-title">
         <h3>{STRINGS.batch.title}</h3>
+        {cancellableCount > 1 ? (
+          <button type="button" className="secondary-button" onClick={onCancelAll}>
+            <AlertTriangle aria-hidden="true" />
+            {STRINGS.batch.cancelAll}
+          </button>
+        ) : null}
         {completedIds.length > 1 ? (
           <a className="secondary-button" href={`/api/jobs/zip?ids=${completedIds.join(',')}`} download>
             <Download aria-hidden="true" />
@@ -1197,6 +1241,7 @@ function TimelineEditor({
   onUpdateClip,
   onApplyClip,
   onDeleteClip,
+  onDuplicateClip,
   onExportClip,
   onExportAll,
   onImportClip,
@@ -1221,6 +1266,7 @@ function TimelineEditor({
   onUpdateClip: (id: string) => void;
   onApplyClip: (clip: TimelineClip) => void;
   onDeleteClip: (id: string) => void;
+  onDuplicateClip: (id: string) => void;
   onExportClip: (clip: TimelineClip) => void;
   onExportAll: () => void;
   onImportClip: (name: string, startSec: number, durationSec: number) => void;
@@ -1258,6 +1304,47 @@ function TimelineEditor({
   }, [thumbnails, duration]);
 
   const onRailMouseLeave = useCallback(() => setHoverInfo(null), []);
+
+  const dragRef = useRef<{ startFrac: number; active: boolean } | null>(null);
+
+  const fractionToTime = useCallback((clientX: number) => {
+    const rail = railRef.current;
+    if (!rail) return 0;
+    const rect = rail.getBoundingClientRect();
+    return clampNumber((clientX - rect.left) / rect.width, 0, 1) * duration;
+  }, [duration]);
+
+  const onRailMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const time = fractionToTime(e.clientX);
+    dragRef.current = { startFrac: time, active: true };
+    setStartAndSeek(time);
+  }, [fractionToTime]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current?.active) return;
+      const time = fractionToTime(e.clientX);
+      const anchor = dragRef.current.startFrac;
+      const lo = Math.min(anchor, time);
+      const hi = Math.max(anchor, time);
+      setSettings((current) => ({
+        ...current,
+        startSec: Number(lo.toFixed(2)),
+        durationSec: Number(Math.max(0.5, hi - lo).toFixed(2))
+      }));
+    };
+    const onUp = () => {
+      if (dragRef.current?.active) dragRef.current.active = false;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [fractionToTime]);
 
   const setStart = (value: number) => {
     setSettings((current) => {
@@ -1312,7 +1399,7 @@ function TimelineEditor({
             <span>{formatTimecode(hoverInfo.timeSec)}</span>
           </div>
         ) : null}
-        <div className="timeline-rail" aria-hidden="true" ref={railRef} onMouseMove={onRailMouseMove} onMouseLeave={onRailMouseLeave}>
+        <div className="timeline-rail" aria-hidden="true" ref={railRef} onMouseDown={onRailMouseDown} onMouseMove={onRailMouseMove} onMouseLeave={onRailMouseLeave}>
           {thumbnails.length > 0 ? (
             <div className="timeline-filmstrip">
               {thumbnails.map((thumb, i) => (
@@ -1484,12 +1571,13 @@ function TimelineEditor({
               try {
                 const text = await file.text();
                 const lines = text.trim().split(/\r?\n/).slice(1);
+                const maxDuration = sourceMeta?.durationSec ?? Infinity;
                 for (const line of lines) {
                   const [name, startStr, , durStr] = line.split(',');
                   if (!name || !startStr || !durStr) continue;
-                  const startSec = Number(startStr);
-                  const durationSec = Number(durStr);
-                  if (!Number.isFinite(startSec) || !Number.isFinite(durationSec) || durationSec <= 0) continue;
+                  const startSec = clampNumber(Number(startStr), 0, Math.max(0, maxDuration - 0.5));
+                  const durationSec = clampNumber(Number(durStr), 0.5, Math.max(0.5, maxDuration - startSec));
+                  if (!Number.isFinite(startSec) || !Number.isFinite(durationSec)) continue;
                   onImportClip(name.trim(), startSec, durationSec);
                 }
               } catch {
@@ -1511,6 +1599,9 @@ function TimelineEditor({
               <button type="button" className="secondary-button" onClick={() => onExportClip(clip)} disabled={sourceBusy || exportBusy}>
                 <Wand2 aria-hidden="true" />
                 {STRINGS.timeline.exportClip}
+              </button>
+              <button type="button" className="secondary-button icon-button" aria-label={STRINGS.timeline.duplicateClip} onClick={() => onDuplicateClip(clip.id)}>
+                <Copy aria-hidden="true" />
               </button>
               <button type="button" className="secondary-button icon-button" aria-label={STRINGS.timeline.deleteClip(clip.name)} onClick={() => onDeleteClip(clip.id)}>
                 <Trash2 aria-hidden="true" />
@@ -1605,6 +1696,7 @@ function PreviewPanel({
 }) {
   const isGif = file?.type === 'image/gif' || file?.name.toLowerCase().endsWith('.gif');
   const [altText, setAltText] = useState('');
+  const [outputName, setOutputName] = useState('');
   const [outputPaused, setOutputPaused] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [lilliputPreview, setLilliputPreview] = useState(false);
@@ -1613,8 +1705,10 @@ function PreviewPanel({
   useEffect(() => {
     if (job?.status === 'complete') {
       setAltText(defaultAltText(job.inputName));
+      const ext = job.settings.format === 'apng' ? 'png' : job.settings.format === 'webp' ? 'webp' : job.settings.format === 'mp4' ? 'mp4' : job.settings.format === 'avif' ? 'avif' : 'gif';
+      setOutputName(`${safeFileBase(job.inputName)}-gifm.${ext}`);
     }
-  }, [job?.id, job?.status, job?.inputName]);
+  }, [job?.id, job?.status, job?.inputName, job?.settings.format]);
 
   useEffect(() => {
     setOutputPaused(false);
@@ -1769,8 +1863,12 @@ function PreviewPanel({
                 ) : null}
               </div>
             </div>
+            <label className="alt-field">
+              <span>{STRINGS.output.filenameLabel}</span>
+              <input type="text" value={outputName} maxLength={120} onChange={(event) => setOutputName(event.currentTarget.value)} />
+            </label>
             <div className="download-grid">
-              <a className="primary-button" href={job.downloadUrl} download>
+              <a className="primary-button" href={job.downloadUrl} download={outputName || undefined}>
                 <Download aria-hidden="true" />
                 {STRINGS.output.downloadFormats[job.settings.format]}
               </a>
@@ -2005,17 +2103,32 @@ function DiagnosticsPanel({
   onCopyText: (text: string, successMessage: string) => void;
 }) {
   const latestCommand = job?.commands?.at(-1);
-  const diagnostic = useMemo(() => ({
-    generatedAt: new Date().toISOString(),
-    health,
-    sourceMeta,
-    estimate: sourceMeta ? {
-      outputBytes: estimateOutputBytes(settings, sourceMeta),
-      targetBytes: settings.targetMb * 1024 * 1024
-    } : null,
-    settings,
-    job
-  }), [health, sourceMeta, settings, job]);
+  const diagnostic = useMemo(() => {
+    const redactPaths = (obj: unknown): unknown => {
+      if (!obj || typeof obj !== 'object') return obj;
+      if (Array.isArray(obj)) return obj.map(redactPaths);
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if ((k === 'path' || k === 'inputPath' || k === 'outputPath' || k === 'workPath') && typeof v === 'string') {
+          out[k] = '[redacted]';
+        } else {
+          out[k] = redactPaths(v);
+        }
+      }
+      return out;
+    };
+    return redactPaths({
+      generatedAt: new Date().toISOString(),
+      health,
+      sourceMeta,
+      estimate: sourceMeta ? {
+        outputBytes: estimateOutputBytes(settings, sourceMeta),
+        targetBytes: settings.targetMb * 1024 * 1024
+      } : null,
+      settings,
+      job
+    });
+  }, [health, sourceMeta, settings, job]);
   const json = useMemo(() => JSON.stringify(diagnostic, null, 2), [diagnostic]);
 
   return (
@@ -2203,14 +2316,21 @@ function recentFromJob(job: Job): RecentOutput {
   };
 }
 
-function makeTimelineClip(index: number, settings: Settings): TimelineClip {
+function makeTimelineClip(index: number, settings: Settings, sourceKey: string): TimelineClip {
   return {
     id: crypto.randomUUID(),
     name: STRINGS.timeline.defaultClipName(index),
     startSec: Number(settings.startSec.toFixed(2)),
     durationSec: Number(settings.durationSec.toFixed(2)),
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    sourceKey
   };
+}
+
+function sourceKeyFor(file: File | null, session: SourceSession | null): string {
+  if (file) return `${file.name}:${file.size}`;
+  if (session) return `${session.inputName}:${session.inputSize}`;
+  return '';
 }
 
 function clipSettings(settings: Settings, clip: TimelineClip): Settings {

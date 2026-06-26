@@ -12,6 +12,21 @@
 - UX: width field minimum lowered from 160 to 120 to match the server-side validation floor, allowing narrower outputs for small-target presets.
 - i18n: dither comparison button text now uses the locale string system instead of hardcoded English.
 - Tests: 4 new isPrivateHost tests covering RFC 1918, IPv6, IPv6-mapped IPv4, and public address classification (42 total).
+- Drag-to-select on the timeline rail: click and drag directly on the timeline rail to set start/end trim points in one gesture. Crosshair cursor indicates the interactive area.
+- Debounced settings and clip persistence: slider drags and rapid setting changes no longer hammer localStorage on every tick — writes are debounced with a 400ms trailing edge and flushed on unmount.
+- Parallel thumbnail extraction: a single FFmpeg command with a select filter now extracts all timeline thumbnails in one pass instead of spawning one process per frame (3-5x faster).
+- Parallel dither comparison: the four dither mode preview GIFs now generate concurrently instead of sequentially (3-4x faster).
+- yt-dlp download timeout: URL imports now time out after 5 minutes with a descriptive error instead of blocking the server indefinitely.
+- Timeline clips scoped to source: clips now carry a source identity key (name + size). Selecting a new file restores only the clips that belong to it, preventing stale trim points from a previous video.
+- Debounced data retention: rapid job completions (batch exports) no longer trigger redundant disk scans — retention enforcement is coalesced with a 2-second trailing edge.
+- Custom output filename: an editable filename field appears above the download buttons, pre-filled with the auto-generated name. Change it before downloading or saving.
+- Preset rename: a Rename button in the preset manager lets you rename a selected preset in-place without deleting and re-saving.
+- Duplicate timeline clip: a copy icon button on each clip row creates a clone with "copy" appended to the name.
+- Batch cancel all: a "Cancel all" button appears in the batch queue header when multiple jobs are running or queued.
+- Diagnostics path redaction: the diagnostics JSON export now replaces internal file paths (inputPath, outputPath, workPath, tool paths) with `[redacted]` to avoid leaking directory structure when sharing for debugging.
+- CSV clip import validates against source duration: imported clips are clamped to the current source's duration instead of silently accepting out-of-range timestamps.
+- Frame editor zoom: click a frame thumbnail to toggle a 320px expanded view for inspecting detail. Click again to collapse.
+- CLI progress output: the headless CLI now prints `stage XX%` on stderr during encoding instead of appearing frozen until completion.
 
 ## v0.5.2 - 2026-06-26
 

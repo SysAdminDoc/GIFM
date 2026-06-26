@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { STRINGS } from './strings';
 import { TARGET_PROFILES, type TargetPreset, type CropRect, type ApiErrorPayload } from './types';
 
@@ -92,6 +93,30 @@ export function uploadWithProgress(
     xhr.responseType = 'blob';
     xhr.send(body);
   });
+}
+
+export function useDebouncedStorage(key: string, value: unknown, delayMs = 300) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestRef = useRef(value);
+  latestRef.current = value;
+  useEffect(() => {
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      writeStorage(key, latestRef.current);
+      timerRef.current = null;
+    }, delayMs);
+    return () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+    };
+  }, [key, value, delayMs]);
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        writeStorage(key, latestRef.current);
+      }
+    };
+  }, [key]);
 }
 
 export function formatTimecode(seconds: number) {

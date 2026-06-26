@@ -91,7 +91,7 @@ ctx.workDir = workDir;
 ctx.runtimeInfo = runtimeInfo;
 
 await loadManifest();
-await enforceDataRetention();
+await enforceDataRetentionNow();
 
 const storage = multer.diskStorage({
   destination: (_request, _file, callback) => callback(null, uploadDir),
@@ -210,16 +210,24 @@ app.get('/api/sources/:id/thumbnails', async (request, response, next) => {
     await fs.mkdir(thumbDir, { recursive: true });
 
     try {
+      const timestamps = Array.from({ length: count }, (_, i) => Number(((i / count) * duration).toFixed(2)));
+      const selectExpr = timestamps.map((t) => `gte(t\\,${t})`).join('+');
+      await runFfmpegSimple([
+        '-i', source.inputPath,
+        '-vf', `select='${selectExpr}',scale=120:-2`,
+        '-vsync', 'vfr',
+        '-frames:v', String(count),
+        '-q:v', '8',
+        '-y', path.join(thumbDir, 't%02d.jpg')
+      ]);
       const thumbnails = [];
       for (let i = 0; i < count; i++) {
-        const t = (i / count) * duration;
-        const thumbPath = path.join(thumbDir, `t${i}.jpg`);
+        const thumbPath = path.join(thumbDir, `t${String(i + 1).padStart(2, '0')}.jpg`);
         try {
-          await runFfmpegSimple(['-ss', String(t), '-i', source.inputPath, '-frames:v', '1', '-vf', 'scale=120:-2', '-q:v', '8', '-y', thumbPath]);
           const data = await fs.readFile(thumbPath);
-          thumbnails.push({ timeSec: Number(t.toFixed(2)), dataUrl: `data:image/jpeg;base64,${data.toString('base64')}` });
+          thumbnails.push({ timeSec: timestamps[i], dataUrl: `data:image/jpeg;base64,${data.toString('base64')}` });
         } catch {
-          // Skip frames that fail to extract.
+          // Skip frames that fail to read.
         }
       }
       response.json({ thumbnails });
@@ -256,8 +264,7 @@ app.get('/api/sources/:id/dither-compare', async (request, response, next) => {
       const palettePath = path.join(compareDir, 'palette.png');
       await runFfmpegSimple(['-ss', String(sampleTime), '-i', source.inputPath, '-frames:v', '1', '-vf', `scale=${even(width)}:-2:flags=lanczos,palettegen=max_colors=${colors}`, '-y', palettePath]);
 
-      const results = [];
-      for (const mode of modes) {
+      const results = await Promise.all(modes.map(async (mode) => {
         const outPath = path.join(compareDir, `${mode.key}.gif`);
         try {
           await runFfmpegSimple([
@@ -269,11 +276,11 @@ app.get('/api/sources/:id/dither-compare', async (request, response, next) => {
           ]);
           const data = await fs.readFile(outPath);
           const stat = await fs.stat(outPath);
-          results.push({ key: mode.key, label: mode.label, dataUrl: `data:image/gif;base64,${data.toString('base64')}`, bytes: stat.size });
+          return { key: mode.key, label: mode.label, dataUrl: `data:image/gif;base64,${data.toString('base64')}`, bytes: stat.size };
         } catch {
-          results.push({ key: mode.key, label: mode.label, dataUrl: '', bytes: 0 });
+          return { key: mode.key, label: mode.label, dataUrl: '', bytes: 0 };
         }
-      }
+      }));
       response.json({ results });
     } finally {
       await fs.rm(compareDir, { recursive: true, force: true }).catch(() => {});
@@ -1330,7 +1337,8 @@ function downloadWithYtDlp(url) {
       outputTemplate,
       url
     ];
-    const child = spawn(YTDLP_PATH, args, { windowsHide: true });
+    const YTDLP_TIMEOUT_MS = 5 * 60 * 1000;
+    const child = spawn(YTDLP_PATH, args, { windowsHide: true, timeout: YTDLP_TIMEOUT_MS });
     let stderr = '';
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString();
@@ -1338,6 +1346,10 @@ function downloadWithYtDlp(url) {
     child.on('error', (error) => {
       if (error?.code === 'ENOENT') {
         reject(new ApiError(400, 'YTDLP_UNAVAILABLE', 'yt-dlp was not found. Install yt-dlp on PATH or set GIFM_YTDLP_PATH to enable URL import.'));
+        return;
+      }
+      if (error?.code === 'ABORT_ERR' || error?.message?.includes('timed out')) {
+        reject(new ApiError(408, 'URL_DOWNLOAD_TIMEOUT', 'The download took too long and was cancelled. Try a shorter video or a direct file URL.'));
         return;
       }
       reject(error);
@@ -1808,7 +1820,21 @@ async function enforceOverlayRetention(keepName = '') {
   }
 }
 
+let retentionTimer = null;
+let retentionExtraProtected = new Set();
+
 async function enforceDataRetention(extraProtected = new Set()) {
+  for (const item of extraProtected) retentionExtraProtected.add(item);
+  if (retentionTimer) return;
+  retentionTimer = setTimeout(async () => {
+    retentionTimer = null;
+    const merged = retentionExtraProtected;
+    retentionExtraProtected = new Set();
+    await enforceDataRetentionNow(merged);
+  }, 2000);
+}
+
+async function enforceDataRetentionNow(extraProtected = new Set()) {
   pruneOldJobs();
   const protectedPaths = protectedJobPaths(extraProtected);
   await Promise.all([
