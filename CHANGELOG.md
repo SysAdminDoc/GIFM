@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.5.1 - 2026-06-26
+
+- Live crop preview: source video/GIF now zooms into the crop region in real-time as sliders adjust, replacing the overlay indicator with CSS object-view-box for an accurate preview of the output.
+- Fix: portable package was missing WebView2Loader.dll, causing the desktop launcher to crash with DllNotFoundException on machines without Edge installed. Changed IncludeNativeLibrariesForSelfExtract to false so the native DLL ships alongside the exe.
 - Security: block SSRF via URL import (reject RFC 1918, loopback, link-local hostnames); remove Host header trust from CSRF middleware; validate frame spec bounds; atomic manifest saves; limit SSE query parameter size.
 - Fix: estimateOutputBytes used width as height fallback instead of 16:9 ratio.
 - Fix: findLoops and extractFrames silently ignored server errors instead of showing error messages.
