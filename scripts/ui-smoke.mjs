@@ -230,7 +230,7 @@ async function assertVisibleText(page, text) {
 
 function waitForHealth() {
   return new Promise((resolve, reject) => {
-    const deadline = Date.now() + 45000;
+    const deadline = Date.now() + 90000;
     const tick = async () => {
       try {
         const response = await fetch(`${baseUrl}/api/health`);

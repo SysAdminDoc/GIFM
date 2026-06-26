@@ -264,7 +264,7 @@ async function assertQueueAndCancel() {
 async function assertAttemptOutputCleanup() {
   const bytes = await fs.readFile(samplePath);
   const started = await startMediaJob(bytes, 'multi-attempt.mp4', cleanupSettings());
-  const job = await waitForJob(started.id, 45000);
+  const job = await waitForJob(started.id, 120000);
   if (job.status !== 'complete') {
     throw new Error(`Cleanup job did not complete: ${JSON.stringify(job, null, 2)}`);
   }
@@ -624,7 +624,7 @@ function cleanupSettings() {
 
 function waitForHealth() {
   return new Promise((resolve, reject) => {
-    const deadline = Date.now() + 45000;
+    const deadline = Date.now() + 90000;
     const tick = async () => {
       try {
         const response = await fetch(`${baseUrl}/api/health`);

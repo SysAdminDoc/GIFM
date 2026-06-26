@@ -12,6 +12,7 @@
 - UX: width field minimum lowered from 160 to 120 to match the server-side validation floor, allowing narrower outputs for small-target presets.
 - i18n: dither comparison button text now uses the locale string system instead of hardcoded English.
 - Tests: 4 new isPrivateHost tests covering RFC 1918, IPv6, IPv6-mapped IPv4, and public address classification (42 total).
+- Tests: smoke health waits and the multi-attempt cleanup assertion now allow slower VMware shared-folder startup/encode timing.
 - Drag-to-select on the timeline rail: click and drag directly on the timeline rail to set start/end trim points in one gesture. Crosshair cursor indicates the interactive area.
 - Debounced settings and clip persistence: slider drags and rapid setting changes no longer hammer localStorage on every tick — writes are debounced with a 400ms trailing edge and flushed on unmount.
 - Parallel thumbnail extraction: a single FFmpeg command with a select filter now extracts all timeline thumbnails in one pass instead of spawning one process per frame (3-5x faster).
