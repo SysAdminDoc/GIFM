@@ -386,11 +386,12 @@ textarea:focus-visible {
 
 .preset-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
 .preset-actions input {
+  grid-column: 1 / -1;
   min-width: 0;
   height: 38px;
   padding: 0 10px;
@@ -411,6 +412,46 @@ textarea:focus-visible {
   margin: -6px 0 0;
   font-size: 12px;
   line-height: 1.35;
+}
+
+.feedback-note {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.feedback-note svg {
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+}
+
+.feedback-note.success {
+  border-color: color-mix(in srgb, var(--lime) 36%, var(--border));
+  background: var(--lime-soft);
+}
+
+.feedback-note.success svg {
+  color: var(--lime);
+}
+
+.feedback-note.error {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+  background: color-mix(in srgb, var(--danger) 9%, var(--control-bg));
+}
+
+.feedback-note.error svg {
+  color: var(--danger);
 }
 
 .toggle-field {
@@ -1424,10 +1465,18 @@ textarea:focus-visible {
 }
 
 .subtitle-row {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
+  align-items: center;
+  color: var(--muted-strong);
   font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.subtitle-row .feedback-note {
+  grid-column: 1 / -1;
+  font-weight: 500;
 }
 
 .frame-editor {
