@@ -312,6 +312,19 @@ app.post('/api/sources/:id/concat', express.json({ limit: '128kb' }), async (req
       return;
     }
 
+    const totalDuration = clips.reduce((sum, c) => sum + clamp(Number(c.durationSec ?? 6), 0.5, 60), 0);
+    const budgetCheck = exceedsFrameBudget({
+      width: source.metadata?.width ?? rawSettings.width,
+      height: source.metadata?.height ?? Math.round((source.metadata?.width ?? rawSettings.width) * 9 / 16),
+      fps: source.metadata?.fps ?? rawSettings.fps,
+      durationSec: totalDuration,
+      playback: rawSettings.playback
+    });
+    if (budgetCheck.exceeds) {
+      sendApiError(response, new ApiError(422, 'FRAME_BUDGET_EXCEEDED', budgetCheck.message));
+      return;
+    }
+
     const concatDir = path.join(workDir, `concat-${randomUUID()}`);
     await fs.mkdir(concatDir, { recursive: true });
 
@@ -336,7 +349,6 @@ app.post('/api/sources/:id/concat', express.json({ limit: '128kb' }), async (req
       await fs.writeFile(concatFile, lines.join('\n'));
 
       source.lastUsedAt = new Date().toISOString();
-      const totalDuration = clips.reduce((sum, c) => sum + clamp(Number(c.durationSec ?? 6), 0.5, 60), 0);
       const mergedSettings = { ...rawSettings, startSec: 0, durationSec: totalDuration };
       const job = createJob({
         inputPath: source.inputPath,
@@ -347,14 +359,14 @@ app.post('/api/sources/:id/concat', express.json({ limit: '128kb' }), async (req
         sourceId: source.id
       });
 
-      const outputExt = rawSettings.format === 'apng' ? 'png' : rawSettings.format === 'webp' ? 'webp' : rawSettings.format === 'mp4' ? 'mp4' : rawSettings.format === 'avif' ? 'avif' : 'gif';
-      const mergedPath = path.join(concatDir, `merged.${outputExt === 'png' ? 'mp4' : 'mp4'}`);
+      const mergedPath = path.join(concatDir, 'merged.mp4');
       await runFfmpegSimple([
         '-f', 'concat', '-safe', '0', '-i', concatFile,
         '-c', 'copy', '-y', mergedPath
       ]);
 
       job.inputPath = mergedPath;
+      job.concatDir = concatDir;
       job.stage = 'Queued';
       jobs.set(job.id, job);
       enqueueJob(job);
@@ -389,18 +401,27 @@ app.get('/api/sources/:id/loops', async (request, response, next) => {
       const refPath = path.join(loopDir, 'ref.png');
       await runFfmpegSimple(['-ss', '0', '-i', source.inputPath, '-frames:v', '1', '-vf', 'scale=160:-2', '-y', refPath]);
 
+      const timestamps = Array.from({ length: sampleCount }, (_, i) => Number((((i + 1) / sampleCount) * duration).toFixed(2)));
+      const selectExpr = timestamps.map((t) => `gte(t\\,${t})`).join('+');
+      await runFfmpegSimple([
+        '-i', source.inputPath,
+        '-vf', `select='${selectExpr}',scale=160:-2`,
+        '-vsync', 'vfr',
+        '-frames:v', String(sampleCount),
+        '-y', path.join(loopDir, 'f%02d.png')
+      ]);
+
       const candidates = [];
-      for (let i = 1; i <= sampleCount; i++) {
-        const t = (i / sampleCount) * duration;
-        const framePath = path.join(loopDir, `f${i}.png`);
+      for (let i = 0; i < sampleCount; i++) {
+        const framePath = path.join(loopDir, `f${String(i + 1).padStart(2, '0')}.png`);
         try {
-          await runFfmpegSimple(['-ss', String(t), '-i', source.inputPath, '-frames:v', '1', '-vf', 'scale=160:-2', '-y', framePath]);
+          if (!existsSync(framePath)) continue;
           const ssim = await computeSsimSimple(refPath, framePath);
           if (ssim !== null && ssim > 0.6) {
-            candidates.push({ timeSec: Number(t.toFixed(2)), ssim: Number(ssim.toFixed(4)) });
+            candidates.push({ timeSec: timestamps[i], ssim: Number(ssim.toFixed(4)) });
           }
         } catch {
-          // Skip frames that fail to extract.
+          // Skip frames that fail to compare.
         }
       }
 
@@ -914,6 +935,12 @@ app.get('/api/jobs/zip', async (request, response, next) => {
       return;
     }
 
+    const totalBytes = entries.reduce((sum, e) => sum + e.data.length, 0);
+    if (totalBytes > DATA_MAX_BYTES) {
+      sendApiError(response, new ApiError(413, 'ZIP_TOO_LARGE', `Batch download would be ${formatBytes(totalBytes)}, exceeding the ${formatBytes(DATA_MAX_BYTES)} limit.`));
+      return;
+    }
+
     const zip = buildStoreZip(entries);
     response.setHeader('Content-Type', 'application/zip');
     response.setHeader('Content-Disposition', `attachment; filename="gifm-batch-${entries.length}.zip"`);
@@ -960,6 +987,7 @@ app.get('/api/jobs/:id/download', (request, response) => {
   const mime = format === 'apng' ? 'image/apng' : format === 'webp' ? 'image/webp' : format === 'mp4' ? 'video/mp4' : format === 'avif' ? 'image/avif' : 'image/gif';
   response.setHeader('Content-Type', mime);
   response.setHeader('Content-Disposition', `attachment; filename="${downloadName(job.inputName, format)}"`);
+  if (job.outputBytes) response.setHeader('Content-Length', String(job.outputBytes));
   createReadStream(job.outputPath).pipe(response);
 });
 
@@ -1229,7 +1257,7 @@ async function processJob(job) {
       job.stage = 'Finalizing output';
       notifyJobUpdate(job);
       await cleanupOutputCandidates(job, outputPath);
-      await cleanupWork(job.id);
+      await cleanupWork(job.id, job);
       await cleanupInput(job);
       await enforceDataRetention(new Set([job.outputPath]));
       await probeOutputMetadata(job);
@@ -1295,7 +1323,7 @@ async function processJob(job) {
   notifyJobUpdate(job);
   job.warnings.push(`Final GIF is ${formatBytes(finalStat.size)}, which is above the ${formatBytes(job.targetBytes)} target.`);
   await cleanupOutputCandidates(job, finalOutputPath);
-  await cleanupWork(job.id);
+  await cleanupWork(job.id, job);
   await cleanupInput(job);
   await enforceDataRetention(new Set([job.outputPath]));
   await probeOutputMetadata(job);
@@ -1501,7 +1529,7 @@ async function runQueuedJob(job) {
     if (job.status === 'cancelled') {
       await cleanupOutputCandidates(job);
       await cleanupInput(job);
-      await cleanupWork(job.id);
+      await cleanupWork(job.id, job);
       await enforceDataRetention();
     }
     runningJobs = Math.max(0, runningJobs - 1);
@@ -1555,7 +1583,7 @@ async function finalizeCancelled(job) {
   log(job, 'Cancelled by user.');
   notifyJobUpdate(job);
   await cleanupOutputCandidates(job);
-  await cleanupWork(job.id);
+  await cleanupWork(job.id, job);
   await cleanupInput(job);
   await enforceDataRetention();
 }
@@ -1832,7 +1860,7 @@ async function failJob(job, error) {
   log(job, `ERROR ${apiError.code}: ${apiError.message}`);
   notifyJobUpdate(job);
   await cleanupOutputCandidates(job);
-  await cleanupWork(job.id);
+  await cleanupWork(job.id, job);
   await cleanupInput(job);
   await enforceDataRetention();
 }
@@ -2148,8 +2176,12 @@ function revealPath(filePath) {
   spawn('xdg-open', [path.dirname(filePath)], { detached: true, stdio: 'ignore' }).unref();
 }
 
-async function cleanupWork(jobId) {
+async function cleanupWork(jobId, job) {
   await removeDirectory(path.join(workDir, jobId));
+  if (job?.concatDir) {
+    await removeDirectory(job.concatDir);
+    job.concatDir = undefined;
+  }
 }
 
 async function removeDirectory(dirPath) {

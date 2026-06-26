@@ -32,6 +32,21 @@
 - Caption preview overlay: typing top/bottom caption text now shows an approximate preview over the source video in the preview panel, using the Anton font with a text-shadow outline.
 - Overlay position preview: when an overlay image is enabled, a semitransparent preview shows its position and relative size on the source video. Updates in real time as position/scale/opacity controls change.
 - Concatenate clips: a "Join into one" button in the clip bin joins 2+ saved clips into a single continuous output via FFmpeg concat demuxer, then encodes the merged result with current settings.
+- Fix: concat endpoint now cleans up its temp directory (segments, list.txt, merged intermediate) on success — previously only cleaned on error, leaking files until the retention sweep.
+- Fix: concat endpoint validates total clip duration against the frame budget, preventing pathological 50x60s concatenations that could exhaust memory.
+- Fix: download responses now include Content-Length header (from the known outputBytes), enabling browser download progress bars.
+- Fix: frame zoom state is now React-managed instead of using DOM classList directly, so zoom survives re-renders from frame reorder/delete.
+- Fix: dead ternary in concat merge path simplified (always produced 'mp4').
+- i18n: "Uploading N%" notice and ETA "left" suffix now use the locale string system.
+- i18n: frame alt text now uses a dedicated `frameAlt` string instead of the pluralized `frameCount`.
+- Parallel loop detection: candidate frame extraction uses a single FFmpeg pass with a select filter instead of spawning one process per frame.
+- Launcher version updated from v0.5.1 to v0.5.2 to match package.json.
+- Unused EmptyState import removed from ProgressPanel.
+- CLI: added `--version` / `-v` flag; port selection uses `Math.random()` instead of timestamp modulo to avoid collisions between concurrent invocations.
+- Security: unbounded stderr accumulation in runFfmpeg is now capped at 64 KB (ring-buffered tail) to prevent memory growth on long encodes.
+- Security: ZIP batch download rejects requests exceeding the data retention byte limit, preventing OOM from large batch payloads.
+- Accessibility: frame editor strip now uses role="list"/role="listitem" with aria-labels for screen reader visibility.
+- Tests: 2 new tests — bracketed IPv6 in isPrivateHost, nextAttempt allowTrim branch (44 total).
 
 ## v0.5.2 - 2026-06-26
 

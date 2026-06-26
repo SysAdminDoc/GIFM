@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { STRINGS } from '../strings';
 import type { Job } from '../types';
-import { EmptyState } from './EmptyState';
 
 export function ProgressPanel({ job }: { job: Job | null }) {
   const progress = Math.max(0, Math.min(100, job?.progress ?? 0));
@@ -27,7 +26,7 @@ export function ProgressPanel({ job }: { job: Job | null }) {
         <span>
           {Math.round(progress)}%
           {isActive && elapsed > 0 ? ` · ${formatElapsed(elapsed)}` : ''}
-          {eta !== null ? ` · ~${formatElapsed(eta)} left` : ''}
+          {eta !== null ? ` · ${STRINGS.progress.eta(formatElapsed(eta))}` : ''}
         </span>
       </div>
       {!job ? <p>{STRINGS.progress.readyBody}</p> : null}
