@@ -290,6 +290,84 @@ app.get('/api/sources/:id/dither-compare', async (request, response, next) => {
   }
 });
 
+app.post('/api/sources/:id/concat', express.json({ limit: '128kb' }), async (request, response, next) => {
+  try {
+    const source = sources.get(request.params.id);
+    if (!source || !source.inputPath || !existsSync(source.inputPath)) {
+      sendApiError(response, new ApiError(404, 'SOURCE_NOT_FOUND', 'Source not found.'));
+      return;
+    }
+
+    const clips = request.body?.clips;
+    if (!Array.isArray(clips) || clips.length < 2 || clips.length > 50) {
+      sendApiError(response, new ApiError(400, 'INVALID_CLIPS', 'Provide 2-50 clips to concatenate.'));
+      return;
+    }
+
+    let rawSettings;
+    try {
+      rawSettings = parseSettings(request.body.settings ?? request.body);
+    } catch (error) {
+      sendApiError(response, normalizeError(error));
+      return;
+    }
+
+    const concatDir = path.join(workDir, `concat-${randomUUID()}`);
+    await fs.mkdir(concatDir, { recursive: true });
+
+    try {
+      const segmentPaths = [];
+      for (let i = 0; i < clips.length; i++) {
+        const clip = clips[i];
+        const startSec = clamp(Number(clip.startSec ?? 0), 0, 86400);
+        const durationSec = clamp(Number(clip.durationSec ?? 6), 0.5, 60);
+        const segPath = path.join(concatDir, `seg${String(i).padStart(3, '0')}.ts`);
+        await runFfmpegSimple([
+          '-ss', String(startSec), '-t', String(durationSec),
+          '-i', source.inputPath,
+          '-c', 'copy', '-avoid_negative_ts', 'make_zero',
+          '-y', segPath
+        ]);
+        segmentPaths.push(segPath);
+      }
+
+      const concatFile = path.join(concatDir, 'list.txt');
+      const lines = segmentPaths.map((p) => `file '${path.basename(p)}'`);
+      await fs.writeFile(concatFile, lines.join('\n'));
+
+      source.lastUsedAt = new Date().toISOString();
+      const totalDuration = clips.reduce((sum, c) => sum + clamp(Number(c.durationSec ?? 6), 0.5, 60), 0);
+      const mergedSettings = { ...rawSettings, startSec: 0, durationSec: totalDuration };
+      const job = createJob({
+        inputPath: source.inputPath,
+        inputName: source.inputName,
+        inputSize: source.inputSize,
+        sourceKind: source.sourceKind,
+        settings: mergedSettings,
+        sourceId: source.id
+      });
+
+      const outputExt = rawSettings.format === 'apng' ? 'png' : rawSettings.format === 'webp' ? 'webp' : rawSettings.format === 'mp4' ? 'mp4' : rawSettings.format === 'avif' ? 'avif' : 'gif';
+      const mergedPath = path.join(concatDir, `merged.${outputExt === 'png' ? 'mp4' : 'mp4'}`);
+      await runFfmpegSimple([
+        '-f', 'concat', '-safe', '0', '-i', concatFile,
+        '-c', 'copy', '-y', mergedPath
+      ]);
+
+      job.inputPath = mergedPath;
+      job.stage = 'Queued';
+      jobs.set(job.id, job);
+      enqueueJob(job);
+      response.status(202).json(publicJob(job));
+    } catch (encodeError) {
+      await fs.rm(concatDir, { recursive: true, force: true }).catch(() => {});
+      throw encodeError;
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/sources/:id/loops', async (request, response, next) => {
   try {
     const source = sources.get(request.params.id);

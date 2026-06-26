@@ -31,6 +31,7 @@
 - Refactor: extracted ProgressPanel, LogPanel, DiagnosticsPanel, BatchQueue, EmptyState, and StatusTile into dedicated component files under src/components/. App.tsx reduced from ~2500 to ~2200 lines.
 - Caption preview overlay: typing top/bottom caption text now shows an approximate preview over the source video in the preview panel, using the Anton font with a text-shadow outline.
 - Overlay position preview: when an overlay image is enabled, a semitransparent preview shows its position and relative size on the source video. Updates in real time as position/scale/opacity controls change.
+- Concatenate clips: a "Join into one" button in the clip bin joins 2+ saved clips into a single continuous output via FFmpeg concat demuxer, then encodes the merged result with current settings.
 
 ## v0.5.2 - 2026-06-26
 

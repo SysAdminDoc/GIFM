@@ -734,6 +734,33 @@ function GifmApp() {
     }
   };
 
+  const concatTimelineClips = async (clipsToConcat: TimelineClip[]) => {
+    if (clipsToConcat.length < 2) return;
+    setBusy(true);
+    try {
+      const prepared = await prepareSource();
+      setNotice(STRINGS.notices.concatStarted);
+      const response = await fetch(`/api/sources/${prepared.id}/concat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clips: clipsToConcat.map((c) => ({ startSec: c.startSec, durationSec: c.durationSec })),
+          settings
+        })
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response, STRINGS.errors.encodeStartFailed));
+      }
+      const nextJob = (await response.json()) as Job;
+      setJob(nextJob);
+      setNotice(STRINGS.notices.encodingStarted);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : STRINGS.errors.encodeStartFailed);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const revealOutput = async () => {
     if (!job) return;
     const response = await fetch(`/api/jobs/${job.id}/reveal`, { method: 'POST' });
@@ -977,6 +1004,7 @@ function GifmApp() {
             onDuplicateClip={duplicateTimelineClip}
             onExportClip={(clip) => exportTimelineClips([clip])}
             onExportAll={() => exportTimelineClips(timelineClips)}
+            onConcatAll={() => concatTimelineClips(timelineClips)}
             onImportClip={importTimelineClip}
             onPrepareSource={() => {
               void prepareSource().catch((error) => setNotice(error instanceof Error ? error.message : STRINGS.errors.sourcePrepareFailed));
@@ -1169,6 +1197,7 @@ function TimelineEditor({
   onDuplicateClip,
   onExportClip,
   onExportAll,
+  onConcatAll,
   onImportClip,
   onPrepareSource,
   onFindLoops,
@@ -1194,6 +1223,7 @@ function TimelineEditor({
   onDuplicateClip: (id: string) => void;
   onExportClip: (clip: TimelineClip) => void;
   onExportAll: () => void;
+  onConcatAll: () => void;
   onImportClip: (name: string, startSec: number, durationSec: number) => void;
   onPrepareSource: () => void;
   onFindLoops: () => void;
@@ -1473,6 +1503,10 @@ function TimelineEditor({
           <button type="button" className="primary-button" disabled={!clips.length || sourceBusy || exportBusy} onClick={onExportAll}>
             <Wand2 aria-hidden="true" />
             {STRINGS.timeline.exportAll}
+          </button>
+          <button type="button" className="secondary-button" disabled={clips.length < 2 || sourceBusy || exportBusy} onClick={onConcatAll}>
+            <Scissors aria-hidden="true" />
+            {STRINGS.timeline.concatAll}
           </button>
           <button type="button" className="secondary-button" disabled={!clips.length} onClick={() => {
             const header = 'name,startSec,endSec,durationSec';
