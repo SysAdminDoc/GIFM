@@ -1130,6 +1130,8 @@ function GifmApp() {
           job={job}
           outputFit={outputFit}
           crop={settings.crop}
+          caption={settings.caption}
+          overlay={settings.overlay}
           onReveal={revealOutput}
           onSaveAs={saveOutputAs}
           onSendWebhook={sendToWebhook}
@@ -1599,13 +1601,17 @@ function PreviewPanel({
   recentOutputs,
   onRevealRecent,
   onClearRecent,
-  crop
+  crop,
+  caption,
+  overlay
 }: {
   file: File | null;
   objectUrl: string;
   job: Job | null;
   outputFit: boolean;
   crop: CropRect;
+  caption: { top: string; bottom: string };
+  overlay: OverlaySettings;
   onReveal: () => void;
   onSaveAs: (job: Job) => void;
   onSendWebhook: (webhookUrl: string) => void;
@@ -1703,6 +1709,21 @@ function PreviewPanel({
         ) : (
           <EmptyState icon={<Video aria-hidden="true" />} title={STRINGS.preview.emptyTitle} body={STRINGS.preview.empty} />
         )}
+        {objectUrl && (caption.top || caption.bottom) ? (
+          <div className="caption-preview" aria-hidden="true">
+            {caption.top ? <span className="caption-top">{caption.top}</span> : null}
+            {caption.bottom ? <span className="caption-bottom">{caption.bottom}</span> : null}
+          </div>
+        ) : null}
+        {objectUrl && overlay.enabled && overlay.id ? (
+          <div className="overlay-preview" aria-hidden="true" style={{
+            width: `${Math.round(overlay.scale * 100)}%`,
+            opacity: overlay.opacity,
+            ...overlayPreviewPosition(overlay.position)
+          }}>
+            <img src={`/api/overlays/${overlay.id}`} alt="" />
+          </div>
+        ) : null}
       </div>
 
       <section className="output-box" aria-label={STRINGS.output.aria} aria-live="polite">
@@ -1990,6 +2011,17 @@ async function saveJobOutput(job: Job) {
   const writable = await handle.createWritable();
   await writable.write(blob);
   await writable.close();
+}
+
+function overlayPreviewPosition(position: string): React.CSSProperties {
+  const margin = '3%';
+  switch (position) {
+    case 'top-left': return { top: margin, left: margin };
+    case 'top-right': return { top: margin, right: margin };
+    case 'bottom-left': return { bottom: margin, left: margin };
+    case 'center': return { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' };
+    default: return { bottom: margin, right: margin };
+  }
 }
 
 function safeFileBase(inputName: string) {

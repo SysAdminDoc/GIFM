@@ -610,6 +610,24 @@ app.get('/api/pending-import', (_request, response) => {
   response.json({ source: pending });
 });
 
+app.get('/api/overlays/:id', (request, response) => {
+  const { id } = request.params;
+  if (!/^[a-f0-9-]+\.(png|jpe?g|webp|gif)$/i.test(id)) {
+    sendApiError(response, new ApiError(400, 'INVALID_OVERLAY_ID', 'Invalid overlay ID.'));
+    return;
+  }
+  const overlayPath = path.join(overlayDir, id);
+  if (path.dirname(overlayPath) !== overlayDir || !existsSync(overlayPath)) {
+    sendApiError(response, new ApiError(404, 'OVERLAY_NOT_FOUND', 'Overlay not found.'));
+    return;
+  }
+  const ext = path.extname(id).toLowerCase();
+  const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : ext === '.gif' ? 'image/gif' : 'image/jpeg';
+  response.setHeader('Content-Type', mime);
+  response.setHeader('Cache-Control', 'public, max-age=3600');
+  createReadStream(overlayPath).pipe(response);
+});
+
 app.post('/api/overlay', (request, response, next) => {
   overlayUpload(request, response, async (error) => {
     if (error) {
