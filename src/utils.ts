@@ -66,6 +66,34 @@ export async function readApiError(response: Response, fallback: string) {
   return payload?.error?.message ?? fallback;
 }
 
+export function uploadWithProgress(
+  url: string,
+  body: FormData,
+  onProgress: (percent: number) => void
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    });
+    xhr.addEventListener('load', () => {
+      const headers = new Headers();
+      xhr.getAllResponseHeaders().trim().split(/\r?\n/).forEach((line) => {
+        const idx = line.indexOf(':');
+        if (idx > 0) headers.append(line.slice(0, idx).trim(), line.slice(idx + 1).trim());
+      });
+      resolve(new Response(xhr.response, { status: xhr.status, statusText: xhr.statusText, headers }));
+    });
+    xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+    xhr.addEventListener('abort', () => reject(new DOMException('Upload aborted', 'AbortError')));
+    xhr.responseType = 'blob';
+    xhr.send(body);
+  });
+}
+
 export function formatTimecode(seconds: number) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00:00';
   const rounded = Math.max(0, Math.floor(seconds));

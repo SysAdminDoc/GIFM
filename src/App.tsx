@@ -17,7 +17,7 @@ import {
   Wand2
 } from 'lucide-react';
 import { SettingsPanel, WebhookRow, UrlImportRow, NumberField } from './components/SettingsPanel';
-import { clampNumber, evenNumber, formatBytes, profileFor, normalizeCrop, normalizeLoopCount, readStorage, writeStorage, readApiError, formatTimecode } from './utils';
+import { clampNumber, evenNumber, formatBytes, profileFor, normalizeCrop, normalizeLoopCount, readStorage, writeStorage, readApiError, uploadWithProgress, formatTimecode } from './utils';
 import {
   Component,
   type ChangeEvent,
@@ -156,6 +156,7 @@ function GifmApp() {
   const [objectUrl, setObjectUrl] = useState<string>('');
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [notice, setNotice] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [sourceMeta, setSourceMeta] = useState<SourceMeta | null>(null);
@@ -419,10 +420,9 @@ function GifmApp() {
         body.set('media', nextFile);
         body.set('settings', JSON.stringify(settingsForJob));
 
-        const response = await fetch('/api/jobs', {
-          method: 'POST',
-          body
-        });
+        setUploadProgress(0);
+        const response = await uploadWithProgress('/api/jobs', body, (percent) => setUploadProgress(percent));
+        setUploadProgress(null);
 
         if (!response.ok) {
           const message = await readApiError(response, `${STRINGS.errors.encodeStartFailed} (${response.status})`);
@@ -443,6 +443,7 @@ function GifmApp() {
       setNotice(error instanceof Error ? error.message : STRINGS.errors.encodeStartFailed);
     } finally {
       setBusy(false);
+      setUploadProgress(null);
     }
   };
 
@@ -1018,8 +1019,13 @@ function GifmApp() {
               {STRINGS.input.reset}
             </button>
             <span className="notice" aria-live="polite">
-              {notice}
+              {uploadProgress !== null ? `Uploading ${uploadProgress}%` : notice}
             </span>
+            {uploadProgress !== null ? (
+              <div className="upload-progress" role="progressbar" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100}>
+                <span style={{ width: `${uploadProgress}%` }} />
+              </div>
+            ) : null}
           </div>
 
           <ProgressPanel job={job} />

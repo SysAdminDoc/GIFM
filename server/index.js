@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import ffmpegPath from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
@@ -143,6 +144,10 @@ const app = express();
 app.disable('x-powered-by');
 app.use(securityHeaders);
 app.use(rejectCrossSiteWrites);
+if (ALLOW_REMOTE) {
+  const RATE_LIMIT_MAX = parsePositiveInteger(process.env.GIFM_RATE_LIMIT_MAX, 60);
+  app.use(rateLimit({ windowMs: 60_000, max: RATE_LIMIT_MAX, standardHeaders: true, legacyHeaders: false }));
+}
 app.use(express.json({ limit: '128kb' }));
 
 app.get('/api/health', (_request, response) => {
