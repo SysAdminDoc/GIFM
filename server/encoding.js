@@ -10,6 +10,7 @@ export const targetProfiles = {
   boosted: 100,
   nitro: 500,
   emoji: 256 / 1024,
+  'emoji-webp': 256 / 1024,
   sticker: 512 / 1024,
   avatar: 10,
   custom: 10
@@ -70,7 +71,7 @@ export function normalizeTargetPreset(value) {
 }
 
 export function dimensionLockForPreset(preset) {
-  if (preset === 'emoji') return { square: true, fixedWidth: 128, minWidth: 128, fpsMax: 30 };
+  if (preset === 'emoji' || preset === 'emoji-webp') return { square: true, fixedWidth: 128, minWidth: 128, fpsMax: 30 };
   if (preset === 'sticker') return { square: true, fixedWidth: 320, minWidth: 320, fpsMax: 30 };
   if (preset === 'avatar') return { square: true, fixedWidth: 0, minWidth: 128, fpsMax: 30 };
   return { square: false, fixedWidth: 0, minWidth: 120, fpsMax: 30 };
@@ -79,6 +80,7 @@ export function dimensionLockForPreset(preset) {
 // Discord stickers must be APNG, so the sticker preset forces the APNG output format.
 export function resolveFormat(rawFormat, preset) {
   if (preset === 'sticker') return 'apng';
+  if (preset === 'emoji-webp') return 'webp';
   if (['apng', 'webp', 'mp4', 'avif'].includes(rawFormat)) return rawFormat;
   return 'gif';
 }
@@ -247,7 +249,7 @@ export function discordTargetChecks({ preset, outputBytes, width, height, durati
     detail: `${formatBytes(outputBytes)} / ${formatBytes(targetBytes)} limit`
   });
 
-  if (preset === 'emoji') {
+  if (preset === 'emoji' || preset === 'emoji-webp') {
     checks.push({
       label: 'Dimensions',
       pass: width === 128 && height === 128,

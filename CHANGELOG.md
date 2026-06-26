@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Drag-to-reorder frames in the frame editor via native HTML5 drag-and-drop. Reordered sequence is preserved through encoding.
+- Persist timeline clips across tab close and refresh via localStorage. Saved cuts survive restarts.
+- WebP Emoji 256 KB target preset: outputs 128x128 animated WebP for Discord emoji uploads. WebP emoji are ~29% smaller than GIF at equal quality.
+- Upload progress: file uploads now show a percentage label and progress bar during transfer so large files no longer appear to freeze the UI.
+- Security: rate limiting via express-rate-limit when `GIFM_ALLOW_REMOTE=1` is set (60 req/min default, configurable via `GIFM_RATE_LIMIT_MAX`). Local-only mode is unthrottled.
 - Security: reject symbolic links in the desktop shell import endpoint to prevent symlink traversal.
 - Security: escape semicolons and colons in drawtext captions to prevent FFmpeg filter-graph injection via crafted caption text.
 - Fix: serialize manifest writes to prevent concurrent fire-and-forget saves from clobbering each other's temp file.

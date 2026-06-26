@@ -83,6 +83,7 @@ const en = {
       { id: 'boosted', label: 'Boosted 100 MB', targetMb: 100, description: 'Level 3 server boost upload limit.' },
       { id: 'nitro', label: 'Nitro 500 MB', targetMb: 500, description: 'Full Nitro file sharing limit.' },
       { id: 'emoji', label: 'Emoji 256 KB', targetMb: 256 / 1024, description: 'Custom animated emoji upload ceiling.' },
+      { id: 'emoji-webp', label: 'WebP Emoji 256 KB', targetMb: 256 / 1024, description: 'WebP animated emoji — smaller files, same 256 KB ceiling.' },
       { id: 'sticker', label: 'Sticker 512 KB', targetMb: 512 / 1024, description: 'Square 320x320 APNG sticker.' },
       { id: 'avatar', label: 'Icon/avatar 10 MB', targetMb: 10, description: 'Square GIF guidance for avatars and server icons.' },
       { id: 'custom', label: 'Custom', targetMb: 10, description: 'Use a specific byte target.' }

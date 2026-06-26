@@ -1346,6 +1346,12 @@ textarea:focus-visible {
   border-radius: 6px;
   padding: 4px;
   border: 1px solid var(--border);
+  cursor: grab;
+}
+
+.frame-card:active {
+  cursor: grabbing;
+  opacity: 0.6;
 }
 
 .frame-card img {

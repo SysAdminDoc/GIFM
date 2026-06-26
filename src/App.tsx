@@ -105,6 +105,7 @@ const PRESETS_KEY = 'gifm:presets:v1';
 const RECENTS_KEY = 'gifm:recents:v1';
 const THEME_KEY = 'gifm:theme:v1';
 const LOCALE_KEY = 'gifm:locale:v1';
+const CLIPS_KEY = 'gifm:clips:v1';
 const MAX_RECENT_OUTPUTS = 8;
 const MAX_TRIM_START_SEC = 24 * 60 * 60;
 
@@ -167,7 +168,7 @@ function GifmApp() {
   const [frameManifest, setFrameManifest] = useState<FrameManifest | null>(null);
   const [editedFrames, setEditedFrames] = useState<ExtractedFrame[]>([]);
   const [frameBusy, setFrameBusy] = useState(false);
-  const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
+  const [timelineClips, setTimelineClips] = useState<TimelineClip[]>(() => loadTimelineClips());
   const [selectedClipId, setSelectedClipId] = useState('');
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [probeBusy, setProbeBusy] = useState(false);
@@ -176,6 +177,7 @@ function GifmApp() {
   const [theme, setTheme] = useState<Theme>(() => loadTheme());
   const [locale, setLocale] = useState<Locale>(() => loadLocale());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -199,6 +201,10 @@ function GifmApp() {
   useEffect(() => {
     writeStorage(RECENTS_KEY, recentOutputs);
   }, [recentOutputs]);
+
+  useEffect(() => {
+    writeStorage(CLIPS_KEY, timelineClips);
+  }, [timelineClips]);
 
   useEffect(() => {
     fetch('/api/health')
@@ -951,8 +957,26 @@ function GifmApp() {
             </div>
             {editedFrames.length > 0 ? (
               <div className="frame-strip">
-                {editedFrames.map((frame) => (
-                  <div key={`frame-${frame.index}`} className="frame-card">
+                {editedFrames.map((frame, arrayIndex) => (
+                  <div
+                    key={`frame-${frame.index}`}
+                    className="frame-card"
+                    draggable
+                    onDragStart={() => { dragFrameRef.current = arrayIndex; }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => {
+                      const from = dragFrameRef.current;
+                      if (from === null || from === arrayIndex) return;
+                      setEditedFrames((prev) => {
+                        const next = [...prev];
+                        const [moved] = next.splice(from, 1);
+                        next.splice(arrayIndex, 0, moved);
+                        return next;
+                      });
+                      dragFrameRef.current = null;
+                    }}
+                    onDragEnd={() => { dragFrameRef.current = null; }}
+                  >
                     <img src={frame.url} alt={STRINGS.timeline.frameCount(frame.index + 1)} />
                     <div className="frame-controls">
                       <label>
@@ -2042,6 +2066,12 @@ function loadRecentOutputs() {
   return (readStorage<RecentOutput[]>(RECENTS_KEY) ?? [])
     .filter((item) => item?.id && item?.downloadUrl && item?.inputName)
     .slice(0, MAX_RECENT_OUTPUTS);
+}
+
+function loadTimelineClips(): TimelineClip[] {
+  return (readStorage<TimelineClip[]>(CLIPS_KEY) ?? [])
+    .filter((clip) => clip?.id && clip?.name && Number.isFinite(clip?.startSec) && Number.isFinite(clip?.durationSec))
+    .slice(0, 50);
 }
 
 function normalizeSettings(value: Partial<Settings>): Settings {

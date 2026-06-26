@@ -112,7 +112,7 @@ export function SettingsPanel({
       </SettingsSection>
 
       <SettingsSection title={STRINGS.settings.sections.clip.title} description={STRINGS.settings.sections.clip.description}>
-        <NumberField label={STRINGS.settings.width} value={settings.targetPreset === 'emoji' ? 128 : settings.targetPreset === 'sticker' ? 320 : settings.width} min={160} max={1280} step={20} suffix={STRINGS.settings.units.px} disabled={settings.targetPreset === 'emoji' || settings.targetPreset === 'sticker'} onChange={(value) => update('width', value)} />
+        <NumberField label={STRINGS.settings.width} value={settings.targetPreset === 'emoji' || settings.targetPreset === 'emoji-webp' ? 128 : settings.targetPreset === 'sticker' ? 320 : settings.width} min={160} max={1280} step={20} suffix={STRINGS.settings.units.px} disabled={settings.targetPreset === 'emoji' || settings.targetPreset === 'emoji-webp' || settings.targetPreset === 'sticker'} onChange={(value) => update('width', value)} />
         <NumberField label={STRINGS.settings.fps} value={settings.fps} min={5} max={30} step={1} suffix={STRINGS.settings.units.fps} onChange={(value) => update('fps', value)} />
         <NumberField label={STRINGS.settings.start} value={settings.startSec} min={0} max={health?.maxTrimStartSec ?? MAX_TRIM_START_SEC} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('startSec', value)} />
         <NumberField label={STRINGS.settings.duration} value={settings.durationSec} min={0.5} max={60} step={0.25} suffix={STRINGS.settings.units.seconds} onChange={(value) => update('durationSec', value)} />
@@ -132,7 +132,7 @@ export function SettingsPanel({
             <option value="boomerang">{STRINGS.settings.playback.options.boomerang}</option>
           </select>
         </label>
-        {settings.targetPreset === 'emoji'
+        {settings.targetPreset === 'emoji' || settings.targetPreset === 'emoji-webp'
           ? <p className="profile-note">{STRINGS.settings.squareNote.emoji}</p>
           : settings.targetPreset === 'sticker'
             ? <p className="profile-note">{STRINGS.settings.squareNote.sticker}</p>
@@ -290,8 +290,8 @@ export function SettingsPanel({
         <label className="select-field">
           <span>{STRINGS.settings.format.label}</span>
           <select
-            value={settings.targetPreset === 'sticker' ? 'apng' : settings.format}
-            disabled={settings.targetPreset === 'sticker'}
+            value={settings.targetPreset === 'sticker' ? 'apng' : settings.targetPreset === 'emoji-webp' ? 'webp' : settings.format}
+            disabled={settings.targetPreset === 'sticker' || settings.targetPreset === 'emoji-webp'}
             onChange={(event) => update('format', event.target.value as OutputFormat)}
           >
             <option value="gif">{STRINGS.settings.format.options.gif}</option>
