@@ -22,6 +22,11 @@ import {
   Wand2
 } from 'lucide-react';
 import { SettingsPanel, WebhookRow, UrlImportRow, NumberField } from './components/SettingsPanel';
+import { EmptyState, StatusTile } from './components/EmptyState';
+import { ProgressPanel } from './components/ProgressPanel';
+import { LogPanel } from './components/LogPanel';
+import { DiagnosticsPanel, estimateOutputBytes } from './components/DiagnosticsPanel';
+import { BatchQueue } from './components/BatchQueue';
 import { clampNumber, evenNumber, formatBytes, profileFor, normalizeCrop, normalizeLoopCount, readStorage, writeStorage, useDebouncedStorage, readApiError, uploadWithProgress, formatTimecode } from './utils';
 import {
   Component,
@@ -1145,88 +1150,6 @@ function GifmApp() {
 }
 
 
-function BatchQueue({
-  jobs,
-  onSelectJob,
-  onRevealJob,
-  onSaveAs,
-  onCancelJob,
-  onCancelAll
-}: {
-  jobs: BatchJob[];
-  onSelectJob: (job: Job) => void;
-  onRevealJob: (id: string) => void;
-  onSaveAs: (job: Job) => void;
-  onCancelJob: (id: string) => void;
-  onCancelAll: () => void;
-}) {
-  if (!jobs.length) return null;
-
-  const completedIds = jobs
-    .filter((item) => item.job?.status === 'complete' && item.job.downloadUrl)
-    .map((item) => item.job!.id);
-
-  const cancellableCount = jobs.filter((item) => item.job?.status === 'queued' || item.job?.status === 'running').length;
-
-  return (
-    <section className="batch-panel" aria-label={STRINGS.batch.aria}>
-      <div className="output-title">
-        <h3>{STRINGS.batch.title}</h3>
-        {cancellableCount > 1 ? (
-          <button type="button" className="secondary-button" onClick={onCancelAll}>
-            <AlertTriangle aria-hidden="true" />
-            {STRINGS.batch.cancelAll}
-          </button>
-        ) : null}
-        {completedIds.length > 1 ? (
-          <a className="secondary-button" href={`/api/jobs/zip?ids=${completedIds.join(',')}`} download>
-            <Download aria-hidden="true" />
-            {STRINGS.batch.downloadAll(completedIds.length)}
-          </a>
-        ) : null}
-      </div>
-      <div className="batch-list">
-        {jobs.map((item) => {
-          const itemJob = item.job;
-          const canCancelItem = itemJob?.status === 'queued' || itemJob?.status === 'running';
-          return (
-            <div key={item.localId} className="batch-row">
-              <button type="button" className="batch-main" disabled={!itemJob} onClick={() => itemJob && onSelectJob(itemJob)}>
-                <strong>{item.inputName}</strong>
-                <span>{batchStatus(item)}</span>
-              </button>
-              <span>{STRINGS.batch.attempts(itemJob?.attempts.length ?? 0)}</span>
-              <span>{itemJob?.outputBytes ? `${formatBytes(itemJob.outputBytes)} / ${formatBytes(itemJob.targetBytes)}` : formatBytes(item.inputSize)}</span>
-              <div>
-                {itemJob?.status === 'complete' && itemJob.downloadUrl ? (
-                  <>
-                    <a className="secondary-button" href={itemJob.downloadUrl} download>
-                      <Download aria-hidden="true" />
-                      {STRINGS.output.download}
-                    </a>
-                    <button type="button" className="secondary-button" onClick={() => onRevealJob(itemJob.id)}>
-                      <MonitorDown aria-hidden="true" />
-                      {STRINGS.output.open}
-                    </button>
-                    <button type="button" className="secondary-button" onClick={() => onSaveAs(itemJob)}>
-                      <FileDown aria-hidden="true" />
-                      {STRINGS.output.saveAs}
-                    </button>
-                  </>
-                ) : canCancelItem ? (
-                  <button type="button" className="secondary-button" onClick={() => onCancelJob(itemJob.id)}>
-                    <AlertTriangle aria-hidden="true" />
-                    {STRINGS.input.cancel}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
 
 function TimelineEditor({
   settings,
@@ -1983,218 +1906,15 @@ function PreviewPanel({
   );
 }
 
-function EmptyState({
-  icon,
-  title,
-  body,
-  compact = false
-}: {
-  icon: React.ReactNode;
-  title: string;
-  body: string;
-  compact?: boolean;
-}) {
-  return (
-    <div className={`empty-state${compact ? ' compact' : ''}`}>
-      <span className="empty-state-icon" aria-hidden="true">
-        {icon}
-      </span>
-      <span>
-        <strong>{title}</strong>
-        <small>{body}</small>
-      </span>
-    </div>
-  );
-}
-
-function StatusTile({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: 'cyan' | 'amber' | 'lime' | 'muted' }) {
-  return (
-    <div className={`status-tile ${tone}`}>
-      <span className="status-tile-icon" aria-hidden="true">
-        {icon}
-      </span>
-      <span>
-        <span>{label}</span>
-        <strong>{value}</strong>
-      </span>
-    </div>
-  );
-}
-
-function ProgressPanel({ job }: { job: Job | null }) {
-  const progress = Math.max(0, Math.min(100, job?.progress ?? 0));
-  const isActive = job?.status === 'running' || job?.status === 'queued';
-  const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!isActive) { startRef.current = null; setElapsed(0); return undefined; }
-    if (!startRef.current) startRef.current = Date.now();
-    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - (startRef.current ?? Date.now())) / 1000)), 1000);
-    return () => window.clearInterval(timer);
-  }, [isActive]);
-
-  const eta = isActive && progress > 3 && elapsed > 2
-    ? Math.round((elapsed / progress) * (100 - progress))
-    : null;
-
-  return (
-    <section className="progress-panel" aria-label={STRINGS.progress.aria}>
-      <div>
-        <strong>{job?.stage ?? STRINGS.progress.idle}</strong>
-        <span>
-          {Math.round(progress)}%
-          {isActive && elapsed > 0 ? ` · ${formatElapsed(elapsed)}` : ''}
-          {eta !== null ? ` · ~${formatElapsed(eta)} left` : ''}
-        </span>
-      </div>
-      {!job ? <p>{STRINGS.progress.readyBody}</p> : null}
-      <div
-        className="progress-track"
-        role="progressbar"
-        aria-label={job?.stage ?? STRINGS.progress.aria}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(progress)}
-      >
-        <span style={{ width: `${progress}%` }} />
-      </div>
-      {job?.warnings.length ? (
-        <ul className="warnings">
-          {job.warnings.map((warning, i) => (
-            <li key={i}>{warning}</li>
-          ))}
-        </ul>
-      ) : null}
-    </section>
-  );
-}
-
-function LogPanel({ job }: { job: Job | null }) {
-  const hasLogs = Boolean(job?.logs.length);
-  return (
-    <section className="log-panel" aria-label={STRINGS.log.aria}>
-      <div className="output-title">
-        <Terminal aria-hidden="true" />
-        <h3>{STRINGS.log.title}</h3>
-      </div>
-      {hasLogs ? (
-        <pre className="log-scroll">{job?.logs.slice(-200).join('\n')}</pre>
-      ) : (
-        <div className="log-empty">
-          <EmptyState icon={<Terminal aria-hidden="true" />} title={STRINGS.log.emptyTitle} body={STRINGS.log.empty} compact />
-        </div>
-      )}
-    </section>
-  );
-}
-
-function DiagnosticsPanel({
-  health,
-  sourceMeta,
-  settings,
-  job,
-  onCopyText
-}: {
-  health: HealthInfo | null;
-  sourceMeta: SourceMeta | null;
-  settings: Settings;
-  job: Job | null;
-  onCopyText: (text: string, successMessage: string) => void;
-}) {
-  const latestCommand = job?.commands?.at(-1);
-  const diagnostic = useMemo(() => {
-    const redactPaths = (obj: unknown): unknown => {
-      if (!obj || typeof obj !== 'object') return obj;
-      if (Array.isArray(obj)) return obj.map(redactPaths);
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(obj)) {
-        if ((k === 'path' || k === 'inputPath' || k === 'outputPath' || k === 'workPath') && typeof v === 'string') {
-          out[k] = '[redacted]';
-        } else {
-          out[k] = redactPaths(v);
-        }
-      }
-      return out;
-    };
-    return redactPaths({
-      generatedAt: new Date().toISOString(),
-      health,
-      sourceMeta,
-      estimate: sourceMeta ? {
-        outputBytes: estimateOutputBytes(settings, sourceMeta),
-        targetBytes: settings.targetMb * 1024 * 1024
-      } : null,
-      settings,
-      job
-    });
-  }, [health, sourceMeta, settings, job]);
-  const json = useMemo(() => JSON.stringify(diagnostic, null, 2), [diagnostic]);
-
-  return (
-    <section className="diagnostics-panel" aria-label={STRINGS.diagnostics.aria}>
-      <div className="output-title">
-        <Terminal aria-hidden="true" />
-        <h3>{STRINGS.diagnostics.title}</h3>
-      </div>
-      <div className="diagnostic-grid">
-        <span>{STRINGS.diagnostics.ffmpeg} <strong>{health?.ffmpeg.version ?? STRINGS.diagnostics.unknown}</strong></span>
-        <span>{STRINGS.diagnostics.ffprobe} <strong>{health?.ffprobe.version ?? STRINGS.diagnostics.unknown}</strong></span>
-        <span>{STRINGS.diagnostics.encoder} <strong>{encoderHealthLabel(settings, health)}</strong></span>
-        <span>{STRINGS.diagnostics.optimizer} <strong>{optimizerHealthLabel(health)}</strong></span>
-        <span>{STRINGS.diagnostics.platform} <strong>{health ? `${health.platform.os}/${health.platform.arch}` : STRINGS.diagnostics.unknown}</strong></span>
-        <span>{STRINGS.diagnostics.estimate} <strong>{sourceMeta ? formatBytes(estimateOutputBytes(settings, sourceMeta)) : STRINGS.diagnostics.emptyValue}</strong></span>
-      </div>
-      <details className="command-details">
-        <summary>{STRINGS.diagnostics.latestCommand}</summary>
-        <pre>{latestCommand?.command ?? STRINGS.diagnostics.noCommand}</pre>
-      </details>
-      <div className="diagnostic-actions">
-        <button type="button" className="secondary-button" onClick={() => onCopyText(json, STRINGS.notices.diagnosticsCopied)}>
-          {STRINGS.diagnostics.copyJson}
-        </button>
-        <button type="button" className="secondary-button" onClick={() => downloadDiagnosticJson(json)}>
-          {STRINGS.diagnostics.downloadJson}
-        </button>
-      </div>
-    </section>
-  );
-}
 
 
-function estimateOutputBytes(settings: Settings, sourceMeta: SourceMeta) {
-  const duration = Math.max(0.5, Math.min(settings.durationSec, sourceMeta.durationSec ?? settings.durationSec));
-  const sourceWidth = sourceMeta.width ?? settings.width;
-  const sourceHeight = sourceMeta.height ?? Math.round(sourceWidth * 9 / 16);
-  const scale = settings.width / Math.max(1, sourceWidth);
-  const height = Math.max(1, sourceHeight * scale);
-  const playbackFactor = settings.playback === 'boomerang' ? 2 : 1;
-  const frames = Math.max(1, (duration / Math.max(0.25, settings.speed)) * settings.fps * playbackFactor);
-  const paletteFactor = clampNumber(settings.colors / 256, 0.15, 1);
-  return Math.round(settings.width * height * frames * 0.18 * paletteFactor);
-}
 
-function optimizerHealthLabel(health: HealthInfo | null) {
-  if (!health) return STRINGS.diagnostics.unknown;
-  if (health.gifsicle?.available) return `gifsicle ${health.gifsicle.version}`;
-  return STRINGS.diagnostics.optimizerUnavailable;
-}
 
-function downloadDiagnosticJson(json: string) {
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `gifm-diagnostics-${Date.now()}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
-}
 
-function encoderHealthLabel(settings: Settings, health: HealthInfo | null) {
-  if (settings.encoderBackend === 'ffmpeg') return STRINGS.settings.encoderOptions.ffmpeg;
-  if (health?.gifski?.available) return `gifski ${health.gifski.version}`;
-  return STRINGS.settings.encoderNotes.gifskiUnavailable;
-}
+
+
+
+
 
 function sourceProbeLabel(sourceMeta: SourceMeta | null) {
   if (!sourceMeta) return STRINGS.diagnostics.emptyValue;
@@ -2276,15 +1996,6 @@ function safeFileBase(inputName: string) {
   return inputName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'gifm-output';
 }
 
-function batchStatus(item: BatchJob) {
-  if (item.error) return item.error;
-  if (!item.job) return item.status === 'failed' ? STRINGS.batch.failedSubmit : STRINGS.batch.pending;
-  if (item.job.status === 'queued') return STRINGS.batch.queued(item.job.queuePosition ?? 1);
-  if (item.job.status === 'running') return item.job.stage;
-  if (item.job.status === 'complete') return STRINGS.batch.complete;
-  if (item.job.status === 'cancelled') return STRINGS.batch.cancelled;
-  return item.job.error ?? STRINGS.batch.failed;
-}
 
 function isTerminalJob(job: Job) {
   return job.status === 'complete' || job.status === 'failed' || job.status === 'cancelled';
@@ -2492,8 +2203,3 @@ function parseTimecode(value: string) {
   return hours * 3600 + minutes * 60 + seconds;
 }
 
-function formatElapsed(totalSeconds: number) {
-  const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
-  return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`;
-}

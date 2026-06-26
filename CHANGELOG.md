@@ -28,6 +28,7 @@
 - CSV clip import validates against source duration: imported clips are clamped to the current source's duration instead of silently accepting out-of-range timestamps.
 - Frame editor zoom: click a frame thumbnail to toggle a 320px expanded view for inspecting detail. Click again to collapse.
 - CLI progress output: the headless CLI now prints `stage XX%` on stderr during encoding instead of appearing frozen until completion.
+- Refactor: extracted ProgressPanel, LogPanel, DiagnosticsPanel, BatchQueue, EmptyState, and StatusTile into dedicated component files under src/components/. App.tsx reduced from ~2500 to ~2200 lines.
 
 ## v0.5.2 - 2026-06-26
 
