@@ -66,6 +66,8 @@ const sources = new Map();
 let pendingImport = null;
 const jobQueue = [];
 let runningJobs = 0;
+let manifestWritePending = false;
+let manifestWriteQueued = false;
 const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
 const manifestPath = path.join(dataDir, 'manifest.json');
 
@@ -475,7 +477,12 @@ app.post('/api/import-local', async (request, response, next) => {
       sendApiError(response, new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'That file type is not a supported video or GIF.'));
       return;
     }
-    const stat = await fs.stat(sourcePath);
+    const lstat = await fs.lstat(sourcePath);
+    if (lstat.isSymbolicLink()) {
+      sendApiError(response, new ApiError(400, 'INVALID_PATH', 'Symbolic links are not allowed.'));
+      return;
+    }
+    const stat = lstat;
     if (!stat.isFile() || stat.size > MAX_UPLOAD_BYTES) {
       sendApiError(response, new ApiError(413, 'UPLOAD_TOO_LARGE', `The file is not a regular file or exceeds the ${formatBytes(MAX_UPLOAD_BYTES)} limit.`));
       return;
@@ -804,9 +811,11 @@ app.get('/api/jobs/events', (request, response) => {
   response.write(':ok\n\n');
 
   const rawIds = String(request.query.ids || '').slice(0, 4000);
-  const client = { response, ids: new Set(rawIds.split(',').filter(Boolean).slice(0, 50)) };
+  const client = { response, ids: new Set(rawIds.split(',').filter(Boolean).slice(0, 50)), connectedAt: Date.now() };
   sseClients.add(client);
-  request.on('close', () => sseClients.delete(client));
+  const cleanup = () => sseClients.delete(client);
+  request.on('close', cleanup);
+  request.on('error', cleanup);
 });
 
 function notifyJobUpdate(job) {
@@ -823,6 +832,17 @@ function notifyJobUpdate(job) {
 }
 
 ctx.notifyJobUpdate = notifyJobUpdate;
+
+const SSE_MAX_AGE_MS = 10 * 60 * 1000;
+setInterval(() => {
+  const now = Date.now();
+  for (const client of sseClients) {
+    if (now - client.connectedAt > SSE_MAX_AGE_MS) {
+      try { client.response.end(); } catch { /* already closed */ }
+      sseClients.delete(client);
+    }
+  }
+}, 60_000).unref();
 
 function isDiscordWebhookUrl(value) {
   let parsed;
@@ -1504,25 +1524,40 @@ async function loadManifest() {
   }
 }
 
-async function saveManifest() {
-  const persistedSources = [];
-  for (const source of sources.values()) {
-    if (source.inputPath && existsSync(source.inputPath)) {
-      persistedSources.push({ id: source.id, inputPath: source.inputPath, inputName: source.inputName, inputSize: source.inputSize, sourceKind: source.sourceKind, createdAt: source.createdAt, lastUsedAt: source.lastUsedAt, metadata: source.metadata });
-    }
+function saveManifest() {
+  if (manifestWritePending) {
+    manifestWriteQueued = true;
+    return;
   }
-  const persistedJobs = [];
-  for (const job of jobs.values()) {
-    if (job.status === 'complete' && job.outputPath && existsSync(job.outputPath)) {
-      persistedJobs.push({ id: job.id, status: job.status, inputName: job.inputName, inputSize: job.inputSize, outputPath: job.outputPath, outputBytes: job.outputBytes, targetBytes: job.targetBytes, downloadUrl: job.downloadUrl, startedAt: job.startedAt, completedAt: job.completedAt, warnings: job.warnings, attempts: job.attempts, settings: job.settings, outputMeta: job.outputMeta, discordChecks: job.discordChecks });
-    }
-  }
+  manifestWritePending = true;
+  void flushManifest();
+}
+
+async function flushManifest() {
   try {
+    const persistedSources = [];
+    for (const source of sources.values()) {
+      if (source.inputPath && existsSync(source.inputPath)) {
+        persistedSources.push({ id: source.id, inputPath: source.inputPath, inputName: source.inputName, inputSize: source.inputSize, sourceKind: source.sourceKind, createdAt: source.createdAt, lastUsedAt: source.lastUsedAt, metadata: source.metadata });
+      }
+    }
+    const persistedJobs = [];
+    for (const job of jobs.values()) {
+      if (job.status === 'complete' && job.outputPath && existsSync(job.outputPath)) {
+        persistedJobs.push({ id: job.id, status: job.status, inputName: job.inputName, inputSize: job.inputSize, outputPath: job.outputPath, outputBytes: job.outputBytes, targetBytes: job.targetBytes, downloadUrl: job.downloadUrl, startedAt: job.startedAt, completedAt: job.completedAt, warnings: job.warnings, attempts: job.attempts, settings: job.settings, outputMeta: job.outputMeta, discordChecks: job.discordChecks });
+      }
+    }
     const tempPath = `${manifestPath}.tmp`;
     await fs.writeFile(tempPath, JSON.stringify({ version: 1, sources: persistedSources, jobs: persistedJobs }, null, 2));
     await fs.rename(tempPath, manifestPath);
   } catch {
     // Non-fatal — manifest is a convenience, not a hard requirement.
+  } finally {
+    manifestWritePending = false;
+    if (manifestWriteQueued) {
+      manifestWriteQueued = false;
+      saveManifest();
+    }
   }
 }
 

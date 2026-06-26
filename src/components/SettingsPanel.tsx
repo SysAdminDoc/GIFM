@@ -541,7 +541,10 @@ export function NumberField({
           step={step}
           value={value}
           disabled={disabled}
-          onChange={(event) => onChange(Number(event.target.value))}
+          onChange={(event) => {
+            const raw = Number(event.target.value);
+            onChange(Number.isFinite(raw) ? clampNumber(raw, min, max) : value);
+          }}
         />
         <em>{suffix}</em>
       </div>

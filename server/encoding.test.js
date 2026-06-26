@@ -20,6 +20,7 @@ import {
   exceedsFrameBudget,
   discordTargetChecks
 } from './encoding.js';
+import { escapeDrawtextText, parseFfmpegTime, commandToken } from './encoders.js';
 
 test('clamp bounds values and coerces non-finite to min', () => {
   assert.equal(clamp(5, 0, 10), 5);
@@ -288,4 +289,24 @@ test('isProtectedPath matches exact paths, children, and parents', () => {
   assert.equal(isProtectedPath(child, new Set([base])), true);
   assert.equal(isProtectedPath(base, new Set([child])), true);
   assert.equal(isProtectedPath(path.resolve('data', 'uploads', 'x.mp4'), new Set([base])), false);
+});
+
+test('escapeDrawtextText escapes backslashes, semicolons, colons, and apostrophes', () => {
+  assert.equal(escapeDrawtextText('hello'), 'hello');
+  assert.equal(escapeDrawtextText("it's"), "it'\\''s");
+  assert.equal(escapeDrawtextText('a\\b'), 'a\\\\b');
+  assert.equal(escapeDrawtextText('key:value;next'), 'key\\:value\\;next');
+  assert.equal(escapeDrawtextText("x;y:'z\\w"), "x\\;y\\:'\\''z\\\\w");
+});
+
+test('parseFfmpegTime extracts seconds from FFmpeg time= output', () => {
+  assert.equal(parseFfmpegTime('time=00:01:23.45 bitrate='), 83.45);
+  assert.equal(parseFfmpegTime('no time here'), null);
+  assert.equal(parseFfmpegTime('time=01:00:00.00'), 3600);
+});
+
+test('commandToken quotes values with spaces', () => {
+  assert.equal(commandToken('simple'), 'simple');
+  assert.equal(commandToken('has space'), '"has space"');
+  assert.equal(commandToken('has"quote'), '"has\\"quote"');
 });

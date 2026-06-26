@@ -166,8 +166,9 @@ export function escapeDrawtextPath(filePath) {
 }
 
 export function escapeDrawtextText(text) {
-  // Single-quoted drawtext value with expansion=none: escape backslashes, then close/reopen quotes around apostrophes.
-  return text.replace(/\\/g, '\\\\').replace(/'/g, "'\\''");
+  // Single-quoted drawtext value with expansion=none: escape backslashes first,
+  // then semicolons/colons (filter-graph delimiters), then close/reopen quotes around apostrophes.
+  return text.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/:/g, '\\:').replace(/'/g, "'\\''");
 }
 
 export function strategyLabel({ width, fps, colors, dedupeFrames, frameDropModulo, gifsicleLossy = 0, optimizeEnabled = false, square = false }) {

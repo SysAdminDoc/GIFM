@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Security: reject symbolic links in the desktop shell import endpoint to prevent symlink traversal.
+- Security: escape semicolons and colons in drawtext captions to prevent FFmpeg filter-graph injection via crafted caption text.
+- Fix: serialize manifest writes to prevent concurrent fire-and-forget saves from clobbering each other's temp file.
+- Fix: add SSE client error-event cleanup and a 10-minute sweep to prevent memory leaks from ungracefully dropped connections.
+- Fix: clamp NumberField values on every keystroke so typing out-of-range values (e.g. 9999 in Width) cannot reach state unclamped.
+- Fix: replace undefined CSS variables `--panel-bg` and `--text-muted` with their correct theme tokens (`--surface-soft` and `--muted`).
+- Theme: replace 6 hardcoded rgba colors with CSS variable references (`--border`, `--border-strong`, `--cyan-soft`, `color-mix`) so hover states, disabled text, section borders, and tinted backgrounds adapt correctly in light and high-contrast themes.
+- Tests: add coverage for drawtext escaping, FFmpeg time parsing, and command token quoting (3 new test cases, 38 total).
+
 ## v0.5.1 - 2026-06-26
 
 - Live crop preview: source video/GIF now zooms into the crop region in real-time as sliders adjust, replacing the overlay indicator with CSS object-view-box for an accurate preview of the output.
