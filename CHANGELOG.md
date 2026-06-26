@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Output preview pause/play toggle for animated GIF/APNG/WebP outputs (WCAG 2.2.2 compliance for content >5 seconds).
+- Estimated output size chip in the action row — shows a green/amber indicator of whether the current settings are likely to fit the target before encoding starts.
+- Encode elapsed time and ETA display in the progress panel during active encodes.
+- Copy output to clipboard button alongside Download and Save As (uses Clipboard API `write()` with the output blob).
 - Drag-to-reorder frames in the frame editor via native HTML5 drag-and-drop. Reordered sequence is preserved through encoding.
 - Persist timeline clips across tab close and refresh via localStorage. Saved cuts survive restarts.
 - WebP Emoji 256 KB target preset: outputs 128x128 animated WebP for Discord emoji uploads. WebP emoji are ~29% smaller than GIF at equal quality.

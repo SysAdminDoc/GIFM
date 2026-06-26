@@ -1,12 +1,15 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  ClipboardCopy,
+  Clock,
   Download,
   FileDown,
   Gauge,
   Image as ImageIcon,
   Loader2,
   MonitorDown,
+  Pause,
   Play,
   RotateCcw,
   Scissors,
@@ -1042,6 +1045,11 @@ function GifmApp() {
               <RotateCcw aria-hidden="true" />
               {STRINGS.input.reset}
             </button>
+            {sourceMeta && !uploadProgress ? (
+              <span className={`estimate-chip ${estimateOutputBytes(settings, sourceMeta) <= targetBytes ? 'ok' : 'warn'}`}>
+                ~{formatBytes(estimateOutputBytes(settings, sourceMeta))}
+              </span>
+            ) : null}
             <span className="notice" aria-live="polite">
               {uploadProgress !== null ? `Uploading ${uploadProgress}%` : notice}
             </span>
@@ -1539,6 +1547,7 @@ function PreviewPanel({
 }) {
   const isGif = file?.type === 'image/gif' || file?.name.toLowerCase().endsWith('.gif');
   const [altText, setAltText] = useState('');
+  const [outputPaused, setOutputPaused] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -1625,8 +1634,14 @@ function PreviewPanel({
               {job.settings.format === 'mp4' ? (
                 <video src={job.downloadUrl} controls muted loop playsInline />
               ) : (
-                <img src={job.downloadUrl} alt={STRINGS.output.outputPreviewAlt} />
+                <img src={outputPaused ? undefined : job.downloadUrl} alt={STRINGS.output.outputPreviewAlt} />
               )}
+              {job.settings.format !== 'mp4' ? (
+                <button type="button" className="secondary-button output-pause" onClick={() => setOutputPaused((p) => !p)}>
+                  {outputPaused ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
+                  {outputPaused ? 'Play' : 'Pause'}
+                </button>
+              ) : null}
             </div>
             <div className="download-grid">
               <a className="primary-button" href={job.downloadUrl} download>
@@ -1640,6 +1655,21 @@ function PreviewPanel({
               <button type="button" className="secondary-button" onClick={() => onSaveAs(job)}>
                 <Download aria-hidden="true" />
                 {STRINGS.output.saveAs}
+              </button>
+              <button type="button" className="secondary-button" onClick={async () => {
+                try {
+                  if (!job.downloadUrl) return;
+                  const res = await fetch(job.downloadUrl);
+                  const blob = await res.blob();
+                  const mime = blob.type.startsWith('image/') ? blob.type : 'image/gif';
+                  await navigator.clipboard.write([new ClipboardItem({ [mime]: blob })]);
+                  onCopyText('', 'Copied to clipboard');
+                } catch {
+                  onCopyText('', 'Clipboard copy not supported in this browser');
+                }
+              }}>
+                <ClipboardCopy aria-hidden="true" />
+                Copy
               </button>
             </div>
             <label className="alt-field">
@@ -1759,11 +1789,30 @@ function StatusTile({ icon, label, value, tone }: { icon: React.ReactNode; label
 
 function ProgressPanel({ job }: { job: Job | null }) {
   const progress = Math.max(0, Math.min(100, job?.progress ?? 0));
+  const isActive = job?.status === 'running' || job?.status === 'queued';
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isActive) { startRef.current = null; setElapsed(0); return undefined; }
+    if (!startRef.current) startRef.current = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - (startRef.current ?? Date.now())) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [isActive]);
+
+  const eta = isActive && progress > 3 && elapsed > 2
+    ? Math.round((elapsed / progress) * (100 - progress))
+    : null;
+
   return (
     <section className="progress-panel" aria-label={STRINGS.progress.aria}>
       <div>
         <strong>{job?.stage ?? STRINGS.progress.idle}</strong>
-        <span>{Math.round(progress)}%</span>
+        <span>
+          {Math.round(progress)}%
+          {isActive && elapsed > 0 ? ` · ${formatElapsed(elapsed)}` : ''}
+          {eta !== null ? ` · ~${formatElapsed(eta)} left` : ''}
+        </span>
       </div>
       {!job ? <p>{STRINGS.progress.readyBody}</p> : null}
       <div
@@ -2184,4 +2233,10 @@ function parseTimecode(value: string) {
   const [hours, minutes, seconds] = parts.length === 3 ? parts.map(Number) : [0, ...parts.map(Number)];
   if (minutes >= 60 || seconds >= 60) return null;
   return hours * 3600 + minutes * 60 + seconds;
+}
+
+function formatElapsed(totalSeconds: number) {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`;
 }
