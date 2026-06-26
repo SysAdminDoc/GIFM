@@ -720,6 +720,10 @@ textarea:focus-visible {
   padding: 13px;
 }
 
+.timeline-editor-empty {
+  align-content: start;
+}
+
 .trim-head,
 .trim-actions {
   display: flex;

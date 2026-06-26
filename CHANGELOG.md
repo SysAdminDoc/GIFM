@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- UX: first-run timeline now shows a calm empty state until a source is selected, reducing disabled-control clutter on the initial workspace.
 - Video thumbnail scrubbing on timeline hover: hovering over the timeline rail shows a floating preview thumbnail of the video at that timecode, with the closest extracted frame and a timecode label.
 - Dither mode visual comparison grid: a "Compare dithers" button in the encoding settings generates side-by-side previews of all 4 dither modes (Sierra 2-4A, Bayer, Floyd-Steinberg, None) from the prepared source at current width/color settings. Click a result to select that dither mode. Shows per-mode file size.
 - Fix: SSE real-time job updates were never delivered — the `/api/jobs/events` endpoint was registered after the parameterized `/api/jobs/:id` route, so Express matched "events" as a job ID and returned 404. Jobs fell back to 800ms polling. Now SSE connects correctly and jobs update in real time.
