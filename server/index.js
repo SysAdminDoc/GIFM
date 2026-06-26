@@ -191,6 +191,45 @@ app.get('/api/jobs/history', (_request, response) => {
   response.json(list);
 });
 
+app.get('/api/sources/:id/thumbnails', async (request, response, next) => {
+  try {
+    const source = sources.get(request.params.id);
+    if (!source || !source.inputPath || !existsSync(source.inputPath)) {
+      sendApiError(response, new ApiError(404, 'SOURCE_NOT_FOUND', 'Source not found.'));
+      return;
+    }
+    const duration = source.metadata?.durationSec ?? 0;
+    if (duration < 0.5) {
+      response.json({ thumbnails: [] });
+      return;
+    }
+
+    const count = Math.min(12, Math.max(4, Math.floor(duration / 2)));
+    const thumbDir = path.join(workDir, `thumb-${randomUUID()}`);
+    await fs.mkdir(thumbDir, { recursive: true });
+
+    try {
+      const thumbnails = [];
+      for (let i = 0; i < count; i++) {
+        const t = (i / count) * duration;
+        const thumbPath = path.join(thumbDir, `t${i}.jpg`);
+        try {
+          await runFfmpegSimple(['-ss', String(t), '-i', source.inputPath, '-frames:v', '1', '-vf', 'scale=120:-2', '-q:v', '8', '-y', thumbPath]);
+          const data = await fs.readFile(thumbPath);
+          thumbnails.push({ timeSec: Number(t.toFixed(2)), dataUrl: `data:image/jpeg;base64,${data.toString('base64')}` });
+        } catch {
+          // Skip frames that fail to extract.
+        }
+      }
+      response.json({ thumbnails });
+    } finally {
+      await fs.rm(thumbDir, { recursive: true, force: true }).catch(() => {});
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/sources/:id/loops', async (request, response, next) => {
   try {
     const source = sources.get(request.params.id);

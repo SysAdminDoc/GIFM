@@ -2,17 +2,18 @@ import {
   AlertTriangle,
   CheckCircle2,
   ClipboardCopy,
-  Clock,
+  Columns2,
   Download,
+  EyeOff,
   FileDown,
   Gauge,
   Image as ImageIcon,
   Loader2,
   MonitorDown,
-  Pause,
   Play,
   RotateCcw,
   Scissors,
+  ShieldCheck,
   Terminal,
   Trash2,
   UploadCloud,
@@ -167,6 +168,7 @@ function GifmApp() {
   const [sourceMeta, setSourceMeta] = useState<SourceMeta | null>(null);
   const [sourceSession, setSourceSession] = useState<SourceSession | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
+  const [timelineThumbnails, setTimelineThumbnails] = useState<Array<{ timeSec: number; dataUrl: string }>>([]);
   const [loopCandidates, setLoopCandidates] = useState<LoopCandidate[]>([]);
   const [loopBusy, setLoopBusy] = useState(false);
   const [frameManifest, setFrameManifest] = useState<FrameManifest | null>(null);
@@ -262,6 +264,7 @@ function GifmApp() {
       setFrameManifest(null);
       setEditedFrames([]);
       setLoopCandidates([]);
+      setTimelineThumbnails([]);
       return undefined;
     }
     if (!objectUrl) return undefined;
@@ -532,9 +535,22 @@ function GifmApp() {
         frameSampled: false
       });
       setNotice(STRINGS.notices.sourcePrepared(prepared.inputName));
+      void fetchThumbnails(prepared.id);
       return prepared;
     } finally {
       setSourceBusy(false);
+    }
+  };
+
+  const fetchThumbnails = async (sourceId: string) => {
+    try {
+      const response = await fetch(`/api/sources/${sourceId}/thumbnails`);
+      if (response.ok) {
+        const data = await response.json();
+        setTimelineThumbnails(data.thumbnails ?? []);
+      }
+    } catch {
+      // Non-critical — timeline works without thumbnails.
     }
   };
 
@@ -939,6 +955,7 @@ function GifmApp() {
             onFindLoops={findLoops}
             loopCandidates={loopCandidates}
             loopBusy={loopBusy}
+            thumbnails={timelineThumbnails}
             sourceSession={sourceSession}
             sourceBusy={sourceBusy}
             exportBusy={busy}
@@ -1007,7 +1024,7 @@ function GifmApp() {
                 ))}
               </div>
             ) : (
-              <p className="muted-text">{STRINGS.timeline.noFrames}</p>
+              <EmptyState icon={<ImageIcon aria-hidden="true" />} title={STRINGS.timeline.noFramesTitle} body={STRINGS.timeline.noFrames} compact />
             )}
           </section>
 
@@ -1077,6 +1094,7 @@ function GifmApp() {
           onSaveAs={saveOutputAs}
           onSendWebhook={sendToWebhook}
           onCopyText={copyText}
+          onNotice={setNotice}
           onPreviewTime={setPreviewTime}
           previewSeekTime={previewSeekTime}
           recentOutputs={recentOutputs}
@@ -1138,17 +1156,21 @@ function BatchQueue({
                 {itemJob?.status === 'complete' && itemJob.downloadUrl ? (
                   <>
                     <a className="secondary-button" href={itemJob.downloadUrl} download>
+                      <Download aria-hidden="true" />
                       {STRINGS.output.download}
                     </a>
                     <button type="button" className="secondary-button" onClick={() => onRevealJob(itemJob.id)}>
+                      <MonitorDown aria-hidden="true" />
                       {STRINGS.output.open}
                     </button>
                     <button type="button" className="secondary-button" onClick={() => onSaveAs(itemJob)}>
+                      <FileDown aria-hidden="true" />
                       {STRINGS.output.saveAs}
                     </button>
                   </>
                 ) : canCancelItem ? (
                   <button type="button" className="secondary-button" onClick={() => onCancelJob(itemJob.id)}>
+                    <AlertTriangle aria-hidden="true" />
                     {STRINGS.input.cancel}
                   </button>
                 ) : null}
@@ -1181,6 +1203,7 @@ function TimelineEditor({
   onFindLoops,
   loopCandidates,
   loopBusy,
+  thumbnails,
   sourceSession,
   sourceBusy,
   exportBusy
@@ -1204,6 +1227,7 @@ function TimelineEditor({
   onFindLoops: () => void;
   loopCandidates: LoopCandidate[];
   loopBusy: boolean;
+  thumbnails: Array<{ timeSec: number; dataUrl: string }>;
   sourceSession: SourceSession | null;
   sourceBusy: boolean;
   exportBusy: boolean;
@@ -1265,6 +1289,13 @@ function TimelineEditor({
 
       <div className="timeline-rail-wrap">
         <div className="timeline-rail" aria-hidden="true">
+          {thumbnails.length > 0 ? (
+            <div className="timeline-filmstrip">
+              {thumbnails.map((thumb, i) => (
+                <img key={i} src={thumb.dataUrl} alt="" />
+              ))}
+            </div>
+          ) : null}
           <span className="timeline-selected" style={{ left: rangeLeft, width: rangeWidth }} />
           <span className="timeline-playhead" style={{ left: playheadLeft }} />
           {clips.map((clip) => (
@@ -1386,7 +1417,7 @@ function TimelineEditor({
         </span>
       </div>
 
-      <div className="source-session-row">
+      <div className={`source-session-row${sourceSession ? ' is-ready' : ''}`}>
         <div>
           <strong>{sourceSession ? STRINGS.timeline.sourceReady : STRINGS.timeline.sourceNotReady}</strong>
           <span>{sourceSession ? STRINGS.timeline.sourceReadyBody(sourceSession.inputName, formatBytes(sourceSession.inputSize)) : STRINGS.timeline.sourceNotReadyBody}</span>
@@ -1524,6 +1555,7 @@ function PreviewPanel({
   onSaveAs,
   onSendWebhook,
   onCopyText,
+  onNotice,
   onPreviewTime,
   previewSeekTime,
   recentOutputs,
@@ -1540,6 +1572,7 @@ function PreviewPanel({
   onSaveAs: (job: Job) => void;
   onSendWebhook: (webhookUrl: string) => void;
   onCopyText: (text: string, successMessage: string) => void;
+  onNotice: (message: string) => void;
   onPreviewTime: (seconds: number) => void;
   previewSeekTime: number | null;
   recentOutputs: RecentOutput[];
@@ -1560,6 +1593,16 @@ function PreviewPanel({
   }, [job?.id, job?.status, job?.inputName]);
 
   useEffect(() => {
+    setOutputPaused(false);
+    setCompareMode(false);
+    setLilliputPreview(false);
+  }, [job?.id]);
+
+  useEffect(() => {
+    if (job?.settings.format !== 'gif') setLilliputPreview(false);
+  }, [job?.settings.format]);
+
+  useEffect(() => {
     if (previewSeekTime === null || !videoRef.current) return;
     const video = videoRef.current;
     const nextTime = clampNumber(previewSeekTime, 0, Number.isFinite(video.duration) ? video.duration : previewSeekTime);
@@ -1576,6 +1619,9 @@ function PreviewPanel({
 
   const lilliputTable = useMemo(() => Array.from({ length: 256 }, (_, i) => ((Math.floor(i / 8) * 8 + 4) / 255).toFixed(4)).join(' '), []);
   const lilliputStyle: React.CSSProperties | undefined = lilliputPreview ? { filter: 'url(#lilliput-crush)' } : undefined;
+  const outputMeta = job?.outputMeta;
+  const outputDimensions = outputMeta?.width && outputMeta.height ? `${outputMeta.width}x${outputMeta.height}` : STRINGS.diagnostics.emptyValue;
+  const canUseDiscordPreview = job?.settings.format === 'gif';
 
   return (
     <aside className="preview-panel" aria-label={STRINGS.preview.aria}>
@@ -1618,7 +1664,7 @@ function PreviewPanel({
         )}
       </div>
 
-      <section className="output-box" aria-label={STRINGS.output.aria}>
+      <section className="output-box" aria-label={STRINGS.output.aria} aria-live="polite">
         <div className="output-title">
           <FileDown aria-hidden="true" />
           <h3>{STRINGS.output.title}</h3>
@@ -1633,9 +1679,12 @@ function PreviewPanel({
             </div>
             <p className="muted-text">{outputSuitability(job)}</p>
             {job.outputMeta ? (
-              <p className="muted-text">
-                {job.outputMeta.width}x{job.outputMeta.height}{job.outputMeta.durationSec ? `, ${job.outputMeta.durationSec.toFixed(1)}s` : ''}{job.outputMeta.fps ? `, ${job.outputMeta.fps.toFixed(0)} fps` : ''}{job.ssim != null ? ` · ${Math.round(job.ssim * 100)}% quality` : ''}
-              </p>
+              <div className="output-meta-grid" aria-label={STRINGS.output.meta.aria}>
+                <span>{STRINGS.output.meta.dimensions}<strong>{outputDimensions}</strong></span>
+                <span>{STRINGS.output.meta.duration}<strong>{outputMeta?.durationSec ? formatSeconds(outputMeta.durationSec) : STRINGS.diagnostics.emptyValue}</strong></span>
+                <span>{STRINGS.output.meta.fps}<strong>{outputMeta?.fps ? outputMeta.fps.toFixed(0) : STRINGS.diagnostics.emptyValue}</strong></span>
+                <span>{STRINGS.output.meta.quality}<strong>{job.ssim != null ? `${Math.round(job.ssim * 100)}%` : STRINGS.diagnostics.emptyValue}</strong></span>
+              </div>
             ) : null}
             {job.discordChecks && job.discordChecks.length > 0 ? (
               <ul className="discord-checks" role="list">
@@ -1650,35 +1699,49 @@ function PreviewPanel({
             <div className={`output-preview${compareMode ? ' compare-active' : ''}`}>
               {compareMode && objectUrl ? (
                 <div className="compare-grid">
-                  <div className="compare-label">Source</div>
-                  {isGif ? <img src={objectUrl} alt="Source" /> : <video src={objectUrl} muted loop playsInline autoPlay />}
-                  <div className="compare-label">Output</div>
-                  {job.settings.format === 'mp4' ? (
-                    <video src={job.downloadUrl} muted loop playsInline autoPlay />
-                  ) : (
-                    <img src={job.downloadUrl} alt={STRINGS.output.outputPreviewAlt} />
-                  )}
+                  <figure className="compare-card">
+                    <figcaption>{STRINGS.output.compareSource}</figcaption>
+                    {isGif ? <img src={objectUrl} alt={STRINGS.output.compareSource} /> : <video src={objectUrl} muted loop playsInline autoPlay />}
+                  </figure>
+                  <figure className="compare-card">
+                    <figcaption>{STRINGS.output.compareOutput}</figcaption>
+                    {job.settings.format === 'mp4' ? (
+                      <video src={job.downloadUrl} muted loop playsInline autoPlay />
+                    ) : (
+                      <img src={job.downloadUrl} alt={STRINGS.output.outputPreviewAlt} style={lilliputStyle} />
+                    )}
+                  </figure>
                 </div>
               ) : job.settings.format === 'mp4' ? (
-                <video src={job.downloadUrl} controls muted loop playsInline style={lilliputStyle} />
+                <video src={job.downloadUrl} controls muted loop playsInline />
+              ) : outputPaused ? (
+                <div className="motion-hidden-state" role="img" aria-label={STRINGS.output.motionHiddenTitle}>
+                  <EyeOff aria-hidden="true" />
+                  <strong>{STRINGS.output.motionHiddenTitle}</strong>
+                  <span>{STRINGS.output.motionHiddenBody}</span>
+                </div>
               ) : (
-                <img src={outputPaused ? undefined : job.downloadUrl} alt={STRINGS.output.outputPreviewAlt} style={lilliputStyle} />
+                <img src={job.downloadUrl} alt={STRINGS.output.outputPreviewAlt} style={lilliputStyle} />
               )}
-              <div className="output-preview-actions">
+              <div className="output-preview-actions" role="group" aria-label={STRINGS.output.reviewControls}>
                 {job.settings.format !== 'mp4' && !compareMode ? (
-                  <button type="button" className="secondary-button output-pause" onClick={() => setOutputPaused((p) => !p)}>
-                    {outputPaused ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
-                    {outputPaused ? 'Play' : 'Pause'}
+                  <button type="button" className="secondary-button output-pause" aria-pressed={outputPaused} onClick={() => setOutputPaused((p) => !p)}>
+                    {outputPaused ? <Play size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}
+                    {outputPaused ? STRINGS.output.showMotion : STRINGS.output.hideMotion}
                   </button>
                 ) : null}
                 {objectUrl ? (
-                  <button type="button" className="secondary-button output-pause" onClick={() => setCompareMode((c) => !c)}>
-                    {compareMode ? 'Hide compare' : 'Compare'}
+                  <button type="button" className="secondary-button output-pause" aria-pressed={compareMode} onClick={() => setCompareMode((c) => !c)}>
+                    <Columns2 size={14} aria-hidden="true" />
+                    {compareMode ? STRINGS.output.hideCompare : STRINGS.output.compare}
                   </button>
                 ) : null}
-                <button type="button" className={`secondary-button output-pause${lilliputPreview ? ' active' : ''}`} onClick={() => setLilliputPreview((p) => !p)}>
-                  Discord preview
-                </button>
+                {canUseDiscordPreview ? (
+                  <button type="button" className={`secondary-button output-pause${lilliputPreview ? ' active' : ''}`} aria-pressed={lilliputPreview} onClick={() => setLilliputPreview((p) => !p)}>
+                    <ShieldCheck size={14} aria-hidden="true" />
+                    {STRINGS.output.discordPreview}
+                  </button>
+                ) : null}
               </div>
             </div>
             <div className="download-grid">
@@ -1691,7 +1754,7 @@ function PreviewPanel({
                 {STRINGS.output.openOutput}
               </button>
               <button type="button" className="secondary-button" onClick={() => onSaveAs(job)}>
-                <Download aria-hidden="true" />
+                <FileDown aria-hidden="true" />
                 {STRINGS.output.saveAs}
               </button>
               <button type="button" className="secondary-button" onClick={async () => {
@@ -1701,13 +1764,13 @@ function PreviewPanel({
                   const blob = await res.blob();
                   const mime = blob.type.startsWith('image/') ? blob.type : 'image/gif';
                   await navigator.clipboard.write([new ClipboardItem({ [mime]: blob })]);
-                  onCopyText('', 'Copied to clipboard');
+                  onNotice(STRINGS.notices.outputCopied);
                 } catch {
-                  onCopyText('', 'Clipboard copy not supported in this browser');
+                  onNotice(STRINGS.notices.clipboardImageUnsupported);
                 }
               }}>
                 <ClipboardCopy aria-hidden="true" />
-                Copy
+                {STRINGS.output.copyOutput}
               </button>
             </div>
             <label className="alt-field">
@@ -1720,13 +1783,23 @@ function PreviewPanel({
             <WebhookRow onSend={onSendWebhook} />
           </>
         ) : job?.status === 'failed' ? (
-          <>
-            <p className="error-text">{job.error}</p>
-            {job.errorCode ? <p className="muted-text">{STRINGS.output.errorCode(job.errorCode)}</p> : null}
-            <p className="muted-text">{STRINGS.output.failedRecovery}</p>
-          </>
+          <div className="state-card error-state">
+            <AlertTriangle aria-hidden="true" />
+            <div>
+              <strong>{STRINGS.output.failedTitle}</strong>
+              <p>{job.error}</p>
+              {job.errorCode ? <span>{STRINGS.output.errorCode(job.errorCode)}</span> : null}
+              <small>{STRINGS.output.failedRecovery}</small>
+            </div>
+          </div>
         ) : job?.status === 'cancelled' ? (
-          <p className="muted-text">{STRINGS.output.cancelledRecovery}</p>
+          <div className="state-card">
+            <AlertTriangle aria-hidden="true" />
+            <div>
+              <strong>{STRINGS.output.cancelledTitle}</strong>
+              <p>{STRINGS.output.cancelledRecovery}</p>
+            </div>
+          </div>
         ) : (
           <EmptyState icon={<FileDown aria-hidden="true" />} title={STRINGS.output.emptyTitle} body={STRINGS.output.empty} compact />
         )}
