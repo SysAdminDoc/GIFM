@@ -355,6 +355,8 @@ const en = {
   timeline: {
     aria: 'Timeline video editor',
     title: 'Timeline editor',
+    noSourceTitle: 'Timeline waits for a source',
+    noSourceBody: 'Load a video or GIF to reveal trim controls, saved cuts, source prep, and frame editing.',
     durationLabel: (clip: string, source: string) => `${clip} clip / ${source} source`,
     playhead: (time: string) => `Playhead ${time}`,
     previewStart: 'Preview start',

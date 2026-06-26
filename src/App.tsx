@@ -1361,6 +1361,20 @@ function TimelineEditor({
     setEndAndSeek(value);
   };
 
+  if (!sourceMeta && !probeBusy) {
+    return (
+      <section className="timeline-editor timeline-editor-empty" aria-label={STRINGS.timeline.aria}>
+        <div className="timeline-head">
+          <div className="output-title">
+            <Scissors aria-hidden="true" />
+            <h3>{STRINGS.timeline.title}</h3>
+          </div>
+        </div>
+        <EmptyState icon={<Scissors aria-hidden="true" />} title={STRINGS.timeline.noSourceTitle} body={STRINGS.timeline.noSourceBody} compact />
+      </section>
+    );
+  }
+
   return (
     <section className={`timeline-editor${probeBusy ? ' is-loading' : ''}`} aria-label={STRINGS.timeline.aria} aria-busy={probeBusy}>
       <div className="timeline-head">

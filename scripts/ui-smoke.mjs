@@ -79,7 +79,7 @@ try {
   await assertVisibleText(page, 'FFmpeg palette');
   await assertVisibleText(page, 'Bundled FFmpeg palette encoder.');
   await assertVisibleText(page, 'Timeline editor');
-  await assertVisibleText(page, 'Saved GIF cuts');
+  await assertVisibleText(page, 'Timeline waits for a source');
   await assertVisibleText(page, 'Diagnostics');
   await page.setInputFiles('input[aria-label="Choose video or GIF file"]', samplePath);
   await page.getByText('Client frame', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
