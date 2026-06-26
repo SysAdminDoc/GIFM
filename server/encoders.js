@@ -217,11 +217,13 @@ export function runFfmpeg(args, job, stage, progressStart, progressEnd, duration
     const child = spawn(ctx.ffmpegPath, ['-hide_banner', '-protocol_whitelist', 'file,pipe', ...args], { windowsHide: true });
     recordCommand(job, stage, ['-hide_banner', '-protocol_whitelist', 'file,pipe', ...args]);
     trackChild(job, child);
+    const MAX_STDERR = 64 * 1024;
     let stderr = '';
 
     child.stderr.on('data', (chunk) => {
       const text = chunk.toString();
       stderr += text;
+      if (stderr.length > MAX_STDERR) stderr = stderr.slice(-MAX_STDERR);
       const line = text.trim();
       if (line) {
         const compact = line.split(/\r?\n/).slice(-2).join(' | ');

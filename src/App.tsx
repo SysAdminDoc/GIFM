@@ -180,6 +180,7 @@ function GifmApp() {
   const [frameManifest, setFrameManifest] = useState<FrameManifest | null>(null);
   const [editedFrames, setEditedFrames] = useState<ExtractedFrame[]>([]);
   const [frameBusy, setFrameBusy] = useState(false);
+  const [zoomedFrameIndex, setZoomedFrameIndex] = useState<number | null>(null);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>(() => loadTimelineClips());
   const [selectedClipId, setSelectedClipId] = useState('');
   const [health, setHealth] = useState<HealthInfo | null>(null);
@@ -1034,11 +1035,13 @@ function GifmApp() {
               ) : null}
             </div>
             {editedFrames.length > 0 ? (
-              <div className="frame-strip">
+              <div className="frame-strip" role="list">
                 {editedFrames.map((frame, arrayIndex) => (
                   <div
                     key={`frame-${frame.index}`}
                     className="frame-card"
+                    role="listitem"
+                    aria-label={STRINGS.timeline.frameAlt(frame.index + 1)}
                     draggable
                     onDragStart={() => { dragFrameRef.current = arrayIndex; }}
                     onDragOver={(e) => e.preventDefault()}
@@ -1055,15 +1058,12 @@ function GifmApp() {
                     }}
                     onDragEnd={() => { dragFrameRef.current = null; }}
                   >
-                    <img src={frame.url} alt={STRINGS.timeline.frameCount(frame.index + 1)} onClick={(e) => {
-                      const img = e.currentTarget;
-                      if (img.classList.contains('frame-zoomed')) {
-                        img.classList.remove('frame-zoomed');
-                      } else {
-                        document.querySelectorAll('.frame-zoomed').forEach((el) => el.classList.remove('frame-zoomed'));
-                        img.classList.add('frame-zoomed');
-                      }
-                    }} />
+                    <img
+                      src={frame.url}
+                      alt={STRINGS.timeline.frameAlt(frame.index + 1)}
+                      className={zoomedFrameIndex === frame.index ? 'frame-zoomed' : ''}
+                      onClick={() => setZoomedFrameIndex((prev) => prev === frame.index ? null : frame.index)}
+                    />
                     <div className="frame-controls">
                       <label>
                         <span>{STRINGS.timeline.delayLabel}</span>
@@ -1134,7 +1134,7 @@ function GifmApp() {
               </span>
             ) : null}
             <span className="notice" aria-live="polite">
-              {uploadProgress !== null ? `Uploading ${uploadProgress}%` : notice}
+              {uploadProgress !== null ? STRINGS.notices.uploading(uploadProgress) : notice}
             </span>
             {uploadProgress !== null ? (
               <div className="upload-progress" role="progressbar" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100}>

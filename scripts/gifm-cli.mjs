@@ -11,12 +11,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const args = parseArgs(process.argv.slice(2));
 
+const CLI_VERSION = JSON.parse(await fs.readFile(path.join(rootDir, 'package.json'), 'utf-8')).version;
+
+if (args.version) {
+  console.log(`gifm ${CLI_VERSION}`);
+  process.exit(0);
+}
+
 if (args.help || (!args.watch && !args.input)) {
   printUsage();
   process.exit(args.help ? 0 : 1);
 }
 
-const port = 4100 + Math.floor((Date.now() % 800));
+const port = 4100 + Math.floor(Math.random() * 900);
 const baseUrl = `http://127.0.0.1:${port}`;
 const outDir = path.resolve(args.out ?? process.cwd());
 await fs.mkdir(outDir, { recursive: true });
@@ -210,6 +217,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') out.help = true;
+    else if (arg === '--version' || arg === '-v') out.version = true;
     else if (arg.startsWith('--')) {
       const key = toCamelCase(arg.slice(2));
       const value = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[(i += 1)] : 'true';

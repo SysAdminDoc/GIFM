@@ -69,6 +69,7 @@ const en = {
     clipLoaded: (name: string) => `${name} loaded into the timeline`,
     clipDeleted: (name: string) => `${name} deleted`,
     submittingClips: (count: number) => `Submitting ${count} clip export${count === 1 ? '' : 's'}`,
+    uploading: (percent: number) => `Uploading ${percent}%`,
     concatStarted: 'Joining clips into one output',
     clipJobsSubmitted: 'Clip exports submitted',
     selectionCleared: 'Selection cleared',
@@ -379,6 +380,7 @@ const en = {
     exportClip: 'Export',
     exportCsv: 'Export CSV',
     importCsv: 'Import CSV',
+    frameAlt: (index: number) => `Frame ${index}`,
     duplicateClip: 'Duplicate clip',
     deleteClip: (name: string) => `Delete ${name}`,
     emptyTitle: 'Cut list',
@@ -484,7 +486,8 @@ const en = {
   progress: {
     aria: 'Encoding progress',
     idle: 'Ready to encode',
-    readyBody: 'Progress, warnings, and queue state appear here once an export starts.'
+    readyBody: 'Progress, warnings, and queue state appear here once an export starts.',
+    eta: (time: string) => `~${time} left`
   },
   log: {
     aria: 'Log',

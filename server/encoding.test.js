@@ -344,3 +344,21 @@ test('isPrivateHost allows public addresses', () => {
   assert.equal(isPrivateHost('example.com'), false);
   assert.equal(isPrivateHost('172.32.0.1'), false);
 });
+
+test('isPrivateHost handles bracketed IPv6 addresses', () => {
+  assert.equal(isPrivateHost('[::1]'), true);
+  assert.equal(isPrivateHost('[::ffff:127.0.0.1]'), true);
+  assert.equal(isPrivateHost('[fe80::1]'), true);
+});
+
+test('nextAttempt trims duration when allowTrim is true and all visual levers are exhausted', () => {
+  const next = nextAttempt({
+    width: 120, fps: 6, colors: 32, dedupeFrames: true, frameDropModulo: 3,
+    gifsicleLossy: 160, allowLossy: true,
+    durationSec: 6, outputBytes: 12 * 1024 * 1024, targetBytes: 10 * 1024 * 1024, allowTrim: true, minWidth: 120
+  });
+  assert.ok(next);
+  assert.ok(next.durationSec < 6);
+  assert.equal(next.width, 120);
+  assert.equal(next.fps, 6);
+});
