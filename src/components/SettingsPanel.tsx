@@ -340,7 +340,7 @@ export function SettingsPanel({
                 />
               </label>
               <label className="range-field">
-                <span>Motion quality <strong>{settings.gifskiMotionQuality}</strong></span>
+                <span>{STRINGS.settings.gifskiMotionQuality.label} <strong>{settings.gifskiMotionQuality}</strong></span>
                 <input
                   type="range"
                   min={1}
@@ -348,7 +348,7 @@ export function SettingsPanel({
                   step={1}
                   value={settings.gifskiMotionQuality}
                   onChange={(event) => update('gifskiMotionQuality', clampNumber(Number(event.target.value), 1, 100))}
-                  aria-label="Motion quality"
+                aria-label={STRINGS.settings.gifskiMotionQuality.label}
                 />
               </label>
             </>

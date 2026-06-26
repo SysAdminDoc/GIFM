@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.5.2 - 2026-06-26
+
 - GIF output metadata: completed outputs now show frame count alongside dimensions, duration, fps, and SSIM quality.
 - German (Deutsch) and Japanese locale additions. The language picker now offers five locales: en/es/fr/de/ja.
 - Thumbnail filmstrip on the timeline rail: preparing a source now extracts evenly-spaced thumbnail frames and displays them as a visual strip behind the timeline selection, so users can see scene context while trimming.

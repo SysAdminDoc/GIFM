@@ -1,10 +1,10 @@
 # GIFM
 
-![Version](https://img.shields.io/badge/version-v0.5.1-4ecdc4)
+![Version](https://img.shields.io/badge/version-v0.5.2-4ecdc4)
 ![License](https://img.shields.io/badge/license-MIT-b7e35f)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-ffbd5b)
 
-GIFM v0.5.1 is a local GIF maker and compressor for Discord-ready animated GIFs. It converts MP4, MOV, WebM, AVI, MKV, and existing GIF files with bundled FFmpeg, then retries width, FPS, and palette settings until the output fits the selected target.
+GIFM v0.5.2 is a local GIF maker and compressor for Discord-ready animated GIFs. It converts MP4, MOV, WebM, AVI, MKV, and existing GIF files with bundled FFmpeg, then retries width, FPS, and palette settings until the output fits the selected target.
 
 ## Features
 
@@ -15,17 +15,19 @@ GIFM v0.5.1 is a local GIF maker and compressor for Discord-ready animated GIFs.
 - Multi-file batch submission through the same local queue and current preset.
 - Timeline editor for long videos with exact timecodes, playhead start/end marking, saved GIF cuts, and export-one/export-all actions.
 - Prepared source sessions so one long video can be staged once and reused for many GIF cuts without re-uploading it each time.
-- Visual trim timeline with source duration, resolution, FPS, codec, and rotation metadata.
+- Visual trim timeline with thumbnail filmstrip context, source duration, resolution, FPS, codec, and rotation metadata.
 - Browser-side metadata/frame preflight for supported files, with automatic FFprobe fallback when local preview decode is unavailable.
 - Auto-fit loop for width, frame rate, color count, duplicate-frame removal, nth-frame dropping, transparency rectangles, and optional duration trimming.
-- Local preview, queued/running progress, cancellable jobs, FFmpeg log, exact output byte count, and download/open-output actions.
+- Local preview, source/output comparison, Discord color-crush simulation, motion hiding, queued/running progress, cancellable jobs, FFmpeg log, exact output byte count, and download/open-output actions.
+- Output metadata cards for dimensions, duration, FPS, frame count, SSIM quality, and Discord readiness checks.
 - Output suitability and attempt strategy copy that says whether the GIF fits the selected Discord target and which compression lever was used.
 - Persisted settings, named presets, and recent outputs in browser storage.
-- Dark-first premium workspace with compact runtime trust cues, calmer settings hierarchy, and advanced transforms grouped behind a disclosure surface.
+- Dark-first premium workspace with compact runtime trust cues, calmer settings hierarchy, refined empty/error states, and advanced transforms grouped behind a disclosure surface.
+- Language picker with English, Spanish, French, German, and Japanese interface chrome.
 - Keyboard-visible focus states, reduced-motion support, ARIA progress, and an output alt-text helper.
 - Diagnostics panel with FFmpeg/FFprobe versions, platform info, source estimate, latest FFmpeg command, and copy/download JSON bundle.
 - Save-as output flow using the browser file picker when available, with download fallback.
-- Optional user-provided gifski backend for higher-quality encodes while keeping GIFM's bundled FFmpeg path as the default.
+- Optional user-provided gifski backend with separate quality and motion-quality controls while keeping GIFM's bundled FFmpeg path as the default.
 
 ## Screenshot
 

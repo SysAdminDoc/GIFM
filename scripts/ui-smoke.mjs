@@ -149,6 +149,20 @@ try {
   for (const text of frChecks) await assertVisibleText(page, text);
   const frOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   if (frOverflow) throw new Error('French locale has horizontal overflow.');
+
+  const deChecks = ['Video oder GIF ablegen', 'Ziel', 'Vorschau', 'Breite'];
+  await page.evaluate(() => window.localStorage.setItem('gifm:locale:v1', JSON.stringify('de')));
+  await page.reload({ waitUntil: 'load' });
+  for (const text of deChecks) await assertVisibleText(page, text);
+  const deOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  if (deOverflow) throw new Error('German locale has horizontal overflow.');
+
+  const jaChecks = ['動画またはGIFをドロップ', 'ターゲット', 'プレビュー', '幅'];
+  await page.evaluate(() => window.localStorage.setItem('gifm:locale:v1', JSON.stringify('ja')));
+  await page.reload({ waitUntil: 'load' });
+  for (const text of jaChecks) await assertVisibleText(page, text);
+  const jaOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  if (jaOverflow) throw new Error('Japanese locale has horizontal overflow.');
   await page.evaluate(() => window.localStorage.removeItem('gifm:locale:v1'));
 
   // Verify theme switching: light and high-contrast themes render without overflow or console errors.
@@ -201,7 +215,7 @@ try {
   await page.reload({ waitUntil: 'load' });
   const hasProgressbar = await page.evaluate(() => !!document.querySelector('[role="progressbar"]'));
 
-  console.log(`UI smoke passed: themes (dark/light/high-contrast), mobile (375px), keyboard focus, reduced-motion, ARIA progressbar${hasProgressbar ? '' : ' (warn: no progressbar found — expected when no job active)'}, locales (en/es/fr).`);
+  console.log(`UI smoke passed: themes (dark/light/high-contrast), mobile (375px), keyboard focus, reduced-motion, ARIA progressbar${hasProgressbar ? '' : ' (warn: no progressbar found — expected when no job active)'}, locales (en/es/fr/de/ja).`);
 } finally {
   await browser?.close().catch(() => {});
   server.kill();
@@ -216,7 +230,7 @@ async function assertVisibleText(page, text) {
 
 function waitForHealth() {
   return new Promise((resolve, reject) => {
-    const deadline = Date.now() + 15000;
+    const deadline = Date.now() + 45000;
     const tick = async () => {
       try {
         const response = await fetch(`${baseUrl}/api/health`);

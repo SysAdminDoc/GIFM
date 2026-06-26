@@ -208,6 +208,9 @@ const en = {
     gifskiQuality: {
       label: 'gifski quality'
     },
+    gifskiMotionQuality: {
+      label: 'Motion quality'
+    },
     loop: {
       label: 'Loop',
       options: {
@@ -530,7 +533,7 @@ export const LOCALE_LABELS: Record<Locale, string> = {
   es: 'Espanol',
   fr: 'Francais',
   de: 'Deutsch',
-  ja: 'Japanese'
+  ja: '日本語'
 };
 
 // Spanish overrides for the visible interface chrome. Any key omitted here falls back to English
@@ -658,6 +661,8 @@ const deOverrides = {
     ready: 'Bereit fur Video oder GIF',
     localOnly: 'Nur lokal',
     ffmpegReady: 'FFmpeg bereit',
+    ffmpegUnavailable: 'FFmpeg nicht verfugbar',
+    runtimePending: 'Laufzeit wird gepruft',
     theme: {
       label: 'Design',
       options: { dark: 'Dunkel', light: 'Hell', highContrast: 'Hoher Kontrast' }
@@ -665,6 +670,7 @@ const deOverrides = {
   },
   input: {
     heading: 'Video oder GIF ablegen',
+    description: 'MP4-, MOV-, WebM-, AVI-, MKV- und GIF-Dateien bleiben auf diesem Computer, wahrend GIFM sie lokal pruft, voranzeigt und anpasst.',
     browse: 'Durchsuchen',
     importUrl: 'URL importieren',
     startEncoding: 'Kodierung starten',
@@ -673,7 +679,15 @@ const deOverrides = {
   },
   target: { title: 'Ziel', subtitle: 'Discord-Grosseneinstellungen' },
   preview: { title: 'Vorschau', noFile: 'Keine Datei ausgewahlt' },
-  output: { title: 'Ausgabe', download: 'Herunterladen', saveAs: 'Speichern unter' },
+  output: {
+    title: 'Ausgabe',
+    download: 'Herunterladen',
+    open: 'Offnen',
+    saveAs: 'Speichern unter',
+    copyOutput: 'Ausgabe kopieren',
+    emptyTitle: 'Noch kein Export',
+    empty: 'Fertige GIFs erscheinen hier mit genauer Dateigrosse, Passstatus und Speicheraktionen.'
+  },
   settings: {
     width: 'Breite',
     duration: 'Dauer',
@@ -681,7 +695,8 @@ const deOverrides = {
     sections: {
       target: { title: 'Zielprofil', description: 'Discord-Limit wahlen, dann Qualitat anpassen.' },
       clip: { title: 'Clip und Ausgabe', description: 'Abmessungen, Dauer und Bildrate einstellen.' },
-      encoding: { title: 'Kodierungsstrategie', description: 'Paletten-Qualitat und Anpassungsverhalten steuern.' }
+      encoding: { title: 'Kodierungsstrategie', description: 'Paletten-Qualitat und Anpassungsverhalten steuern.' },
+      presets: { title: 'Gespeicherte Presets', description: 'Wiederverwendbare Discord-Exporteinstellungen speichern.' }
     }
   }
 };
@@ -692,6 +707,8 @@ const jaOverrides = {
     ready: '動画またはGIFを選択',
     localOnly: 'ローカルのみ',
     ffmpegReady: 'FFmpeg準備完了',
+    ffmpegUnavailable: 'FFmpeg未検出',
+    runtimePending: '実行環境を確認中',
     theme: {
       label: 'テーマ',
       options: { dark: 'ダーク', light: 'ライト', highContrast: 'ハイコントラスト' }
@@ -699,17 +716,35 @@ const jaOverrides = {
   },
   input: {
     heading: '動画またはGIFをドロップ',
+    description: 'MP4、MOV、WebM、AVI、MKV、GIFはこのPC上に残したまま、GIFMがローカルで解析、プレビュー、サイズ調整します。',
     browse: '参照',
+    importUrl: 'URLを取り込む',
+    queue: 'キュー',
     startEncoding: 'エンコード開始',
+    cancel: 'キャンセル',
     reset: 'リセット'
   },
   target: { title: 'ターゲット', subtitle: 'Discordサイズ設定' },
   preview: { title: 'プレビュー', noFile: 'ファイル未選択' },
-  output: { title: '出力', download: 'ダウンロード', saveAs: '名前を付けて保存' },
+  output: {
+    title: '出力',
+    download: 'ダウンロード',
+    open: '開く',
+    saveAs: '名前を付けて保存',
+    copyOutput: '出力をコピー',
+    emptyTitle: 'まだ書き出しはありません',
+    empty: '完了したGIFは、正確なサイズ、判定、保存操作とともにここに表示されます。'
+  },
   settings: {
     width: '幅',
     duration: '時間',
-    speed: { label: '速度', option: (value: number) => `${value}x` }
+    speed: { label: '速度', option: (value: number) => `${value}x` },
+    sections: {
+      target: { title: 'ターゲット設定', description: '品質を調整する前にDiscordの上限を選びます。' },
+      clip: { title: 'クリップと出力', description: '寸法、タイミング、フレームレートを設定します。' },
+      encoding: { title: 'エンコード方針', description: 'パレット品質と自動調整を制御します。' },
+      presets: { title: '保存済みプリセット', description: '再利用するDiscord書き出し設定を保存します。' }
+    }
   }
 };
 

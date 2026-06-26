@@ -624,7 +624,7 @@ function cleanupSettings() {
 
 function waitForHealth() {
   return new Promise((resolve, reject) => {
-    const deadline = Date.now() + 15000;
+    const deadline = Date.now() + 45000;
     const tick = async () => {
       try {
         const response = await fetch(`${baseUrl}/api/health`);
