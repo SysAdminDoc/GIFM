@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Video thumbnail scrubbing on timeline hover: hovering over the timeline rail shows a floating preview thumbnail of the video at that timecode, with the closest extracted frame and a timecode label.
+- Dither mode visual comparison grid: a "Compare dithers" button in the encoding settings generates side-by-side previews of all 4 dither modes (Sierra 2-4A, Bayer, Floyd-Steinberg, None) from the prepared source at current width/color settings. Click a result to select that dither mode. Shows per-mode file size.
+
 ## v0.5.2 - 2026-06-26
 
 - GIF output metadata: completed outputs now show frame count alongside dimensions, duration, fps, and SSIM quality.

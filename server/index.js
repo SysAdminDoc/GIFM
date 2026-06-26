@@ -230,6 +230,58 @@ app.get('/api/sources/:id/thumbnails', async (request, response, next) => {
   }
 });
 
+app.get('/api/sources/:id/dither-compare', async (request, response, next) => {
+  try {
+    const source = sources.get(request.params.id);
+    if (!source || !source.inputPath || !existsSync(source.inputPath)) {
+      sendApiError(response, new ApiError(404, 'SOURCE_NOT_FOUND', 'Source not found.'));
+      return;
+    }
+    const duration = source.metadata?.durationSec ?? 0;
+    const sampleTime = Math.min(duration * 0.3, 1);
+    const width = clamp(Number(request.query.width) || 240, 120, 480);
+    const colors = clamp(Number(request.query.colors) || 96, 16, 256);
+    const compareDir = path.join(workDir, `dither-${randomUUID()}`);
+    await fs.mkdir(compareDir, { recursive: true });
+
+    const modes = [
+      { key: 'sierra2_4a', label: 'Sierra 2-4A', dither: 'dither=sierra2_4a' },
+      { key: 'bayer', label: 'Bayer', dither: 'dither=bayer:bayer_scale=3' },
+      { key: 'floyd_steinberg', label: 'Floyd-Steinberg', dither: 'dither=floyd_steinberg' },
+      { key: 'none', label: 'No dither', dither: 'dither=none' }
+    ];
+
+    try {
+      const palettePath = path.join(compareDir, 'palette.png');
+      await runFfmpegSimple(['-ss', String(sampleTime), '-i', source.inputPath, '-frames:v', '1', '-vf', `scale=${even(width)}:-2:flags=lanczos,palettegen=max_colors=${colors}`, '-y', palettePath]);
+
+      const results = [];
+      for (const mode of modes) {
+        const outPath = path.join(compareDir, `${mode.key}.gif`);
+        try {
+          await runFfmpegSimple([
+            '-ss', String(sampleTime), '-i', source.inputPath,
+            '-i', palettePath,
+            '-frames:v', '1',
+            '-lavfi', `scale=${even(width)}:-2:flags=lanczos[x];[x][1:v]paletteuse=${mode.dither}`,
+            '-y', outPath
+          ]);
+          const data = await fs.readFile(outPath);
+          const stat = await fs.stat(outPath);
+          results.push({ key: mode.key, label: mode.label, dataUrl: `data:image/gif;base64,${data.toString('base64')}`, bytes: stat.size });
+        } catch {
+          results.push({ key: mode.key, label: mode.label, dataUrl: '', bytes: 0 });
+        }
+      }
+      response.json({ results });
+    } finally {
+      await fs.rm(compareDir, { recursive: true, force: true }).catch(() => {});
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/sources/:id/loops', async (request, response, next) => {
   try {
     const source = sources.get(request.params.id);
@@ -1717,14 +1769,28 @@ async function cleanupInput(job) {
 async function removeFile(filePath) {
   if (!filePath) return true;
 
-  try {
-    await fs.rm(filePath, { force: true });
-    return true;
-  } catch (error) {
-    if (error?.code === 'ENOENT') return true;
-    if (error?.code === 'EBUSY' || error?.code === 'EPERM') return false;
-    throw error;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await fs.rm(filePath, { force: true });
+      return true;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return true;
+      if (error?.code === 'EBUSY' || error?.code === 'EPERM') {
+        if (attempt < 4) {
+          await sleep(80 * (attempt + 1));
+          continue;
+        }
+        return false;
+      }
+      throw error;
+    }
   }
+
+  return false;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function enforceOverlayRetention(keepName = '') {

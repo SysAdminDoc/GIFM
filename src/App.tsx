@@ -894,6 +894,7 @@ function GifmApp() {
           onDeletePreset={deletePreset}
           onImportPresets={importPresets}
           health={health}
+          sourceSessionId={sourceSession?.id ?? ''}
         />
 
         <section className="center-stage" aria-label={STRINGS.input.workspaceAria}>
@@ -1240,6 +1241,23 @@ function TimelineEditor({
   const rangeLeft = `${(start / duration) * 100}%`;
   const rangeWidth = `${Math.max(0.2, ((end - start) / duration) * 100)}%`;
   const playheadLeft = `${(playhead / duration) * 100}%`;
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ x: number; timeSec: number; thumb: string } | null>(null);
+
+  const onRailMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const rail = railRef.current;
+    if (!rail || !thumbnails.length) return;
+    const rect = rail.getBoundingClientRect();
+    const fraction = clampNumber((e.clientX - rect.left) / rect.width, 0, 1);
+    const timeSec = fraction * duration;
+    let closest = thumbnails[0];
+    for (const t of thumbnails) {
+      if (Math.abs(t.timeSec - timeSec) < Math.abs(closest.timeSec - timeSec)) closest = t;
+    }
+    setHoverInfo({ x: e.clientX - rect.left, timeSec, thumb: closest.dataUrl });
+  }, [thumbnails, duration]);
+
+  const onRailMouseLeave = useCallback(() => setHoverInfo(null), []);
 
   const setStart = (value: number) => {
     setSettings((current) => {
@@ -1288,7 +1306,13 @@ function TimelineEditor({
       </div>
 
       <div className="timeline-rail-wrap">
-        <div className="timeline-rail" aria-hidden="true">
+        {hoverInfo ? (
+          <div className="timeline-hover-thumb" style={{ left: `${clampNumber(hoverInfo.x, 50, (railRef.current?.offsetWidth ?? 300) - 50)}px` }}>
+            <img src={hoverInfo.thumb} alt="" />
+            <span>{formatTimecode(hoverInfo.timeSec)}</span>
+          </div>
+        ) : null}
+        <div className="timeline-rail" aria-hidden="true" ref={railRef} onMouseMove={onRailMouseMove} onMouseLeave={onRailMouseLeave}>
           {thumbnails.length > 0 ? (
             <div className="timeline-filmstrip">
               {thumbnails.map((thumb, i) => (

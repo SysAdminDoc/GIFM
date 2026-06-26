@@ -41,7 +41,8 @@ export function SettingsPanel({
   onLoadPreset,
   onDeletePreset,
   onImportPresets,
-  health
+  health,
+  sourceSessionId
 }: {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
@@ -51,6 +52,7 @@ export function SettingsPanel({
   onDeletePreset: (id: string) => void;
   onImportPresets: (presets: SavedPreset[]) => void;
   health: HealthInfo | null;
+  sourceSessionId: string;
 }) {
   const [presetName, setPresetName] = useState('');
   const [selectedPresetId, setSelectedPresetId] = useState('');
@@ -254,6 +256,8 @@ export function SettingsPanel({
             <option value="none">{STRINGS.settings.ditherOptions.none}</option>
           </select>
         </label>
+
+        <DitherCompare sourceSessionId={sourceSessionId} width={settings.width} colors={settings.colors} onSelect={(key) => update('dither', key as DitherMode)} />
 
         {settings.dither === 'bayer'
           ? (
@@ -707,6 +711,49 @@ function OverlayField({ value, onChange }: { value: OverlaySettings; onChange: (
             <input type="range" min={0.1} max={1} step={0.05} value={value.opacity} onChange={(event) => onChange({ ...value, opacity: clampNumber(Number(event.target.value), 0.1, 1) })} aria-label={STRINGS.settings.overlay.opacity} />
           </label>
         </>
+      ) : null}
+    </div>
+  );
+}
+
+type DitherResult = { key: string; label: string; dataUrl: string; bytes: number };
+
+function DitherCompare({ sourceSessionId, width, colors, onSelect }: { sourceSessionId: string; width: number; colors: number; onSelect: (key: string) => void }) {
+  const [results, setResults] = useState<DitherResult[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const compare = async () => {
+    if (!sourceSessionId || busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/sources/${sourceSessionId}/dither-compare?width=${width}&colors=${colors}`);
+      if (response.ok) {
+        const data = await response.json();
+        setResults(data.results ?? []);
+      }
+    } catch {
+      // Non-critical.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="dither-compare">
+      <button type="button" className="secondary-button" disabled={!sourceSessionId || busy} onClick={compare}>
+        {busy ? <Loader2 className="spin" size={14} aria-hidden="true" /> : null}
+        {busy ? 'Comparing...' : 'Compare dithers'}
+      </button>
+      {results.length > 0 ? (
+        <div className="dither-grid">
+          {results.map((r) => (
+            <button key={r.key} type="button" className="dither-card" onClick={() => onSelect(r.key)}>
+              {r.dataUrl ? <img src={r.dataUrl} alt={r.label} /> : null}
+              <span>{r.label}</span>
+              {r.bytes > 0 ? <small>{Math.round(r.bytes / 1024)} KB</small> : null}
+            </button>
+          ))}
+        </div>
       ) : null}
     </div>
   );
