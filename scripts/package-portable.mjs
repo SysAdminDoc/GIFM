@@ -49,7 +49,7 @@ await run('dotnet', [
   '-o',
   launcherPublishDir,
   '/p:PublishSingleFile=true',
-  '/p:IncludeNativeLibrariesForSelfExtract=true',
+  '/p:IncludeNativeLibrariesForSelfExtract=false',
   '/p:DebugType=none',
   '/p:DebugSymbols=false'
 ]);
