@@ -16,7 +16,7 @@ import {
   Video,
   Wand2
 } from 'lucide-react';
-import { SettingsPanel, CropOverlay, WebhookRow, UrlImportRow, NumberField } from './components/SettingsPanel';
+import { SettingsPanel, WebhookRow, UrlImportRow, NumberField } from './components/SettingsPanel';
 import { clampNumber, evenNumber, formatBytes, profileFor, normalizeCrop, normalizeLoopCount, readStorage, writeStorage, readApiError, formatTimecode } from './utils';
 import {
   Component,
@@ -1528,6 +1528,10 @@ function PreviewPanel({
     }
   }, [previewSeekTime, objectUrl]);
 
+  const cropStyle: React.CSSProperties | undefined = crop.enabled
+    ? { objectViewBox: `inset(${crop.y * 100}% ${(1 - crop.x - crop.w) * 100}% ${(1 - crop.y - crop.h) * 100}% ${crop.x * 100}%)` }
+    : undefined;
+
   return (
     <aside className="preview-panel" aria-label={STRINGS.preview.aria}>
       <div className="panel-heading">
@@ -1540,7 +1544,7 @@ function PreviewPanel({
 
       <div className="preview-box">
         {objectUrl && isGif ? (
-          <img src={objectUrl} alt={STRINGS.preview.selectedGifAlt} />
+          <img src={objectUrl} alt={STRINGS.preview.selectedGifAlt} style={cropStyle} />
         ) : objectUrl ? (
           <video
             ref={videoRef}
@@ -1548,6 +1552,7 @@ function PreviewPanel({
             controls
             muted
             playsInline
+            style={cropStyle}
             onLoadedMetadata={(event) => onPreviewTime(event.currentTarget.currentTime)}
             onSeeked={(event) => onPreviewTime(event.currentTarget.currentTime)}
             onTimeUpdate={(event) => onPreviewTime(event.currentTarget.currentTime)}
@@ -1555,7 +1560,6 @@ function PreviewPanel({
         ) : (
           <EmptyState icon={<Video aria-hidden="true" />} title={STRINGS.preview.emptyTitle} body={STRINGS.preview.empty} />
         )}
-        {objectUrl && crop.enabled ? <CropOverlay crop={crop} /> : null}
       </div>
 
       <section className="output-box" aria-label={STRINGS.output.aria}>
