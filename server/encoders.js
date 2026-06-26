@@ -584,8 +584,9 @@ export async function encodeWithGifski({ job, attempt, outputPath, startSec, dur
   }
 
   const gifskiArgs = ['--quality', String(job.settings.gifskiQuality)];
-  // gifski follows the same loop convention as the gif muxer (0 = infinite, -1 = play once);
-  // infinite is the default, so only pass --repeat when the user asked for something else.
+  if (job.settings.gifskiMotionQuality !== job.settings.gifskiQuality) {
+    gifskiArgs.push('--motion-quality', String(job.settings.gifskiMotionQuality));
+  }
   if (job.settings.loopCount !== 0) gifskiArgs.push('--repeat', String(job.settings.loopCount));
   gifskiArgs.push('--output', outputPath, '-');
 

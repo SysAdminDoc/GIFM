@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Source vs output side-by-side comparison: "Compare" toggle in the output preview shows source and output stacked for direct quality evaluation without downloading.
+- Discord Lilliput simulation preview: "Discord preview" toggle applies the Lilliput 5-bit color-crush formula via an SVG feComponentTransfer filter, showing expected Discord appearance before uploading.
+- gifski motion-quality slider: when the gifski backend is selected, a separate motion-quality control appears alongside the existing quality slider, exposing gifski 1.32's `--motion-quality` flag for finer temporal denoising control.
 - Output preview pause/play toggle for animated GIF/APNG/WebP outputs (WCAG 2.2.2 compliance for content >5 seconds).
 - Estimated output size chip in the action row — shows a green/amber indicator of whether the current settings are likely to fit the target before encoding starts.
 - Encode elapsed time and ETA display in the progress panel during active encodes.

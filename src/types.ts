@@ -32,6 +32,7 @@ export type Settings = {
   allowTrim: boolean;
   optimize: boolean;
   gifskiQuality: number;
+  gifskiMotionQuality: number;
   loopCount: number;
   speed: number;
   playback: Playback;

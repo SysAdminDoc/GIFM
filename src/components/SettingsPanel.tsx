@@ -326,18 +326,32 @@ export function SettingsPanel({
 
         {settings.encoderBackend === 'gifski'
           ? (
-            <label className="range-field">
-              <span>{STRINGS.settings.gifskiQuality.label} <strong>{settings.gifskiQuality}</strong></span>
-              <input
-                type="range"
-                min={1}
-                max={100}
-                step={1}
-                value={settings.gifskiQuality}
-                onChange={(event) => update('gifskiQuality', clampNumber(Number(event.target.value), 1, 100))}
-                aria-label={STRINGS.settings.gifskiQuality.label}
-              />
-            </label>
+            <>
+              <label className="range-field">
+                <span>{STRINGS.settings.gifskiQuality.label} <strong>{settings.gifskiQuality}</strong></span>
+                <input
+                  type="range"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={settings.gifskiQuality}
+                  onChange={(event) => update('gifskiQuality', clampNumber(Number(event.target.value), 1, 100))}
+                  aria-label={STRINGS.settings.gifskiQuality.label}
+                />
+              </label>
+              <label className="range-field">
+                <span>Motion quality <strong>{settings.gifskiMotionQuality}</strong></span>
+                <input
+                  type="range"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={settings.gifskiMotionQuality}
+                  onChange={(event) => update('gifskiMotionQuality', clampNumber(Number(event.target.value), 1, 100))}
+                  aria-label="Motion quality"
+                />
+              </label>
+            </>
           )
           : null}
 

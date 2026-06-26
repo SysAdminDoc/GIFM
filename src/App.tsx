@@ -85,6 +85,7 @@ const DEFAULT_SETTINGS: Settings = {
   allowTrim: false,
   optimize: true,
   gifskiQuality: 90,
+  gifskiMotionQuality: 90,
   loopCount: 0,
   speed: 1,
   playback: 'normal',
@@ -1548,6 +1549,8 @@ function PreviewPanel({
   const isGif = file?.type === 'image/gif' || file?.name.toLowerCase().endsWith('.gif');
   const [altText, setAltText] = useState('');
   const [outputPaused, setOutputPaused] = useState(false);
+  const [compareMode, setCompareMode] = useState(false);
+  const [lilliputPreview, setLilliputPreview] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -1571,8 +1574,22 @@ function PreviewPanel({
     ? { objectViewBox: `inset(${crop.y * 100}% ${(1 - crop.x - crop.w) * 100}% ${(1 - crop.y - crop.h) * 100}% ${crop.x * 100}%)` }
     : undefined;
 
+  const lilliputTable = useMemo(() => Array.from({ length: 256 }, (_, i) => ((Math.floor(i / 8) * 8 + 4) / 255).toFixed(4)).join(' '), []);
+  const lilliputStyle: React.CSSProperties | undefined = lilliputPreview ? { filter: 'url(#lilliput-crush)' } : undefined;
+
   return (
     <aside className="preview-panel" aria-label={STRINGS.preview.aria}>
+      <svg width="0" height="0" aria-hidden="true" style={{ position: 'absolute' }}>
+        <defs>
+          <filter id="lilliput-crush" colorInterpolationFilters="sRGB">
+            <feComponentTransfer>
+              <feFuncR type="discrete" tableValues={lilliputTable} />
+              <feFuncG type="discrete" tableValues={lilliputTable} />
+              <feFuncB type="discrete" tableValues={lilliputTable} />
+            </feComponentTransfer>
+          </filter>
+        </defs>
+      </svg>
       <div className="panel-heading">
         <Play aria-hidden="true" />
         <div>
@@ -1630,18 +1647,39 @@ function PreviewPanel({
                 ))}
               </ul>
             ) : null}
-            <div className="output-preview">
-              {job.settings.format === 'mp4' ? (
-                <video src={job.downloadUrl} controls muted loop playsInline />
+            <div className={`output-preview${compareMode ? ' compare-active' : ''}`}>
+              {compareMode && objectUrl ? (
+                <div className="compare-grid">
+                  <div className="compare-label">Source</div>
+                  {isGif ? <img src={objectUrl} alt="Source" /> : <video src={objectUrl} muted loop playsInline autoPlay />}
+                  <div className="compare-label">Output</div>
+                  {job.settings.format === 'mp4' ? (
+                    <video src={job.downloadUrl} muted loop playsInline autoPlay />
+                  ) : (
+                    <img src={job.downloadUrl} alt={STRINGS.output.outputPreviewAlt} />
+                  )}
+                </div>
+              ) : job.settings.format === 'mp4' ? (
+                <video src={job.downloadUrl} controls muted loop playsInline style={lilliputStyle} />
               ) : (
-                <img src={outputPaused ? undefined : job.downloadUrl} alt={STRINGS.output.outputPreviewAlt} />
+                <img src={outputPaused ? undefined : job.downloadUrl} alt={STRINGS.output.outputPreviewAlt} style={lilliputStyle} />
               )}
-              {job.settings.format !== 'mp4' ? (
-                <button type="button" className="secondary-button output-pause" onClick={() => setOutputPaused((p) => !p)}>
-                  {outputPaused ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
-                  {outputPaused ? 'Play' : 'Pause'}
+              <div className="output-preview-actions">
+                {job.settings.format !== 'mp4' && !compareMode ? (
+                  <button type="button" className="secondary-button output-pause" onClick={() => setOutputPaused((p) => !p)}>
+                    {outputPaused ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
+                    {outputPaused ? 'Play' : 'Pause'}
+                  </button>
+                ) : null}
+                {objectUrl ? (
+                  <button type="button" className="secondary-button output-pause" onClick={() => setCompareMode((c) => !c)}>
+                    {compareMode ? 'Hide compare' : 'Compare'}
+                  </button>
+                ) : null}
+                <button type="button" className={`secondary-button output-pause${lilliputPreview ? ' active' : ''}`} onClick={() => setLilliputPreview((p) => !p)}>
+                  Discord preview
                 </button>
-              ) : null}
+              </div>
             </div>
             <div className="download-grid">
               <a className="primary-button" href={job.downloadUrl} download>
@@ -2147,6 +2185,7 @@ function normalizeSettings(value: Partial<Settings>): Settings {
     allowTrim: Boolean(value.allowTrim ?? DEFAULT_SETTINGS.allowTrim),
     optimize: Boolean(value.optimize ?? DEFAULT_SETTINGS.optimize),
     gifskiQuality: Math.round(clampNumber(Number(value.gifskiQuality ?? DEFAULT_SETTINGS.gifskiQuality), 1, 100)),
+    gifskiMotionQuality: Math.round(clampNumber(Number(value.gifskiMotionQuality ?? DEFAULT_SETTINGS.gifskiMotionQuality), 1, 100)),
     loopCount: normalizeLoopCount(value.loopCount),
     speed: clampNumber(Number(value.speed ?? DEFAULT_SETTINGS.speed), 0.25, 8),
     playback: isPlayback(value.playback) ? value.playback : DEFAULT_SETTINGS.playback,
