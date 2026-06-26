@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- GIF output metadata: completed outputs now show frame count alongside dimensions, duration, fps, and SSIM quality.
+- German (Deutsch) and Japanese locale additions. The language picker now offers five locales: en/es/fr/de/ja.
 - Thumbnail filmstrip on the timeline rail: preparing a source now extracts evenly-spaced thumbnail frames and displays them as a visual strip behind the timeline selection, so users can see scene context while trimming.
 - Source vs output side-by-side comparison: "Compare" toggle in the output preview shows source and output stacked for direct quality evaluation without downloading.
 - Discord Lilliput simulation preview: "Discord preview" toggle applies the Lilliput 5-bit color-crush formula via an SVG feComponentTransfer filter, showing expected Discord appearance before uploading.

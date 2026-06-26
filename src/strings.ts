@@ -54,6 +54,8 @@ const en = {
     diagnosticsCopied: 'Diagnostics copied',
     saveCancelled: 'Save cancelled',
     jobCancelled: 'Job cancelled',
+    outputCopied: 'Output copied to clipboard',
+    clipboardImageUnsupported: 'Image clipboard copy is not supported in this browser',
     presetSaved: (name: string) => `Preset saved: ${name}`,
     presetLoaded: (name: string) => `Preset loaded: ${name}`,
     presetDeleted: (name: string) => `Preset deleted: ${name}`,
@@ -349,6 +351,7 @@ const en = {
     encodeFrames: 'Encode edited frames',
     deleteFrame: 'Delete',
     delayLabel: 'Delay',
+    noFramesTitle: 'Frame strip',
     noFrames: 'Extract frames from a prepared source to edit individual frames.',
     sourceReady: 'Source prepared once',
     sourceReadyBody: (name: string, size: string) => `${name} (${size}) can export saved clips without another upload.`,
@@ -392,18 +395,39 @@ const en = {
       avif: 'Download AVIF'
     },
     outputPreviewAlt: 'Encoded output preview',
+    reviewControls: 'Output review controls',
+    compare: 'Compare',
+    hideCompare: 'Hide compare',
+    compareSource: 'Source',
+    compareOutput: 'Output',
+    discordPreview: 'Discord preview',
+    hideMotion: 'Hide motion',
+    showMotion: 'Show motion',
+    motionHiddenTitle: 'Motion hidden',
+    motionHiddenBody: 'Preview motion is hidden. The saved output is unchanged.',
     openOutput: 'Open output',
     saveAs: 'Save as',
+    copyOutput: 'Copy output',
     altText: 'Alt text',
     copyAltText: 'Copy alt text',
     sendToDiscord: 'Send to Discord',
     webhookPlaceholder: 'Discord webhook URL (optional)',
     webhookAria: 'Discord webhook URL',
     failedRecovery: 'Adjust settings and press Start encoding again, or reset the selection.',
+    failedTitle: 'Export failed',
     cancelledRecovery: 'The job was cancelled. Press Start encoding to run it again.',
+    cancelledTitle: 'Export cancelled',
     emptyTitle: 'No export yet',
     empty: 'Finished GIFs appear here with exact byte size, fit status, and save actions.',
     errorCode: (code: string) => `Error code: ${code}`,
+    meta: {
+      aria: 'Output metadata',
+      dimensions: 'Dimensions',
+      duration: 'Duration',
+      fps: 'FPS',
+      quality: 'Quality',
+      frames: 'Frames'
+    },
     fitsProfile: (profileLabel: string, description: string) => `Fits ${profileLabel}. ${description}`,
     overProfile: (profileLabel: string, lever: string) => `Over ${profileLabel}. Try ${lever}.`,
     levers: {
@@ -499,12 +523,14 @@ const en = {
 } as const;
 
 export type UiStrings = typeof en;
-export type Locale = 'en' | 'es' | 'fr';
+export type Locale = 'en' | 'es' | 'fr' | 'de' | 'ja';
 
 export const LOCALE_LABELS: Record<Locale, string> = {
   en: 'English',
   es: 'Espanol',
-  fr: 'Francais'
+  fr: 'Francais',
+  de: 'Deutsch',
+  ja: 'Japanese'
 };
 
 // Spanish overrides for the visible interface chrome. Any key omitted here falls back to English
@@ -626,10 +652,73 @@ const frOverrides = {
   }
 };
 
+const deOverrides = {
+  app: {
+    subtitle: (version: string) => `v${version} lokaler GIF-Ersteller`,
+    ready: 'Bereit fur Video oder GIF',
+    localOnly: 'Nur lokal',
+    ffmpegReady: 'FFmpeg bereit',
+    theme: {
+      label: 'Design',
+      options: { dark: 'Dunkel', light: 'Hell', highContrast: 'Hoher Kontrast' }
+    }
+  },
+  input: {
+    heading: 'Video oder GIF ablegen',
+    browse: 'Durchsuchen',
+    importUrl: 'URL importieren',
+    startEncoding: 'Kodierung starten',
+    cancel: 'Abbrechen',
+    reset: 'Zurucksetzen'
+  },
+  target: { title: 'Ziel', subtitle: 'Discord-Grosseneinstellungen' },
+  preview: { title: 'Vorschau', noFile: 'Keine Datei ausgewahlt' },
+  output: { title: 'Ausgabe', download: 'Herunterladen', saveAs: 'Speichern unter' },
+  settings: {
+    width: 'Breite',
+    duration: 'Dauer',
+    speed: { label: 'Geschwindigkeit', option: (value: number) => `${value}x` },
+    sections: {
+      target: { title: 'Zielprofil', description: 'Discord-Limit wahlen, dann Qualitat anpassen.' },
+      clip: { title: 'Clip und Ausgabe', description: 'Abmessungen, Dauer und Bildrate einstellen.' },
+      encoding: { title: 'Kodierungsstrategie', description: 'Paletten-Qualitat und Anpassungsverhalten steuern.' }
+    }
+  }
+};
+
+const jaOverrides = {
+  app: {
+    subtitle: (version: string) => `v${version} ローカルGIF作成ツール`,
+    ready: '動画またはGIFを選択',
+    localOnly: 'ローカルのみ',
+    ffmpegReady: 'FFmpeg準備完了',
+    theme: {
+      label: 'テーマ',
+      options: { dark: 'ダーク', light: 'ライト', highContrast: 'ハイコントラスト' }
+    }
+  },
+  input: {
+    heading: '動画またはGIFをドロップ',
+    browse: '参照',
+    startEncoding: 'エンコード開始',
+    reset: 'リセット'
+  },
+  target: { title: 'ターゲット', subtitle: 'Discordサイズ設定' },
+  preview: { title: 'プレビュー', noFile: 'ファイル未選択' },
+  output: { title: '出力', download: 'ダウンロード', saveAs: '名前を付けて保存' },
+  settings: {
+    width: '幅',
+    duration: '時間',
+    speed: { label: '速度', option: (value: number) => `${value}x` }
+  }
+};
+
 const LOCALES: Record<Locale, UiStrings> = {
   en,
   es: deepMerge(en, esOverrides as DeepPartial<UiStrings>),
-  fr: deepMerge(en, frOverrides as DeepPartial<UiStrings>)
+  fr: deepMerge(en, frOverrides as DeepPartial<UiStrings>),
+  de: deepMerge(en, deOverrides as DeepPartial<UiStrings>),
+  ja: deepMerge(en, jaOverrides as DeepPartial<UiStrings>)
 };
 
 let activeLocale: Locale = 'en';

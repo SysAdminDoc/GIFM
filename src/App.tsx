@@ -1684,6 +1684,7 @@ function PreviewPanel({
                 <span>{STRINGS.output.meta.duration}<strong>{outputMeta?.durationSec ? formatSeconds(outputMeta.durationSec) : STRINGS.diagnostics.emptyValue}</strong></span>
                 <span>{STRINGS.output.meta.fps}<strong>{outputMeta?.fps ? outputMeta.fps.toFixed(0) : STRINGS.diagnostics.emptyValue}</strong></span>
                 <span>{STRINGS.output.meta.quality}<strong>{job.ssim != null ? `${Math.round(job.ssim * 100)}%` : STRINGS.diagnostics.emptyValue}</strong></span>
+                {outputMeta?.frameCount ? <span>{STRINGS.output.meta.frames}<strong>{outputMeta.frameCount}</strong></span> : null}
               </div>
             ) : null}
             {job.discordChecks && job.discordChecks.length > 0 ? (

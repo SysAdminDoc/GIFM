@@ -83,6 +83,7 @@ export type OutputMeta = {
   durationSec: number | null;
   fps: number | null;
   format: string;
+  frameCount?: number | null;
 };
 
 export type Job = {

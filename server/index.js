@@ -1150,12 +1150,15 @@ async function probeOutputMetadata(job) {
   try {
     const metadata = await ffprobe(job.outputPath);
     const source = sourceMetadata(metadata);
+    const videoStream = source.video;
+    const frameCount = finiteNumber(videoStream?.nb_frames) ?? finiteNumber(videoStream?.nb_read_frames);
     job.outputMeta = {
       width: source.width,
       height: source.height,
       durationSec: source.durationSec,
       fps: source.fps,
-      format: job.settings.format
+      format: job.settings.format,
+      frameCount: frameCount ? Math.round(frameCount) : null
     };
     job.discordChecks = discordTargetChecks({
       preset: job.settings.targetPreset,
