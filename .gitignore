@@ -26,3 +26,9 @@ CODEX_CHANGELOG.md
 coverage/
 playwright-report/
 test-results/
+
+# AI config
+.codex/
+.ai/
+PROJECT_CONTEXT.md
+CONTINUATION_PROMPT.md
