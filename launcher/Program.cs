@@ -152,7 +152,7 @@ internal static class Program
     {
         using var form = new Form
         {
-            Text = "GIFM v0.5.2",
+            Text = "GIFM v0.5.3",
             StartPosition = FormStartPosition.CenterScreen,
             BackColor = Color.FromArgb(11, 15, 20),
             ForeColor = Color.FromArgb(229, 235, 246),

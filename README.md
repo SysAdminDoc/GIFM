@@ -1,10 +1,10 @@
 # GIFM
 
-![Version](https://img.shields.io/badge/version-v0.5.2-4ecdc4)
+![Version](https://img.shields.io/badge/version-v0.5.3-4ecdc4)
 ![License](https://img.shields.io/badge/license-MIT-b7e35f)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-ffbd5b)
 
-GIFM v0.5.2 is a local GIF maker and compressor for Discord-ready animated GIFs. It converts MP4, MOV, WebM, AVI, MKV, and existing GIF files with bundled FFmpeg, then retries width, FPS, and palette settings until the output fits the selected target.
+GIFM v0.5.3 is a local GIF maker and compressor for Discord-ready animated GIFs. It converts MP4, MOV, WebM, AVI, MKV, and existing GIF files with bundled FFmpeg, then retries width, FPS, and palette settings until the output fits the selected target.
 
 ## Features
 
@@ -63,6 +63,14 @@ The portable artifact is written to `release/GIFM-v<version>-win-x64/` and zippe
 GIFM's desktop shell requires the Microsoft Edge WebView2 Runtime, which ships with current Windows 11. If it is missing, `GIFM.exe` runs the bundled `MicrosoftEdgeWebview2Setup.exe` bootstrapper on first launch to install it (this needs an internet connection once); otherwise install the runtime from Microsoft and relaunch.
 
 ## Verify
+
+```powershell
+npm run release:verify
+```
+
+The release gate runs production audit/freshness checks, typecheck, production build, unit tests, API smoke tests, UI smoke tests, portable packaging, package smoke, and writes `release/GIFM-v<version>-release-manifest.json` with SHA-256 hashes for the portable ZIP and bundled WebView2 bootstrapper.
+
+Individual checks:
 
 ```powershell
 npm run typecheck
