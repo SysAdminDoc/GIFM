@@ -1,6 +1,8 @@
 # Roadmap — GIFM
 
-## Research-Driven Additions
+Actionable work only. Historical and completed roadmap material is archived in CHANGELOG.md; blocked work is kept in Roadmap_Blocked.md.
+
+## Actionable Items
 
 - [ ] P0 — Add a single local release verification gate
   Why: CI/release workflows were removed for local builds, but the portable ZIP still needs a repeatable trust gate.
@@ -15,13 +17,6 @@
   Touches: `package-lock.json`, `package.json` if ranges change, `scripts/smoke.mjs`, `scripts/ui-smoke.mjs`.
   Acceptance: production dependencies are updated within declared ranges, `npm audit --omit=dev` is clean, upload smoke tests pass, and release verification fails on future production vulnerabilities.
   Complexity: S
-
-- [ ] P1 — Hydrate persisted sources and completed jobs on startup
-  Why: restart-safe server state exists but the primary UI only restores health and shell pending import.
-  Evidence: `server/index.js` exposes `/api/sources` and `/api/jobs/history`; `src/App.tsx` startup effects fetch only `/api/health` and `/api/pending-import`.
-  Touches: `src/App.tsx`, `src/types.ts`, `src/strings.ts`, `server/index.js` if response shape needs tightening.
-  Acceptance: after restart, existing prepared sources and completed outputs appear in the UI with usable actions, missing files are shown as unavailable without crashes, and shell pending import still wins when present.
-  Complexity: M
 
 - [ ] P1 — Add manifest migration and corruption recovery coverage
   Why: unsupported or corrupt manifests are currently ignored silently, which risks losing trusted state as the manifest schema grows.
