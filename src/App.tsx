@@ -69,7 +69,7 @@ import {
   type ApiErrorPayload
 } from './types';
 
-const VERSION = '0.5.3';
+const VERSION = '0.5.4';
 const DEFAULT_SETTINGS: Settings = {
   targetPreset: 'free',
   targetMb: 10,

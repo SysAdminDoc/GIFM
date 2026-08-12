@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.4 - 2026-08-12
 
 - Dependencies: refreshed the production lock within declared ranges, including `express-rate-limit`, React, and lucide-react; production audit and freshness checks now pass with zero vulnerabilities.
 - Reliability: manifest loading now preserves corrupt or unsupported future versions under timestamped recovery names, reports the recovery state through diagnostics, and ignores entries whose media paths are gone. Added coverage for valid, missing-path, corrupt, and unsupported manifests.
