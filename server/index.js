@@ -28,6 +28,7 @@ import {
 } from './encoding.js';
 import { buildStoreZip } from './zip.js';
 import { ctx } from './context.js';
+import { MANIFEST_VERSION, hydrateManifest, readManifest } from './manifest.js';
 import {
   videoFilterChain, buildChainOpts, overlayPosition, escapeMoviePath,
   resolveOverlayPath, resolveSubtitlePath, captionFilters, escapeDrawtextPath, escapeDrawtextText,
@@ -72,6 +73,11 @@ let manifestWritePending = false;
 let manifestWriteQueued = false;
 const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
 const manifestPath = path.join(dataDir, 'manifest.json');
+const manifestState = {
+  status: 'missing',
+  recoveryPath: '',
+  message: 'No saved manifest was found.'
+};
 
 await Promise.all([uploadDir, outputDir, workDir, overlayDir].map((dir) => fs.mkdir(dir, { recursive: true })));
 assertLocalBinding();
@@ -168,7 +174,12 @@ app.get('/api/health', (_request, response) => {
     dataMaxAgeHours: Math.round(DATA_MAX_AGE_MS / 60 / 60 / 1000),
     maxConcurrentJobs: MAX_CONCURRENT_JOBS,
     maxTrimStartSec: MAX_TRIM_START_SEC,
-    preparedSources: sources.size
+    preparedSources: sources.size,
+    manifest: {
+      status: manifestState.status,
+      recoveryFile: manifestState.recoveryPath ? path.basename(manifestState.recoveryPath) : '',
+      message: manifestState.message
+    }
   });
 });
 
@@ -1747,22 +1758,19 @@ function finiteNumber(value) {
 }
 
 async function loadManifest() {
-  try {
-    const raw = await fs.readFile(manifestPath, 'utf-8');
-    const data = JSON.parse(raw);
-    if (data.version !== 1) return;
-    for (const entry of data.sources ?? []) {
-      if (entry.inputPath && existsSync(entry.inputPath)) {
-        sources.set(entry.id, { ...entry, outputCandidates: new Set() });
-      }
-    }
-    for (const entry of data.jobs ?? []) {
-      if (entry.outputPath && existsSync(entry.outputPath) && entry.status === 'complete') {
-        jobs.set(entry.id, { ...entry, outputCandidates: new Set(), logs: entry.logs ?? [], commands: entry.commands ?? [], warnings: entry.warnings ?? [], attempts: entry.attempts ?? [] });
-      }
-    }
-  } catch {
-    // No manifest or corrupt — start fresh.
+  const result = await readManifest(manifestPath);
+  manifestState.status = result.status;
+  manifestState.recoveryPath = result.recoveryPath;
+  manifestState.message = result.message;
+
+  if (!result.data) return;
+
+  const restored = hydrateManifest(result.data);
+  for (const entry of restored.sources) {
+    sources.set(entry.id, { ...entry, outputCandidates: new Set() });
+  }
+  for (const entry of restored.jobs) {
+    jobs.set(entry.id, { ...entry, outputCandidates: new Set(), logs: entry.logs ?? [], commands: entry.commands ?? [], warnings: entry.warnings ?? [], attempts: entry.attempts ?? [] });
   }
 }
 
@@ -1790,7 +1798,7 @@ async function flushManifest() {
       }
     }
     const tempPath = `${manifestPath}.tmp`;
-    await fs.writeFile(tempPath, JSON.stringify({ version: 1, sources: persistedSources, jobs: persistedJobs }, null, 2));
+    await fs.writeFile(tempPath, JSON.stringify({ version: MANIFEST_VERSION, sources: persistedSources, jobs: persistedJobs }, null, 2));
     await fs.rename(tempPath, manifestPath);
   } catch {
     // Non-fatal — manifest is a convenience, not a hard requirement.

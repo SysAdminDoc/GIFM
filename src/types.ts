@@ -133,6 +133,7 @@ export type HealthInfo = {
   maxUploadBytes?: number;
   maxTrimStartSec?: number;
   preparedSources?: number;
+  manifest?: { status: string; recoveryFile: string; message: string };
 };
 
 export type SavedPreset = {
