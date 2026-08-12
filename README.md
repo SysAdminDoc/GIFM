@@ -2,7 +2,8 @@
 
 ![Version](https://img.shields.io/badge/version-v0.5.3-4ecdc4)
 ![License](https://img.shields.io/badge/license-MIT-b7e35f)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-ffbd5b)
+![Source-run platforms](https://img.shields.io/badge/source--run-Windows%20%7C%20macOS%20%7C%20Linux-ffbd5b)
+![Portable app](https://img.shields.io/badge/portable%20app-Windows%20x64-4ecdc4)
 
 GIFM v0.5.3 is a local GIF maker and compressor for Discord-ready animated GIFs. It converts MP4, MOV, WebM, AVI, MKV, and existing GIF files with bundled FFmpeg, then retries width, FPS, and palette settings until the output fits the selected target.
 
@@ -35,6 +36,8 @@ GIFM v0.5.3 is a local GIF maker and compressor for Discord-ready animated GIFs.
 
 ## Run Locally
 
+The Node source-run workflow works on Windows, macOS, and Linux. It serves the React UI in a browser and uses the bundled native FFmpeg/FFprobe binaries for the current operating system. The packaged desktop application described below is a separate Windows x64 WebView2 shell.
+
 ```powershell
 npm install
 npm run dev
@@ -58,7 +61,9 @@ npm run package:portable
 npm run package:smoke
 ```
 
-The portable artifact is written to `release/GIFM-v<version>-win-x64/` and zipped beside it. It includes a desktop `GIFM.exe`, the built client, Express server, current Node runtime, production-only `node_modules` (devDependencies and non-Windows FFprobe binaries are pruned), bundled FFmpeg/FFprobe, caption font assets, the Microsoft Edge WebView2 bootstrapper, and a `start-gifm.cmd` compatibility wrapper. Launch `GIFM.exe` to open GIFM as a Windows desktop app with its local processing service managed in the background. To update a portable copy, replace the folder with a newly generated package.
+The portable artifact is written to `release/GIFM-v<version>-win-x64/` and zipped beside it. It includes a desktop `GIFM.exe`, the built client, Express server, current Node runtime, production-only `node_modules` (devDependencies and non-Windows FFprobe binaries are pruned), bundled FFmpeg/FFprobe, caption font assets, the Microsoft Edge WebView2 bootstrapper, and a `start-gifm.cmd` compatibility wrapper. Launch `GIFM.exe` to open GIFM as a Windows x64 desktop app with its local processing service managed in the background; this portable shell is not the macOS/Linux distribution.
+
+To update a portable copy, exit GIFM, back up the existing folder's `data/` directory if you want to retain local outputs and sessions, replace the entire versioned folder with the newly generated `GIFM-v<version>-win-x64/` folder, then restore `data/` before launching the new `GIFM.exe`. The package has no automatic updater.
 
 GIFM's desktop shell requires the Microsoft Edge WebView2 Runtime, which ships with current Windows 11. If it is missing, `GIFM.exe` runs the bundled `MicrosoftEdgeWebview2Setup.exe` bootstrapper on first launch to install it (this needs an internet connection once); otherwise install the runtime from Microsoft and relaunch.
 
