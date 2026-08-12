@@ -22,6 +22,7 @@ const steps = [
   { name: 'typecheck', task: typecheck },
   { name: 'build', task: build },
   { name: 'unit tests', task: unitTests },
+  { name: 'translation fallback audit', command: process.execPath, args: [path.join(rootDir, 'scripts', 'check-translations.mjs')] },
   { name: 'API smoke tests', command: process.execPath, args: [path.join(rootDir, 'scripts', 'smoke.mjs')] },
   { name: 'UI smoke tests', task: uiSmoke },
   { name: 'portable package', task: portablePackage },

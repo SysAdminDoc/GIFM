@@ -83,6 +83,7 @@ npm run build
 npm run test:unit
 npm run test:smoke
 npm run test:ui
+npm run test:translations
 npm run package:portable
 npm run package:smoke
 ```
@@ -90,8 +91,9 @@ npm run package:smoke
 The unit test suite (`npm run test:unit`) covers the pure encoding-strategy logic in `server/encoding.js`: auto-fit attempt stepping, settings parsing/clamping, target presets, square dimension locks, and protected-path retention matching.
 
 The smoke test generates a small local MP4, uploads it to GIFM, waits for the job to finish, downloads the result, validates the GIF header, and checks that the file fits the configured byte target.
-The UI smoke test serves the built app and verifies the default English interface renders through the shared string catalog. It also compares deterministic Playwright snapshots for the empty, source-loaded, completed-output, batch-queue, mobile, light-theme, and high-contrast states. After an intentional visual change, review the result and regenerate the committed baselines with `npm run test:ui:update`.
+The UI smoke test serves the built app and verifies the default English interface renders through the shared string catalog. It also compares deterministic Playwright snapshots for the empty, source-loaded, completed-output, batch-queue, mobile, light-theme, and high-contrast states, and checks the expanded `?locale=pseudo` catalog at desktop and mobile widths. After an intentional visual change, review the result and regenerate the committed baselines with `npm run test:ui:update`.
 On mobile widths, the timeline rail, range inputs, and timeline action buttons use 44px minimum touch targets; the UI smoke fixture verifies a source-loaded drag changes the trim range at 375px.
+`npm run test:translations` reports every English fallback leaf for es/fr/de/ja. Use `node scripts/check-translations.mjs --strict` when a release requires every catalog leaf to be translated.
 
 ## Bundled Font
 

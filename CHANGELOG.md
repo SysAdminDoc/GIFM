@@ -9,6 +9,7 @@
 - Docs: platform badges and setup guidance now distinguish the cross-platform Node source-run workflow from the Windows x64 portable WebView2 app, including the manual folder-replacement update path.
 - Tests: UI smoke now compares deterministic snapshots for core timeline, output, batch, mobile, and theme states; `npm run test:ui:update` refreshes reviewed baselines.
 - UX: timeline rail trimming now uses pointer events with capture cleanup for touch and pen input, and mobile timeline controls enforce 44px minimum targets.
+- i18n: added a catalog fallback audit and expanded pseudolocale layout checks for desktop and mobile core screens.
 
 ## v0.5.3 - 2026-06-27
 

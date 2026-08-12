@@ -19,6 +19,7 @@
     "test:smoke": "node scripts/smoke.mjs",
     "test:ui": "npm run build && node scripts/ui-smoke.mjs",
     "test:ui:update": "npm run build && node scripts/ui-smoke.mjs --update-snapshots",
+    "test:translations": "node scripts/check-translations.mjs",
     "package:portable": "npm run build && node scripts/package-portable.mjs",
     "package:smoke": "node scripts/package-smoke.mjs",
     "release:verify": "node scripts/release-verify.mjs"

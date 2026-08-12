@@ -776,21 +776,91 @@ const jaOverrides = {
   }
 };
 
-const LOCALES: Record<Locale, UiStrings> = {
-  en,
-  es: deepMerge(en, esOverrides as DeepPartial<UiStrings>),
-  fr: deepMerge(en, frOverrides as DeepPartial<UiStrings>),
-  de: deepMerge(en, deOverrides as DeepPartial<UiStrings>),
-  ja: deepMerge(en, jaOverrides as DeepPartial<UiStrings>)
+const LOCALE_OVERRIDES: Record<Exclude<Locale, 'en'>, DeepPartial<UiStrings>> = {
+  es: esOverrides as DeepPartial<UiStrings>,
+  fr: frOverrides as DeepPartial<UiStrings>,
+  de: deOverrides as DeepPartial<UiStrings>,
+  ja: jaOverrides as DeepPartial<UiStrings>
 };
 
-let activeLocale: Locale = 'en';
+const PSEUDO_MAP: Record<string, string> = {
+  A: 'Ȧ', B: 'Ƃ', C: 'Ç', D: 'Đ', E: 'Ē', F: 'Ƒ', G: 'Ġ', H: 'Ħ', I: 'Ī', J: 'Ĵ', K: 'Ķ', L: 'Ŀ', M: 'Ḿ',
+  N: 'Ń', O: 'Ō', P: 'Ṕ', Q: 'Q', R: 'Ŕ', S: 'Š', T: 'Ŧ', U: 'Ū', V: 'Ṽ', W: 'Ŵ', X: 'Ẋ', Y: 'Ŷ', Z: 'Ż',
+  a: 'ȧ', b: 'ƀ', c: 'ç', d: 'đ', e: 'ē', f: 'ƒ', g: 'ġ', h: 'ħ', i: 'ī', j: 'ĵ', k: 'ķ', l: 'ŀ', m: 'ḿ',
+  n: 'ń', o: 'ō', p: 'ṕ', q: 'q', r: 'ŕ', s: 'š', t: 'ŧ', u: 'ū', v: 'ṽ', w: 'ŵ', x: 'ẋ', y: 'ŷ', z: 'ż'
+};
 
-export function setActiveLocale(locale: Locale) {
-  activeLocale = LOCALES[locale] ? locale : 'en';
+function pseudoText(value: string) {
+  const accented = value.replace(/[A-Za-z]/g, (character) => PSEUDO_MAP[character] ?? character);
+  const expanded = accented.replace(/\b([^\s]{4,})\b/g, (word) => `${word}${'~'.repeat(Math.max(1, Math.ceil(word.length * 0.25)))}`);
+  return `⟦${expanded}⟧`;
 }
 
-export function getActiveLocale(): Locale {
+function buildPseudoCatalog(value: unknown): unknown {
+  if (typeof value === 'string') return pseudoText(value);
+  if (typeof value === 'function') {
+    const fn = value as (...args: unknown[]) => unknown;
+    return (...args: unknown[]) => pseudoText(String(fn(...args)));
+  }
+  if (Array.isArray(value)) return value.map((item) => buildPseudoCatalog(item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, buildPseudoCatalog(nested)]));
+  }
+  return value;
+}
+
+const pseudo = buildPseudoCatalog(en) as UiStrings;
+const LOCALES: Record<Locale | 'pseudo', UiStrings> = {
+  en,
+  es: deepMerge(en, LOCALE_OVERRIDES.es),
+  fr: deepMerge(en, LOCALE_OVERRIDES.fr),
+  de: deepMerge(en, LOCALE_OVERRIDES.de),
+  ja: deepMerge(en, LOCALE_OVERRIDES.ja),
+  pseudo
+};
+
+function stringLeafKeys(value: unknown, prefix = ''): string[] {
+  if (typeof value === 'string' || typeof value === 'function') return prefix ? [prefix] : [];
+  if (Array.isArray(value)) return value.flatMap((item, index) => stringLeafKeys(item, `${prefix}[${index}]`));
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, nested]) => stringLeafKeys(nested, prefix ? `${prefix}.${key}` : key));
+  }
+  return [];
+}
+
+const ENGLISH_STRING_KEYS = stringLeafKeys(en);
+
+export type TranslationAudit = {
+  locale: Locale;
+  totalKeys: number;
+  translatedKeys: number;
+  fallbackKeys: string[];
+};
+
+export function getTranslationAudit(locale: Locale): TranslationAudit {
+  const overrideKeys = new Set(locale === 'en' ? ENGLISH_STRING_KEYS : stringLeafKeys(LOCALE_OVERRIDES[locale]));
+  const fallbackKeys = ENGLISH_STRING_KEYS.filter((key) => !overrideKeys.has(key));
+  return {
+    locale,
+    totalKeys: ENGLISH_STRING_KEYS.length,
+    translatedKeys: ENGLISH_STRING_KEYS.length - fallbackKeys.length,
+    fallbackKeys
+  };
+}
+
+let pseudoLocaleEnabled = false;
+let activeLocale: Locale | 'pseudo' = 'en';
+
+export function setPseudoLocale(enabled: boolean) {
+  pseudoLocaleEnabled = enabled;
+  activeLocale = enabled ? 'pseudo' : 'en';
+}
+
+export function setActiveLocale(locale: Locale) {
+  activeLocale = pseudoLocaleEnabled ? 'pseudo' : (LOCALES[locale] ? locale : 'en');
+}
+
+export function getActiveLocale(): Locale | 'pseudo' {
   return activeLocale;
 }
 

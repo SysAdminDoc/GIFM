@@ -259,6 +259,21 @@ try {
     await batchPage.close();
   }
 
+  // Run core empty and source-loaded screens through the expanded pseudo-locale at desktop and mobile widths.
+  const pseudoPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await pseudoPage.goto(`${baseUrl}/?locale=pseudo`, { waitUntil: 'load' });
+    await pseudoPage.waitForFunction(() => document.querySelector('h2')?.textContent?.includes('⟦'), undefined, { timeout: 10000 });
+    await assertPseudolocaleLayout(pseudoPage, 'empty desktop');
+    await pseudoPage.setInputFiles('.drop-zone input[type="file"]', samplePath);
+    await pseudoPage.waitForFunction(() => Boolean(document.querySelector('.timeline-editor:not(.timeline-editor-empty)')), undefined, { timeout: 10000 });
+    await assertPseudolocaleLayout(pseudoPage, 'source-loaded desktop');
+    await pseudoPage.setViewportSize({ width: 375, height: 812 });
+    await assertPseudolocaleLayout(pseudoPage, 'source-loaded mobile');
+  } finally {
+    await pseudoPage.close();
+  }
+
   // Verify locale switching: persist Spanish, reload, and confirm multiple translated strings render.
   const esChecks = ['Suelta un video o GIF', 'Objetivo', 'Iniciar codificacion', 'Vista previa'];
   await page.evaluate(() => window.localStorage.setItem('gifm:locale:v1', JSON.stringify('es')));
@@ -351,6 +366,26 @@ async function assertVisibleText(page, text) {
   const locator = page.getByText(text, { exact: true });
   if (await locator.count() < 1) {
     throw new Error(`Expected visible text: ${text}`);
+  }
+}
+
+async function assertPseudolocaleLayout(page, label) {
+  const report = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const selectors = ['.topbar', '.workspace', '.center-stage', '.settings-panel', '.preview-panel', '.drop-zone', '.source-strip', '.timeline-editor', '.timecode-grid', '.clip-bin'];
+    const offenders = selectors.flatMap((selector) => Array.from(document.querySelectorAll(selector)).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.left < -1 || rect.right > viewportWidth + 1 || rect.width > viewportWidth + 1
+        ? `${selector} (${Math.round(rect.left)}..${Math.round(rect.right)} / ${viewportWidth})`
+        : null;
+    })).filter((value) => Boolean(value));
+    return {
+      documentOverflow: document.documentElement.scrollWidth > viewportWidth,
+      offenders
+    };
+  });
+  if (report.documentOverflow || report.offenders.length) {
+    throw new Error(`Pseudolocale ${label} overflows: ${JSON.stringify(report)}`);
   }
 }
 
