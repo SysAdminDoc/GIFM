@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { hydrateManifest, readManifest } from './manifest.js';
+import { createManifestStore } from './manifestStore.js';
 
 test('loads current manifests and hydrates entries with existing media paths', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'gifm-manifest-'));
@@ -92,6 +93,39 @@ test('renames unsupported future manifests without discarding their contents', a
     assert.deepEqual(JSON.parse(await fs.readFile(result.recoveryPath, 'utf8')), futureManifest);
     assert.match(path.basename(result.recoveryPath), /unsupported-v9-20260812T010203000/);
     assert.match(result.message, /unsupported version 9/);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('manifest store restores runtime maps and persists live entries atomically', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'gifm-manifest-store-'));
+  try {
+    const sourcePath = path.join(directory, 'source.mp4');
+    const outputPath = path.join(directory, 'output.gif');
+    const manifestPath = path.join(directory, 'manifest.json');
+    await fs.writeFile(sourcePath, 'source');
+    await fs.writeFile(outputPath, 'output');
+    await fs.writeFile(manifestPath, JSON.stringify({
+      version: 1,
+      sources: [{ id: 'source-1', inputPath: sourcePath, inputName: 'source.mp4' }],
+      jobs: [{ id: 'job-1', status: 'complete', outputPath, inputName: 'source.mp4' }]
+    }));
+
+    const sources = new Map();
+    const jobs = new Map();
+    const store = createManifestStore({ manifestPath, sources, jobs });
+    await store.load();
+
+    assert.equal(store.state.status, 'loaded');
+    assert.equal(sources.get('source-1').outputCandidates instanceof Set, true);
+    assert.deepEqual(jobs.get('job-1').attempts, []);
+
+    await store.save();
+    const persisted = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+    assert.equal(persisted.version, 1);
+    assert.deepEqual(persisted.sources.map((entry) => entry.id), ['source-1']);
+    assert.deepEqual(persisted.jobs.map((entry) => entry.id), ['job-1']);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

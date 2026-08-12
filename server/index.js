@@ -28,7 +28,7 @@ import {
 } from './encoding.js';
 import { buildStoreZip } from './zip.js';
 import { ctx } from './context.js';
-import { MANIFEST_VERSION, hydrateManifest, readManifest } from './manifest.js';
+import { createManifestStore } from './manifestStore.js';
 import { createUrlImportController } from './urlImport.js';
 import {
   videoFilterChain, buildChainOpts, overlayPosition, escapeMoviePath,
@@ -71,15 +71,9 @@ const sources = new Map();
 let pendingImport = null;
 const jobQueue = [];
 let runningJobs = 0;
-let manifestWritePending = false;
-let manifestWriteQueued = false;
 const supportedExtensions = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.gif']);
 const manifestPath = path.join(dataDir, 'manifest.json');
-const manifestState = {
-  status: 'missing',
-  recoveryPath: '',
-  message: 'No saved manifest was found.'
-};
+const { state: manifestState, load: loadManifest, save: saveManifest } = createManifestStore({ manifestPath, sources, jobs });
 const {
   validateImportUrl,
   createUrlImport,
@@ -1733,60 +1727,6 @@ function readRotation(stream) {
 function finiteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
-}
-
-async function loadManifest() {
-  const result = await readManifest(manifestPath);
-  manifestState.status = result.status;
-  manifestState.recoveryPath = result.recoveryPath;
-  manifestState.message = result.message;
-
-  if (!result.data) return;
-
-  const restored = hydrateManifest(result.data);
-  for (const entry of restored.sources) {
-    sources.set(entry.id, { ...entry, outputCandidates: new Set() });
-  }
-  for (const entry of restored.jobs) {
-    jobs.set(entry.id, { ...entry, outputCandidates: new Set(), logs: entry.logs ?? [], commands: entry.commands ?? [], warnings: entry.warnings ?? [], attempts: entry.attempts ?? [] });
-  }
-}
-
-function saveManifest() {
-  if (manifestWritePending) {
-    manifestWriteQueued = true;
-    return;
-  }
-  manifestWritePending = true;
-  void flushManifest();
-}
-
-async function flushManifest() {
-  try {
-    const persistedSources = [];
-    for (const source of sources.values()) {
-      if (source.inputPath && existsSync(source.inputPath)) {
-        persistedSources.push({ id: source.id, inputPath: source.inputPath, inputName: source.inputName, inputSize: source.inputSize, sourceKind: source.sourceKind, createdAt: source.createdAt, lastUsedAt: source.lastUsedAt, metadata: source.metadata });
-      }
-    }
-    const persistedJobs = [];
-    for (const job of jobs.values()) {
-      if (job.status === 'complete' && job.outputPath && existsSync(job.outputPath)) {
-        persistedJobs.push({ id: job.id, status: job.status, inputName: job.inputName, inputSize: job.inputSize, outputPath: job.outputPath, outputBytes: job.outputBytes, targetBytes: job.targetBytes, downloadUrl: job.downloadUrl, startedAt: job.startedAt, completedAt: job.completedAt, warnings: job.warnings, attempts: job.attempts, settings: job.settings, outputMeta: job.outputMeta, discordChecks: job.discordChecks });
-      }
-    }
-    const tempPath = `${manifestPath}.tmp`;
-    await fs.writeFile(tempPath, JSON.stringify({ version: MANIFEST_VERSION, sources: persistedSources, jobs: persistedJobs }, null, 2));
-    await fs.rename(tempPath, manifestPath);
-  } catch {
-    // Non-fatal — manifest is a convenience, not a hard requirement.
-  } finally {
-    manifestWritePending = false;
-    if (manifestWriteQueued) {
-      manifestWriteQueued = false;
-      saveManifest();
-    }
-  }
 }
 
 function runFfmpegSimple(args) {

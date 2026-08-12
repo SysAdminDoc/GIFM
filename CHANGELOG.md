@@ -11,6 +11,7 @@
 - UX: timeline rail trimming now uses pointer events with capture cleanup for touch and pen input, and mobile timeline controls enforce 44px minimum targets.
 - i18n: added a catalog fallback audit and expanded pseudolocale layout checks for desktop and mobile core screens.
 - Refactor: URL import validation, progress parsing, yt-dlp lifecycle, cancellation, and cleanup now live in a focused server controller.
+- Refactor: timeline editing, preview/output review, startup recovery, and manifest persistence now live in focused UI and server modules; public workflow behavior remains covered by unit, smoke, and UI tests.
 
 ## v0.5.3 - 2026-06-27
 
