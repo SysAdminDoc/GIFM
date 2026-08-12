@@ -1306,22 +1306,20 @@ function TimelineEditor({
   const railRef = useRef<HTMLDivElement | null>(null);
   const [hoverInfo, setHoverInfo] = useState<{ x: number; timeSec: number; thumb: string } | null>(null);
 
-  const onRailMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const updateRailHover = useCallback((clientX: number) => {
     const rail = railRef.current;
     if (!rail || !thumbnails.length) return;
     const rect = rail.getBoundingClientRect();
-    const fraction = clampNumber((e.clientX - rect.left) / rect.width, 0, 1);
+    const fraction = clampNumber((clientX - rect.left) / rect.width, 0, 1);
     const timeSec = fraction * duration;
     let closest = thumbnails[0];
     for (const t of thumbnails) {
       if (Math.abs(t.timeSec - timeSec) < Math.abs(closest.timeSec - timeSec)) closest = t;
     }
-    setHoverInfo({ x: e.clientX - rect.left, timeSec, thumb: closest.dataUrl });
+    setHoverInfo({ x: clientX - rect.left, timeSec, thumb: closest.dataUrl });
   }, [thumbnails, duration]);
 
-  const onRailMouseLeave = useCallback(() => setHoverInfo(null), []);
-
-  const dragRef = useRef<{ startFrac: number; active: boolean } | null>(null);
+  const dragRef = useRef<{ anchorSec: number; active: boolean; pointerId: number } | null>(null);
 
   const fractionToTime = useCallback((clientX: number) => {
     const rail = railRef.current;
@@ -1330,37 +1328,62 @@ function TimelineEditor({
     return clampNumber((clientX - rect.left) / rect.width, 0, 1) * duration;
   }, [duration]);
 
-  const onRailMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
+  const onRailPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
     const time = fractionToTime(e.clientX);
-    dragRef.current = { startFrac: time, active: true };
+    if (e.pointerType !== 'mouse') {
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Synthetic pointer events in UI tests do not always have a capturable pointer.
+      }
+    }
+    dragRef.current = { anchorSec: time, active: true, pointerId: e.pointerId };
     setStartAndSeek(time);
   }, [fractionToTime]);
 
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!dragRef.current?.active) return;
+  const onRailPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (drag?.active) {
+      if (drag.pointerId !== e.pointerId) return;
       const time = fractionToTime(e.clientX);
-      const anchor = dragRef.current.startFrac;
-      const lo = Math.min(anchor, time);
-      const hi = Math.max(anchor, time);
+      const lo = Math.min(drag.anchorSec, time);
+      const hi = Math.max(drag.anchorSec, time);
       setSettings((current) => ({
         ...current,
         startSec: Number(lo.toFixed(2)),
         durationSec: Number(Math.max(0.5, hi - lo).toFixed(2))
       }));
-    };
-    const onUp = () => {
-      if (dragRef.current?.active) dragRef.current.active = false;
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+      return;
+    }
+    if (e.pointerType !== 'touch') updateRailHover(e.clientX);
+  }, [fractionToTime, updateRailHover]);
+
+  const finishRailDrag = useCallback(() => {
+    const drag = dragRef.current;
+    const rail = railRef.current;
+    if (!drag) return;
+    drag.active = false;
+    try {
+      if (rail?.hasPointerCapture(drag.pointerId)) rail.releasePointerCapture(drag.pointerId);
+    } catch {
+      // Pointer capture may already have been released by the browser.
+    }
+  }, []);
+
+  const onRailPointerEnd = useCallback(() => finishRailDrag(), [finishRailDrag]);
+
+  useEffect(() => {
+    window.addEventListener('pointerup', finishRailDrag);
+    window.addEventListener('pointercancel', finishRailDrag);
+    window.addEventListener('mouseup', finishRailDrag);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointerup', finishRailDrag);
+      window.removeEventListener('pointercancel', finishRailDrag);
+      window.removeEventListener('mouseup', finishRailDrag);
     };
-  }, [fractionToTime]);
+  }, [finishRailDrag]);
 
   const setStart = (value: number) => {
     setSettings((current) => {
@@ -1429,7 +1452,17 @@ function TimelineEditor({
             <span>{formatTimecode(hoverInfo.timeSec)}</span>
           </div>
         ) : null}
-        <div className="timeline-rail" aria-hidden="true" ref={railRef} onMouseDown={onRailMouseDown} onMouseMove={onRailMouseMove} onMouseLeave={onRailMouseLeave}>
+        <div
+          className="timeline-rail"
+          aria-hidden="true"
+          ref={railRef}
+          onPointerDown={onRailPointerDown}
+          onPointerMove={onRailPointerMove}
+          onPointerUp={onRailPointerEnd}
+          onPointerCancel={onRailPointerEnd}
+          onLostPointerCapture={onRailPointerEnd}
+          onPointerLeave={() => setHoverInfo(null)}
+        >
           {thumbnails.length > 0 ? (
             <div className="timeline-filmstrip">
               {thumbnails.map((thumb, i) => (

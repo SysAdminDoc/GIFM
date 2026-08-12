@@ -11,6 +11,7 @@ const uiSmokeDir = path.join(rootDir, 'data', 'ui-smoke');
 const snapshotDir = path.join(rootDir, 'assets', 'ui-snapshots');
 const samplePath = path.join(uiSmokeDir, 'client-preflight.mp4');
 const batchSamplePath = path.join(uiSmokeDir, 'client-preflight-batch.mp4');
+const completedOutputPath = path.join(uiSmokeDir, 'completed-output.gif');
 const port = 4194;
 const baseUrl = `http://127.0.0.1:${port}`;
 const updateSnapshots = process.argv.includes('--update-snapshots') || process.env.UPDATE_UI_SNAPSHOTS === '1';
@@ -37,6 +38,19 @@ await run(ffmpegPath, [
   samplePath
 ]);
 await fs.copyFile(samplePath, batchSamplePath);
+await run(ffmpegPath, [
+  '-hide_banner',
+  '-loglevel',
+  'error',
+  '-i',
+  samplePath,
+  '-vf',
+  'fps=10,scale=160:90:flags=fast_bilinear',
+  '-loop',
+  '0',
+  '-y',
+  completedOutputPath
+]);
 
 const server = spawn(process.execPath, ['server/index.js'], {
   env: {
@@ -94,6 +108,39 @@ try {
   await page.getByText('Source prepared once', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
   await assertSnapshot(page, 'source-loaded-dark-desktop');
 
+  // Exercise the source-loaded rail at the smallest supported viewport in an isolated page so a captured
+  // pointer remains local to the interaction test and cannot affect the later output-state capture.
+  const touchPage = await browser.newPage({ viewport: { width: 375, height: 812 } });
+  try {
+    await touchPage.goto(baseUrl, { waitUntil: 'load' });
+    await touchPage.setInputFiles('input[aria-label="Choose video or GIF file"]', samplePath);
+    await touchPage.getByText('Client frame', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+    await touchPage.getByRole('button', { name: 'Add clip' }).click();
+    await touchPage.getByRole('button', { name: 'Prepare source' }).click();
+    await touchPage.getByText('Source prepared once', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+    const mobileRail = touchPage.locator('.timeline-rail');
+    await mobileRail.scrollIntoViewIfNeeded();
+    const railBox = await mobileRail.boundingBox();
+    if (!railBox || railBox.width < 100) throw new Error('Mobile timeline rail is not visible or has collapsed.');
+    const touchTargetHeights = await touchPage.locator('.timeline-rail, .timeline-range-grid input, .timeline-actions .secondary-button, .source-session-row .secondary-button').evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().height)));
+    if (touchTargetHeights.some((height) => height < 44)) {
+      throw new Error(`Mobile timeline touch target is below 44px: ${JSON.stringify(touchTargetHeights)}`);
+    }
+    const dragY = railBox.y + railBox.height / 2;
+    await touchPage.mouse.move(railBox.x + railBox.width * 0.2, dragY);
+    await touchPage.mouse.down();
+    await touchPage.mouse.move(railBox.x + railBox.width * 0.8, dragY, { steps: 6 });
+    await touchPage.mouse.up();
+    await touchPage.waitForFunction(() => {
+      const values = Array.from(document.querySelectorAll('.timeline-range-grid input')).map((input) => Number(input.value));
+      return values.length === 2 && values[0] > 0.1 && values[1] - values[0] >= 0.49;
+    }, undefined, { timeout: 5000 });
+    const mobileSourceOverflow = await touchPage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    if (mobileSourceOverflow) throw new Error('Source-loaded mobile viewport (375px) has horizontal overflow.');
+  } finally {
+    await touchPage.close();
+  }
+
   const state = await page.evaluate(() => {
     const encoderLabel = Array.from(document.querySelectorAll('label.select-field')).find((label) => label.querySelector('span')?.textContent?.trim() === 'Encoder');
     const encoderSelect = encoderLabel?.querySelector('select');
@@ -141,8 +188,29 @@ try {
     throw new Error(`Console warnings/errors found: ${consoleMessages.join('\n')}`);
   }
 
-  await page.getByRole('button', { name: 'Start encoding', exact: true }).click();
-  await page.locator('.output-box .fit-line').waitFor({ state: 'visible', timeout: 30000 });
+  const completedSnapshotJob = {
+    ...createSnapshotJob('snapshot-complete', 'complete', 'Complete', 100),
+    outputBytes: 12345,
+    downloadUrl: '/api/jobs/snapshot-complete/download',
+    completedAt: '2026-01-01T00:00:01.000Z',
+    outputMeta: { width: 160, height: 90, durationSec: 1, fps: 10, format: 'gif', frameCount: 10 },
+    discordChecks: [{ label: 'Under target', pass: true, detail: '12 KB / 10 MB' }],
+    ssim: 0.94
+  };
+  const completedOutput = await fs.readFile(completedOutputPath);
+  await page.route('**/api/jobs**', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify(completedSnapshotJob) });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route('**/api/jobs/snapshot-complete/download', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'image/gif', body: completedOutput });
+  });
+  const startButton = page.getByRole('button', { name: 'Start encoding', exact: true });
+  await startButton.click();
+  await page.locator('.output-box .fit-line').waitFor({ state: 'visible', timeout: 10000 });
   await page.waitForFunction(() => {
     const media = document.querySelector('.output-box .output-preview img, .output-box .output-preview video');
     if (media instanceof HTMLImageElement) return media.complete && media.naturalWidth > 0;
@@ -159,7 +227,7 @@ try {
     createSnapshotJob('snapshot-batch-2', 'queued', 'Queued', 0)
   ];
   let submittedSnapshotJobs = 0;
-  await batchPage.route('**/api/jobs', async (route) => {
+  await batchPage.route('**/api/jobs**', async (route) => {
     if (route.request().method() !== 'POST') {
       await route.continue();
       return;
@@ -288,6 +356,14 @@ async function assertVisibleText(page, text) {
 
 async function assertSnapshot(page, name) {
   const expectedPath = path.join(snapshotDir, `${name}.png`);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForFunction(() => Array.from(document.querySelectorAll('.preview-box video')).every((video) => video.readyState >= 2), undefined, { timeout: 10000 }).catch(() => {});
+  await page.evaluate(() => document.querySelectorAll('.preview-box video').forEach((video) => {
+    video.controls = false;
+    video.pause();
+    try { video.currentTime = 0; } catch { /* metadata may still be settling */ }
+  }));
+  await page.waitForTimeout(100);
   const screenshot = await page.screenshot({ animations: 'disabled', caret: 'hide', scale: 'css' });
   if (updateSnapshots) {
     await fs.mkdir(snapshotDir, { recursive: true });

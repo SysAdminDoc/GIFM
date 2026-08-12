@@ -843,11 +843,12 @@ textarea:focus-visible {
 
 .timeline-rail {
   position: relative;
-  height: 42px;
+  min-height: 42px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
   cursor: crosshair;
+  touch-action: none;
   user-select: none;
   background:
     linear-gradient(90deg, rgba(78, 205, 196, 0.06) 1px, transparent 1px),
@@ -955,6 +956,7 @@ textarea:focus-visible {
 
 .timeline-range-grid input {
   width: 100%;
+  min-height: 42px;
   accent-color: var(--cyan);
 }
 
@@ -2724,5 +2726,16 @@ a.primary-button:hover {
   .attempt-row span:nth-child(5),
   .attempt-row strong {
     grid-column: span 1;
+  }
+
+  .timeline-rail {
+    min-height: 44px;
+  }
+
+  .timeline-range-grid input,
+  .timeline-actions .secondary-button,
+  .source-session-row .secondary-button,
+  .clip-row .secondary-button {
+    min-height: 44px;
   }
 }
