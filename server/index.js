@@ -54,6 +54,7 @@ const DATA_MAX_BYTES = parseByteLimit(process.env.GIFM_DATA_MAX_BYTES, process.e
 const DATA_MAX_AGE_MS = parseHours(process.env.GIFM_DATA_MAX_AGE_HOURS, 24) * 60 * 60 * 1000;
 const MAX_CONCURRENT_JOBS = parsePositiveInteger(process.env.GIFM_MAX_CONCURRENT_JOBS, 1);
 const MAX_TRIM_START_SEC = parsePositiveInteger(process.env.GIFM_MAX_TRIM_START_SEC, 24 * 60 * 60);
+const URL_DOWNLOAD_TIMEOUT_MS = parsePositiveInteger(process.env.GIFM_URL_IMPORT_TIMEOUT_MS, 5 * 60 * 1000);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const dataDir = path.join(rootDir, 'data');
@@ -66,6 +67,7 @@ const fontPath = path.join(rootDir, 'assets', 'fonts', 'Anton-Regular.ttf');
 const ffprobePath = ffprobeStatic.path;
 const jobs = new Map();
 const sources = new Map();
+const urlImports = new Map();
 let pendingImport = null;
 const jobQueue = [];
 let runningJobs = 0;
@@ -647,34 +649,45 @@ app.post('/api/sources', runUpload, async (request, response, next) => {
   }
 });
 
-app.post('/api/import-url', async (request, response, next) => {
-  let downloadedPath = '';
+app.post('/api/import-url', (request, response, next) => {
   try {
-    const url = typeof request.body?.url === 'string' ? request.body.url.trim() : '';
-    let parsed;
-    try {
-      parsed = new URL(url);
-    } catch {
-      sendApiError(response, new ApiError(400, 'INVALID_URL', 'Enter a valid http(s) video URL.'));
-      return;
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      sendApiError(response, new ApiError(400, 'INVALID_URL', 'Only http and https URLs can be imported.'));
-      return;
-    }
-    if (isPrivateHost(parsed.hostname)) {
-      sendApiError(response, new ApiError(400, 'INVALID_URL', 'URLs pointing to private or loopback addresses are not allowed.'));
-      return;
-    }
-
-    downloadedPath = await downloadWithYtDlp(url);
-    const prepared = await registerPreparedSource({ filePath: downloadedPath, inputName: path.basename(downloadedPath) });
-    downloadedPath = '';
-    response.status(201).json(publicSource(prepared));
+    const url = validateImportUrl(request.body?.url);
+    const job = createUrlImport(url);
+    urlImports.set(job.id, job);
+    response.status(202).json(publicUrlImport(job));
+    void runUrlImport(job);
   } catch (error) {
-    if (downloadedPath) await removeFile(downloadedPath);
     next(error);
   }
+});
+
+app.get('/api/import-url/:id', (request, response) => {
+  const job = urlImports.get(request.params.id);
+  if (!job) {
+    sendApiError(response, new ApiError(404, 'URL_IMPORT_NOT_FOUND', 'URL import not found.'));
+    return;
+  }
+  response.json(publicUrlImport(job));
+});
+
+app.post('/api/import-url/:id/cancel', (request, response) => {
+  const job = urlImports.get(request.params.id);
+  if (!job) {
+    sendApiError(response, new ApiError(404, 'URL_IMPORT_NOT_FOUND', 'URL import not found.'));
+    return;
+  }
+  if (isTerminalUrlImport(job.status)) {
+    response.json(publicUrlImport(job));
+    return;
+  }
+
+  job.cancelRequested = true;
+  job.stage = 'Cancelling download';
+  if (job.abortDownload) job.abortDownload(new ApiError(499, 'URL_IMPORT_CANCELLED', 'URL import cancelled.'));
+  else if (job.child) {
+    try { job.child.kill(); } catch { /* the process may already be exiting */ }
+  }
+  response.json(publicUrlImport(job));
 });
 
 app.post('/api/import-local', async (request, response, next) => {
@@ -1456,14 +1469,101 @@ async function registerPreparedSource({ filePath, inputName }) {
   return prepared;
 }
 
-function downloadWithYtDlp(url) {
+function validateImportUrl(value) {
+  const url = typeof value === 'string' ? value.trim() : '';
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new ApiError(400, 'INVALID_URL', 'Enter a valid http(s) video URL.');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new ApiError(400, 'INVALID_URL', 'Only http and https URLs can be imported.');
+  }
+  if (isPrivateHost(parsed.hostname)) {
+    throw new ApiError(400, 'INVALID_URL', 'URLs pointing to private or loopback addresses are not allowed.');
+  }
+  return url;
+}
+
+function createUrlImport(url) {
+  return {
+    id: randomUUID(),
+    url,
+    status: 'queued',
+    progress: 0,
+    downloadedBytes: 0,
+    totalBytes: 0,
+    speedBytesPerSec: null,
+    etaSec: null,
+    stage: 'Starting URL import',
+    source: null,
+    error: '',
+    errorCode: '',
+    startedAt: new Date().toISOString(),
+    completedAt: ''
+  };
+}
+
+async function runUrlImport(job) {
+  let downloadedPath = '';
+  job.status = 'running';
+  job.stage = 'Downloading video';
+  notifyUrlImportUpdate(job);
+
+  try {
+    downloadedPath = await downloadWithYtDlp(job.url, job);
+    if (job.cancelRequested) throw new ApiError(499, 'URL_IMPORT_CANCELLED', 'URL import cancelled.');
+
+    job.stage = 'Preparing downloaded video';
+    job.progress = Math.max(job.progress, 98);
+    notifyUrlImportUpdate(job);
+    const prepared = await registerPreparedSource({ filePath: downloadedPath, inputName: path.basename(downloadedPath) });
+    downloadedPath = '';
+    job.status = 'complete';
+    job.progress = 100;
+    job.stage = 'URL import complete';
+    job.source = publicSource(prepared);
+    job.completedAt = new Date().toISOString();
+    notifyUrlImportUpdate(job);
+  } catch (error) {
+    if (job.cancelRequested || error?.code === 'URL_IMPORT_CANCELLED') {
+      job.status = 'cancelled';
+      job.stage = 'URL import cancelled';
+      job.error = '';
+      job.errorCode = 'URL_IMPORT_CANCELLED';
+    } else {
+      const apiError = normalizeError(error);
+      job.status = 'failed';
+      job.stage = 'URL import failed';
+      job.error = apiError.message;
+      job.errorCode = apiError.code;
+    }
+    job.completedAt = new Date().toISOString();
+    notifyUrlImportUpdate(job);
+  } finally {
+    if (downloadedPath) await removeFile(downloadedPath);
+    if (job.status !== 'complete') await cleanupUrlImportFiles(job.id);
+    job.child = undefined;
+    job.abortDownload = undefined;
+  }
+}
+
+function downloadWithYtDlp(url, job) {
   return new Promise((resolve, reject) => {
-    const id = randomUUID();
-    const outputTemplate = path.join(uploadDir, `url-${id}.%(ext)s`);
+    const isWindowsScript = process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(YTDLP_PATH);
+    const outputTemplate = path.join(uploadDir, `url-${job.id}.${isWindowsScript ? 'mp4' : '%(ext)s'}`);
+    const progressArgs = isWindowsScript
+      ? ['--newline']
+      : [
+        '--newline',
+        '--progress-template',
+        'download:%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress._percent_str)s|%(progress.eta)s|%(progress.speed)s'
+      ];
     const args = [
       '--no-playlist',
       '--no-warnings',
-      '--no-progress',
+      ...progressArgs,
       '-f',
       'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio/best',
       '--max-filesize',
@@ -1472,37 +1572,115 @@ function downloadWithYtDlp(url) {
       outputTemplate,
       url
     ];
-    const YTDLP_TIMEOUT_MS = 5 * 60 * 1000;
-    const child = spawn(YTDLP_PATH, args, { windowsHide: true, timeout: YTDLP_TIMEOUT_MS });
-    let stderr = '';
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
+    const child = spawn(YTDLP_PATH, args, {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: isWindowsScript
     });
+    job.child = child;
+    let stderr = '';
+    let timeoutTriggered = false;
+    let settled = false;
+    let timeout;
+
+    const finish = (error, filePath) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (error) reject(error);
+      else resolve(filePath);
+    };
+
+    job.abortDownload = (error) => {
+      try { child.kill(); } catch { /* the process may already be exiting */ }
+      finish(error);
+    };
+    timeout = setTimeout(() => {
+      timeoutTriggered = true;
+      job.stage = 'URL download timed out';
+      job.abortDownload(new ApiError(408, 'URL_DOWNLOAD_TIMEOUT', 'The download took too long and was cancelled. Try a shorter video or a direct file URL.'));
+    }, URL_DOWNLOAD_TIMEOUT_MS);
+
+    const handleOutput = (chunk) => {
+      const text = chunk.toString();
+      stderr = `${stderr}${text}`.slice(-65536);
+      for (const line of text.split(/\r?\n/)) updateUrlImportProgress(job, line);
+    };
+    child.stdout.on('data', handleOutput);
+    child.stderr.on('data', handleOutput);
     child.on('error', (error) => {
       if (error?.code === 'ENOENT') {
-        reject(new ApiError(400, 'YTDLP_UNAVAILABLE', 'yt-dlp was not found. Install yt-dlp on PATH or set GIFM_YTDLP_PATH to enable URL import.'));
+        finish(new ApiError(400, 'YTDLP_UNAVAILABLE', 'yt-dlp was not found. Install yt-dlp on PATH or set GIFM_YTDLP_PATH to enable URL import.'));
         return;
       }
-      if (error?.code === 'ABORT_ERR' || error?.message?.includes('timed out')) {
-        reject(new ApiError(408, 'URL_DOWNLOAD_TIMEOUT', 'The download took too long and was cancelled. Try a shorter video or a direct file URL.'));
-        return;
-      }
-      reject(error);
+      finish(error);
     });
     child.on('close', async (code) => {
+      if (timeoutTriggered) {
+        finish(new ApiError(408, 'URL_DOWNLOAD_TIMEOUT', 'The download took too long and was cancelled. Try a shorter video or a direct file URL.'));
+        return;
+      }
+      if (job.cancelRequested) {
+        finish(new ApiError(499, 'URL_IMPORT_CANCELLED', 'URL import cancelled.'));
+        return;
+      }
       if (code !== 0) {
-        reject(new ApiError(422, 'URL_DOWNLOAD_FAILED', stderr.trim().split(/\r?\n/).slice(-3).join(' ') || 'Could not download the video from that URL.'));
+        finish(new ApiError(422, 'URL_DOWNLOAD_FAILED', stderr.trim().split(/\r?\n/).slice(-3).join(' ') || 'Could not download the video from that URL.'));
         return;
       }
       const names = await fs.readdir(uploadDir).catch(() => []);
-      const match = names.find((name) => name.startsWith(`url-${id}.`));
+      const match = names.find((name) => name.startsWith(`url-${job.id}.`) && !name.endsWith('.part'));
       if (!match) {
-        reject(new ApiError(422, 'URL_DOWNLOAD_FAILED', 'The download produced no file.'));
+        finish(new ApiError(422, 'URL_DOWNLOAD_FAILED', 'The download produced no file.'));
         return;
       }
-      resolve(path.join(uploadDir, match));
+      finish(null, path.join(uploadDir, match));
     });
   });
+}
+
+function updateUrlImportProgress(job, line) {
+  const match = line.match(/^download:\s*([^|]+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)/i);
+  if (!match) return;
+  const [, status, downloaded, total, percent, eta, speed] = match;
+  const downloadedBytes = parseProgressNumber(downloaded);
+  const totalBytes = parseProgressNumber(total);
+  const percentValue = parseProgressPercent(percent);
+  if (downloadedBytes !== null) job.downloadedBytes = downloadedBytes;
+  if (totalBytes !== null) job.totalBytes = totalBytes;
+  if (percentValue !== null) job.progress = Math.min(99, Math.max(0, percentValue));
+  else if (job.totalBytes > 0) job.progress = Math.min(99, Math.round((job.downloadedBytes / job.totalBytes) * 100));
+  job.etaSec = parseProgressNumber(eta);
+  job.speedBytesPerSec = parseProgressRate(speed);
+  job.stage = status.trim().toLowerCase() === 'finished' ? 'Download finished' : 'Downloading video';
+  notifyUrlImportUpdate(job);
+}
+
+function parseProgressNumber(value) {
+  const number = Number(String(value).trim());
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function parseProgressPercent(value) {
+  const match = String(value).match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const number = Number(match[0]);
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseProgressRate(value) {
+  const text = String(value).trim();
+  const match = text.match(/^([\d.]+)\s*(B|KiB|MiB|GiB|KB|MB|GB)?\/s$/i);
+  if (!match) return parseProgressNumber(text);
+  const number = Number(match[1]);
+  if (!Number.isFinite(number)) return null;
+  const units = { b: 1, kb: 1000, mb: 1000 ** 2, gb: 1000 ** 3, kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3 };
+  return Math.round(number * (units[match[2]?.toLowerCase() ?? 'b'] ?? 1));
+}
+
+async function cleanupUrlImportFiles(id) {
+  const names = await fs.readdir(uploadDir).catch(() => []);
+  await Promise.all(names.filter((name) => name.startsWith(`url-${id}.`)).map((name) => removeFile(path.join(uploadDir, name))));
 }
 
 function enqueueJob(job) {
@@ -2138,6 +2316,32 @@ function publicJob(job) {
     discordChecks: job.discordChecks ?? [],
     ssim: job.ssim ?? null
   };
+}
+
+function publicUrlImport(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    progress: job.progress,
+    downloadedBytes: job.downloadedBytes,
+    totalBytes: job.totalBytes,
+    speedBytesPerSec: job.speedBytesPerSec,
+    etaSec: job.etaSec,
+    stage: job.stage,
+    source: job.source,
+    error: job.error || undefined,
+    errorCode: job.errorCode || undefined,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt || undefined
+  };
+}
+
+function isTerminalUrlImport(status) {
+  return status === 'complete' || status === 'failed' || status === 'cancelled';
+}
+
+function notifyUrlImportUpdate(_job) {
+  // URL imports are polled by the client so this endpoint remains usable from simple WebViews.
 }
 
 function publicSource(source) {

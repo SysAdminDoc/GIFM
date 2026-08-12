@@ -35,9 +35,10 @@ import {
   type Settings,
   type HealthInfo,
   type SavedPreset,
-  type CropRect
+  type CropRect,
+  type UrlImportJob
 } from '../types';
-import { clampNumber, normalizeCrop, normalizeLoopCount, profileFor, readApiError, readStorage, writeStorage } from '../utils';
+import { clampNumber, formatBytes, normalizeCrop, normalizeLoopCount, profileFor, readApiError, readStorage, writeStorage } from '../utils';
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 1.5, 2, 3, 4];
 const MAX_TRIM_START_SEC = 24 * 60 * 60;
@@ -643,9 +644,11 @@ export function WebhookRow({ onSend }: { onSend: (webhookUrl: string) => void })
   );
 }
 
-export function UrlImportRow({ busy, onImport }: { busy: boolean; onImport: (url: string) => void }) {
+export function UrlImportRow({ busy, importJob, onImport, onCancel }: { busy: boolean; importJob: UrlImportJob | null; onImport: (url: string) => void; onCancel: () => void }) {
   const [url, setUrl] = useState('');
   const trimmed = url.trim();
+  const active = importJob?.status === 'queued' || importJob?.status === 'running';
+  const failed = importJob?.status === 'failed' || importJob?.status === 'cancelled';
   return (
     <div className="url-import">
       <input
@@ -665,6 +668,21 @@ export function UrlImportRow({ busy, onImport }: { busy: boolean; onImport: (url
         {busy ? <Loader2 className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
         {STRINGS.input.importUrl}
       </button>
+      {importJob && (active || failed) ? (
+        <div className="url-import-status" aria-live="polite">
+          <div className="url-import-status-head">
+            <span>{importJob.stage}</span>
+            <strong>{Math.round(importJob.progress)}%</strong>
+          </div>
+          <div className="upload-progress" role="progressbar" aria-valuenow={Math.round(importJob.progress)} aria-valuemin={0} aria-valuemax={100} aria-label={STRINGS.input.urlProgressAria}>
+            <span style={{ width: `${Math.max(0, Math.min(100, importJob.progress))}%` }} />
+          </div>
+          {importJob.totalBytes > 0 ? <small>{formatBytes(importJob.downloadedBytes)} / {formatBytes(importJob.totalBytes)}</small> : null}
+          {importJob.speedBytesPerSec ? <small>{formatBytes(importJob.speedBytesPerSec)}/s</small> : null}
+          {active ? <button type="button" className="secondary-button" onClick={onCancel}>{STRINGS.input.cancelImport}</button> : null}
+          {importJob.error ? <p className="profile-note">{importJob.error}</p> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

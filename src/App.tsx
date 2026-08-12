@@ -42,7 +42,7 @@ import {
   useState
 } from 'react';
 import { probeClientMedia } from './clientPreflight';
-import { usePollJobs } from './jobPolling';
+import { usePollJobs, usePollUrlImport } from './jobPolling';
 import { STRINGS, setActiveLocale, LOCALE_LABELS, type Locale } from './strings';
 import {
   TARGET_PROFILES,
@@ -66,6 +66,7 @@ import {
   type RecentOutput,
   type BatchJob,
   type SourceSession,
+  type UrlImportJob,
   type TimelineClip,
   type LoopCandidate,
   type ExtractedFrame,
@@ -174,6 +175,7 @@ function GifmApp() {
   const [sourceMeta, setSourceMeta] = useState<SourceMeta | null>(null);
   const [sourceSession, setSourceSession] = useState<SourceSession | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
+  const [urlImportJob, setUrlImportJob] = useState<UrlImportJob | null>(null);
   const [timelineThumbnails, setTimelineThumbnails] = useState<Array<{ timeSec: number; dataUrl: string }>>([]);
   const [loopCandidates, setLoopCandidates] = useState<LoopCandidate[]>([]);
   const [loopBusy, setLoopBusy] = useState(false);
@@ -310,6 +312,41 @@ function GifmApp() {
     return () => controller.abort();
   }, [file, objectUrl]);
 
+  const adoptImportedSource = useCallback((prepared: SourceSession) => {
+    setFile(null);
+    setBatchFiles([]);
+    setBatchJobs([]);
+    setObjectUrl('');
+    setSourceSession(prepared);
+    setSourceMeta({
+      durationSec: prepared.durationSec,
+      width: prepared.width,
+      height: prepared.height,
+      fps: prepared.fps,
+      codec: prepared.codec,
+      rotation: prepared.rotation,
+      probeSource: 'server',
+      frameSampled: false
+    });
+    setNotice(STRINGS.notices.sourcePrepared(prepared.inputName));
+  }, []);
+
+  const handleUrlImportUpdate = useCallback((next: UrlImportJob) => {
+    setUrlImportJob(next);
+    if (next.status === 'complete' && next.source) {
+      setSourceBusy(false);
+      adoptImportedSource(next.source);
+    } else if (next.status === 'failed') {
+      setSourceBusy(false);
+      setNotice(next.error || STRINGS.errors.importFailed);
+    } else if (next.status === 'cancelled') {
+      setSourceBusy(false);
+      setNotice(STRINGS.notices.importCancelled);
+    }
+  }, [adoptImportedSource]);
+
+  usePollUrlImport(urlImportJob && !isTerminalUrlImport(urlImportJob) ? urlImportJob.id : '', handleUrlImportUpdate);
+
   // A single polling hook drives both the active single job and any running batch jobs.
   const activePollIds = useMemo(() => {
     const ids = new Set<string>();
@@ -357,7 +394,7 @@ function GifmApp() {
   }, [file, targetBytes]);
 
   const outputFit = job?.outputBytes ? job.outputBytes <= job.targetBytes : false;
-  const canStart = (batchFiles.length > 0 || Boolean(sourceSession)) && !busy && job?.status !== 'running' && job?.status !== 'queued';
+  const canStart = (batchFiles.length > 0 || Boolean(sourceSession)) && !busy && !sourceBusy && job?.status !== 'running' && job?.status !== 'queued';
   const canCancel = job?.status === 'queued' || job?.status === 'running';
 
   const chooseFiles = useCallback((nextFiles?: FileList | File[]) => {
@@ -501,6 +538,7 @@ function GifmApp() {
     const trimmed = url.trim();
     if (!trimmed) return;
     setSourceBusy(true);
+    setUrlImportJob(null);
     setNotice(STRINGS.notices.importingUrl);
     try {
       const response = await fetch('/api/import-url', {
@@ -511,26 +549,11 @@ function GifmApp() {
       if (!response.ok) {
         throw new Error(await readApiError(response, STRINGS.errors.importFailed));
       }
-      const prepared = (await response.json()) as SourceSession;
-      setFile(null);
-      setBatchFiles([]);
-      setObjectUrl('');
-      setSourceSession(prepared);
-      setSourceMeta({
-        durationSec: prepared.durationSec,
-        width: prepared.width,
-        height: prepared.height,
-        fps: prepared.fps,
-        codec: prepared.codec,
-        rotation: prepared.rotation,
-        probeSource: 'server',
-        frameSampled: false
-      });
-      setNotice(STRINGS.notices.sourcePrepared(prepared.inputName));
+      const nextJob = (await response.json()) as UrlImportJob;
+      setUrlImportJob(nextJob);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : STRINGS.errors.importFailed);
-    } finally {
       setSourceBusy(false);
+      setNotice(error instanceof Error ? error.message : STRINGS.errors.importFailed);
     }
   };
 
@@ -848,6 +871,17 @@ function GifmApp() {
     setNotice(STRINGS.notices.jobCancelled);
   };
 
+  const cancelUrlImport = async () => {
+    if (!urlImportJob || isTerminalUrlImport(urlImportJob)) return;
+    const response = await fetch(`/api/import-url/${urlImportJob.id}/cancel`, { method: 'POST' });
+    if (!response.ok) {
+      setNotice(await readApiError(response, STRINGS.errors.cancelFailed));
+      return;
+    }
+    setUrlImportJob((await response.json()) as UrlImportJob);
+    setNotice(STRINGS.notices.importCancelling);
+  };
+
   const cancelBatchJob = async (id: string) => {
     const response = await fetch(`/api/jobs/${id}/cancel`, { method: 'POST' });
     if (!response.ok) {
@@ -1004,7 +1038,7 @@ function GifmApp() {
             </button>
           </div>
 
-          <UrlImportRow busy={sourceBusy} onImport={importFromUrl} />
+          <UrlImportRow busy={sourceBusy} importJob={urlImportJob} onImport={importFromUrl} onCancel={() => { void cancelUrlImport(); }} />
 
           <div className="source-strip">
             <StatusTile icon={<Gauge aria-hidden="true" />} label={STRINGS.target.title} value={formatBytes(targetBytes)} tone="cyan" />
@@ -2106,6 +2140,10 @@ function safeFileBase(inputName: string) {
 
 
 function isTerminalJob(job: Job) {
+  return job.status === 'complete' || job.status === 'failed' || job.status === 'cancelled';
+}
+
+function isTerminalUrlImport(job: UrlImportJob) {
   return job.status === 'complete' || job.status === 'failed' || job.status === 'cancelled';
 }
 

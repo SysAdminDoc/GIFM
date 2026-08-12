@@ -132,7 +132,7 @@ The portable package includes opt-in `register-shell.ps1` and `unregister-shell.
 
 ## Optional URL Import
 
-Paste a video URL into the import field to download it with [yt-dlp](https://github.com/yt-dlp/yt-dlp). GIFM does not bundle yt-dlp; install it on `PATH` or point `GIFM_YTDLP_PATH` at the binary. Downloads are capped at the upload limit and staged as a prepared source for trimming and export.
+Paste a video URL into the import field to download it with [yt-dlp](https://github.com/yt-dlp/yt-dlp). GIFM does not bundle yt-dlp; install it on `PATH` or point `GIFM_YTDLP_PATH` at the binary. Imports run as cancellable progress jobs with byte/stage feedback, are capped at the upload limit, and are staged as a prepared source for trimming and export.
 
 ```powershell
 $env:GIFM_YTDLP_PATH = "C:\Tools\yt-dlp.exe"

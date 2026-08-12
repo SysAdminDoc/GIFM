@@ -1261,6 +1261,35 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+.url-import-status {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.url-import-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.url-import-status-head strong {
+  color: var(--cyan);
+  font-variant-numeric: tabular-nums;
+}
+
+.url-import-status small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .url-import input,
 .webhook-row input {
   height: 40px;

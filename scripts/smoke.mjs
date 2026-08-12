@@ -9,9 +9,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const smokeDir = path.join(rootDir, 'data', 'smoke');
 const smokeOutputDir = path.join(rootDir, 'data', 'smoke-output');
+const uploadDir = path.join(rootDir, 'data', 'uploads');
 const samplePath = path.join(smokeDir, 'sample.mp4');
 const longSamplePath = path.join(smokeDir, 'long-sample.mp4');
 const audioOnlyPath = path.join(smokeDir, 'audio-only.mp4');
+const fakeYtdlpScript = path.join(smokeDir, 'fake-yt-dlp.mjs');
+const fakeYtdlpCommand = path.join(smokeDir, 'fake-yt-dlp.cmd');
 const port = 4184;
 const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -58,6 +61,21 @@ await run(ffmpegPath, [
   '-y',
   audioOnlyPath
 ]);
+await fs.writeFile(fakeYtdlpScript, `import fs from 'node:fs/promises';
+const args = process.argv.slice(2);
+const template = args[args.indexOf('-o') + 1];
+const outputPath = template.replace('%(ext)s', 'mp4');
+const url = args.at(-1) || '';
+const sourcePath = process.env.GIFM_SMOKE_SOURCE;
+const sourceStat = await fs.stat(sourcePath);
+const emit = (status, downloaded, percent, eta, speed) => process.stdout.write(\`download:\${status}|\${downloaded}|\${sourceStat.size}|\${percent}%|\${eta}|\${speed}\\n\`);
+emit('downloading', Math.max(1, Math.round(sourceStat.size / 4)), 25, 1, '1MiB/s');
+if (url.includes('/fail')) { console.error('simulated yt-dlp failure'); process.exit(7); }
+if (url.includes('/slow') || url.includes('/timeout')) await new Promise((resolve) => setTimeout(resolve, 10000));
+await fs.copyFile(sourcePath, outputPath);
+emit('finished', sourceStat.size, 100, 0, '1MiB/s');
+`);
+await fs.writeFile(fakeYtdlpCommand, `@echo off\r\n"${process.execPath}" "${fakeYtdlpScript}" %*\r\n`);
 
 const server = spawn(process.execPath, ['server/index.js'], {
   cwd: rootDir,
@@ -68,6 +86,9 @@ const server = spawn(process.execPath, ['server/index.js'], {
     GIFM_DATA_MAX_MB: '64',
     GIFM_MAX_CONCURRENT_JOBS: 'invalid',
     GIFM_GIFSKI_PATH: '',
+    GIFM_YTDLP_PATH: fakeYtdlpCommand,
+    GIFM_SMOKE_SOURCE: samplePath,
+    GIFM_URL_IMPORT_TIMEOUT_MS: '1000',
     GIFM_OUTPUT_DIR: smokeOutputDir
   },
   windowsHide: true,
@@ -88,6 +109,7 @@ try {
   await assertMalformedMultipart();
   await assertTooLargeUpload();
   await assertUnsupportedContent();
+  await assertUrlImportJobs();
   await assertProbeMetadata();
   await assertPreparedSourceClipJobs();
   await assertNoVideoJob();
@@ -135,6 +157,8 @@ try {
   console.log(`Smoke passed: ${gifBytes.length} bytes, ${job.attempts.length} attempt(s).`);
 } finally {
   server.kill();
+  await fs.rm(fakeYtdlpScript, { force: true });
+  await fs.rm(fakeYtdlpCommand, { force: true });
 }
 
 async function assertMalformedMultipart() {
@@ -174,6 +198,54 @@ async function assertUnsupportedContent() {
   form.set('settings', JSON.stringify(validSettings()));
   const response = await fetch(`${baseUrl}/api/jobs`, { method: 'POST', body: form });
   await expectApiError(response, 415, 'UNSUPPORTED_MEDIA_CONTENT');
+}
+
+async function assertUrlImportJobs() {
+  const privateResponse = await fetch(`${baseUrl}/api/import-url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: 'http://127.0.0.1/private.mp4' })
+  });
+  await expectApiError(privateResponse, 400, 'INVALID_URL');
+
+  const started = await startUrlImport('https://example.com/smoke.mp4');
+  const completed = await waitForUrlImport(started.id, 15000);
+  if (completed.status !== 'complete' || completed.progress !== 100 || completed.downloadedBytes <= 0 || completed.totalBytes <= 0 || !completed.source?.id) {
+    throw new Error(`URL import did not complete with progress metadata: ${JSON.stringify(completed, null, 2)}`);
+  }
+
+  const failed = await startUrlImport('https://example.com/fail.mp4');
+  const failedJob = await waitForUrlImport(failed.id, 10000);
+  if (failedJob.status !== 'failed' || failedJob.errorCode !== 'URL_DOWNLOAD_FAILED' || !failedJob.error) {
+    throw new Error(`URL import failure state was not descriptive: ${JSON.stringify(failedJob, null, 2)}`);
+  }
+
+  const cancelled = await startUrlImport('https://example.com/slow.mp4');
+  await waitForUrlImportStatus(cancelled.id, ['running'], 5000);
+  const cancelResponse = await fetch(`${baseUrl}/api/import-url/${cancelled.id}/cancel`, { method: 'POST' });
+  if (!cancelResponse.ok) throw new Error(`URL import cancellation failed to start: ${cancelResponse.status} ${await cancelResponse.text()}`);
+  const cancelledJob = await waitForUrlImport(cancelled.id, 10000);
+  if (cancelledJob.status !== 'cancelled' || cancelledJob.errorCode !== 'URL_IMPORT_CANCELLED') {
+    throw new Error(`URL import cancellation state was not reported: ${JSON.stringify(cancelledJob, null, 2)}`);
+  }
+  const partials = (await fs.readdir(uploadDir)).filter((name) => name.startsWith(`url-${cancelled.id}.`));
+  if (partials.length) throw new Error(`Cancelled URL import left partial files: ${JSON.stringify(partials)}`);
+
+  const timedOut = await startUrlImport('https://example.com/timeout.mp4');
+  const timeoutJob = await waitForUrlImport(timedOut.id, 10000);
+  if (timeoutJob.status !== 'failed' || timeoutJob.errorCode !== 'URL_DOWNLOAD_TIMEOUT') {
+    throw new Error(`URL import timeout state was not reported: ${JSON.stringify(timeoutJob, null, 2)}`);
+  }
+}
+
+async function startUrlImport(url) {
+  const response = await fetch(`${baseUrl}/api/import-url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+  if (response.status !== 202) throw new Error(`URL import did not return 202: ${response.status} ${await response.text()}`);
+  return response.json();
 }
 
 async function assertProbeMetadata() {
@@ -554,6 +626,33 @@ async function waitForStatus(id, statuses, timeoutMs) {
   }
 
   throw new Error(`Job did not reach ${statuses.join('/')} before timeout: ${JSON.stringify(job, null, 2)}\n${serverLog}`);
+}
+
+async function waitForUrlImport(id, timeoutMs) {
+  let job = null;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await delay(100);
+    const response = await fetch(`${baseUrl}/api/import-url/${id}`);
+    job = await response.json();
+    if (['complete', 'failed', 'cancelled'].includes(job.status)) return job;
+  }
+
+  throw new Error(`URL import did not finish before timeout: ${JSON.stringify(job, null, 2)}\n${serverLog}`);
+}
+
+async function waitForUrlImportStatus(id, statuses, timeoutMs) {
+  let job = null;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await delay(100);
+    const response = await fetch(`${baseUrl}/api/import-url/${id}`);
+    job = await response.json();
+    if (statuses.includes(job.status)) return job;
+    if (['complete', 'failed', 'cancelled'].includes(job.status)) break;
+  }
+
+  throw new Error(`URL import did not reach ${statuses.join('/')} before timeout: ${JSON.stringify(job, null, 2)}\n${serverLog}`);
 }
 
 function validSettings() {

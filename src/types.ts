@@ -176,6 +176,22 @@ export type SourceSession = {
   rotation: number;
 };
 
+export type UrlImportJob = {
+  id: string;
+  status: 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
+  progress: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  speedBytesPerSec: number | null;
+  etaSec: number | null;
+  stage: string;
+  source?: SourceSession | null;
+  error?: string;
+  errorCode?: string;
+  startedAt: string;
+  completedAt?: string;
+};
+
 export type LoopCandidate = {
   timeSec: number;
   ssim: number;
