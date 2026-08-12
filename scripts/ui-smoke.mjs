@@ -8,9 +8,12 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const uiSmokeDir = path.join(rootDir, 'data', 'ui-smoke');
+const snapshotDir = path.join(rootDir, 'assets', 'ui-snapshots');
 const samplePath = path.join(uiSmokeDir, 'client-preflight.mp4');
+const batchSamplePath = path.join(uiSmokeDir, 'client-preflight-batch.mp4');
 const port = 4194;
 const baseUrl = `http://127.0.0.1:${port}`;
+const updateSnapshots = process.argv.includes('--update-snapshots') || process.env.UPDATE_UI_SNAPSHOTS === '1';
 
 await fs.mkdir(uiSmokeDir, { recursive: true });
 await run(ffmpegPath, [
@@ -33,6 +36,7 @@ await run(ffmpegPath, [
   '-y',
   samplePath
 ]);
+await fs.copyFile(samplePath, batchSamplePath);
 
 const server = spawn(process.execPath, ['server/index.js'], {
   env: {
@@ -81,12 +85,14 @@ try {
   await assertVisibleText(page, 'Timeline editor');
   await assertVisibleText(page, 'Timeline waits for a source');
   await assertVisibleText(page, 'Diagnostics');
+  await assertSnapshot(page, 'empty-dark-desktop');
   await page.setInputFiles('input[aria-label="Choose video or GIF file"]', samplePath);
   await page.getByText('Client frame', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
   await page.getByRole('button', { name: 'Add clip' }).click();
   await page.getByText('Clip 01', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
   await page.getByRole('button', { name: 'Prepare source' }).click();
   await page.getByText('Source prepared once', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+  await assertSnapshot(page, 'source-loaded-dark-desktop');
 
   const state = await page.evaluate(() => {
     const encoderLabel = Array.from(document.querySelectorAll('label.select-field')).find((label) => label.querySelector('span')?.textContent?.trim() === 'Encoder');
@@ -135,6 +141,56 @@ try {
     throw new Error(`Console warnings/errors found: ${consoleMessages.join('\n')}`);
   }
 
+  await page.getByRole('button', { name: 'Start encoding', exact: true }).click();
+  await page.locator('.output-box .fit-line').waitFor({ state: 'visible', timeout: 30000 });
+  await page.waitForFunction(() => {
+    const media = document.querySelector('.output-box .output-preview img, .output-box .output-preview video');
+    if (media instanceof HTMLImageElement) return media.complete && media.naturalWidth > 0;
+    if (media instanceof HTMLVideoElement) return media.readyState >= 1;
+    return false;
+  }, undefined, { timeout: 30000 });
+  await page.getByRole('button', { name: 'Hide motion', exact: true }).click();
+  await assertSnapshot(page, 'completed-output-dark-desktop');
+
+  // Keep the batch snapshot deterministic by replacing the upload responses with fixed queued/running jobs.
+  const batchPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const snapshotJobs = [
+    createSnapshotJob('snapshot-batch-1', 'running', 'Encoding frames', 42),
+    createSnapshotJob('snapshot-batch-2', 'queued', 'Queued', 0)
+  ];
+  let submittedSnapshotJobs = 0;
+  await batchPage.route('**/api/jobs', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue();
+      return;
+    }
+    const job = snapshotJobs[Math.min(submittedSnapshotJobs, snapshotJobs.length - 1)];
+    submittedSnapshotJobs += 1;
+    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify(job) });
+  });
+  await batchPage.route('**/api/jobs/*', async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    const job = snapshotJobs.find((item) => pathname === `/api/jobs/${item.id}`);
+    if (job && route.request().method() === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(job) });
+      return;
+    }
+    await route.continue();
+  });
+  try {
+    await batchPage.goto(baseUrl, { waitUntil: 'load' });
+    await batchPage.setInputFiles('input[aria-label="Choose video or GIF file"]', [samplePath, batchSamplePath]);
+    await batchPage.getByText('Client frame', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+    await batchPage.getByRole('button', { name: 'Start encoding', exact: true }).click();
+    await batchPage.getByText('Jobs submitted', { exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+    if (await batchPage.locator('.batch-row').count() !== 2) {
+      throw new Error('Expected two deterministic batch queue rows.');
+    }
+    await assertSnapshot(batchPage, 'batch-queue-dark-desktop');
+  } finally {
+    await batchPage.close();
+  }
+
   // Verify locale switching: persist Spanish, reload, and confirm multiple translated strings render.
   const esChecks = ['Suelta un video o GIF', 'Objetivo', 'Iniciar codificacion', 'Vista previa'];
   await page.evaluate(() => window.localStorage.setItem('gifm:locale:v1', JSON.stringify('es')));
@@ -178,6 +234,7 @@ try {
     const themeAttr = await page.evaluate(() => document.documentElement.dataset.theme);
     if (themeAttr !== theme) throw new Error(`Expected data-theme="${theme}", got "${themeAttr}".`);
     if (themeConsole.length) throw new Error(`Console errors in ${theme} theme: ${themeConsole.join('\n')}`);
+    await assertSnapshot(page, `empty-${theme}-desktop`);
   }
   await page.evaluate(() => window.localStorage.removeItem('gifm:theme:v1'));
 
@@ -186,6 +243,7 @@ try {
   await page.reload({ waitUntil: 'load' });
   const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   if (mobileOverflow) throw new Error('Mobile viewport (375px) has horizontal overflow.');
+  await assertSnapshot(page, 'empty-mobile-375');
   await page.setViewportSize({ width: 1280, height: 900 });
 
   // Verify keyboard focus: Tab reaches the file input and the start button.
@@ -226,6 +284,132 @@ async function assertVisibleText(page, text) {
   if (await locator.count() < 1) {
     throw new Error(`Expected visible text: ${text}`);
   }
+}
+
+async function assertSnapshot(page, name) {
+  const expectedPath = path.join(snapshotDir, `${name}.png`);
+  const screenshot = await page.screenshot({ animations: 'disabled', caret: 'hide', scale: 'css' });
+  if (updateSnapshots) {
+    await fs.mkdir(snapshotDir, { recursive: true });
+    await fs.writeFile(expectedPath, screenshot);
+    console.log(`Updated UI snapshot: ${path.relative(rootDir, expectedPath)}`);
+    return;
+  }
+
+  let expected;
+  try {
+    expected = await fs.readFile(expectedPath);
+  } catch {
+    throw new Error(`Missing UI snapshot ${path.relative(rootDir, expectedPath)}. Run npm run test:ui:update after an intentional visual change.`);
+  }
+  if (Buffer.compare(screenshot, expected) === 0) return;
+
+  const [actualPixels, expectedPixels] = await Promise.all([decodePng(screenshot), decodePng(expected)]);
+  const differingPixels = countPixelDifferences(actualPixels, expectedPixels);
+  const pixelCount = Math.floor(Math.min(actualPixels.length, expectedPixels.length) / 4);
+  const allowedPixels = Math.max(64, Math.floor(pixelCount * 0.0001));
+  if (actualPixels.length === expectedPixels.length && differingPixels <= allowedPixels) return;
+
+  const actualPath = path.join(uiSmokeDir, 'snapshots', `${name}.png`);
+  await fs.mkdir(path.dirname(actualPath), { recursive: true });
+  await fs.writeFile(actualPath, screenshot);
+  throw new Error(`UI snapshot mismatch for ${name}. Actual output: ${path.relative(rootDir, actualPath)}. Run npm run test:ui:update after reviewing the visual change.`);
+}
+
+function decodePng(png) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath, [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      'pipe:0',
+      '-f',
+      'rawvideo',
+      '-pix_fmt',
+      'rgba',
+      'pipe:1'
+    ], { windowsHide: true });
+    const chunks = [];
+    let stderr = '';
+    child.stdout.on('data', (chunk) => chunks.push(chunk));
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr || `Could not decode UI snapshot PNG (exit ${code}).`));
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    });
+    child.stdin.end(png);
+  });
+}
+
+function countPixelDifferences(actual, expected) {
+  if (actual.length !== expected.length) return Number.POSITIVE_INFINITY;
+  let differing = 0;
+  for (let index = 0; index < actual.length; index += 4) {
+    if (Math.abs(actual[index] - expected[index]) > 2
+      || Math.abs(actual[index + 1] - expected[index + 1]) > 2
+      || Math.abs(actual[index + 2] - expected[index + 2]) > 2
+      || Math.abs(actual[index + 3] - expected[index + 3]) > 2) {
+      differing += 1;
+    }
+  }
+  return differing;
+}
+
+function createSnapshotJob(id, status, stage, progress) {
+  return {
+    id,
+    status,
+    progress,
+    stage,
+    queuePosition: status === 'queued' ? 2 : undefined,
+    inputName: `${id}.mp4`,
+    inputSize: 12800,
+    targetBytes: 10 * 1024 * 1024,
+    startedAt: '2026-01-01T00:00:00.000Z',
+    warnings: [],
+    logs: [],
+    attempts: [],
+    settings: {
+      targetPreset: 'free',
+      targetMb: 10,
+      width: 480,
+      fps: 15,
+      startSec: 0,
+      durationSec: 1,
+      colors: 96,
+      dither: 'sierra2_4a',
+      bayerScale: 5,
+      paletteMode: 'diff',
+      perFramePalette: false,
+      encoderBackend: 'ffmpeg',
+      autoFit: true,
+      allowTrim: false,
+      optimize: true,
+      gifskiQuality: 90,
+      gifskiMotionQuality: 90,
+      loopCount: 0,
+      speed: 1,
+      playback: 'normal',
+      crop: { enabled: false, x: 0, y: 0, w: 1, h: 1 },
+      format: 'gif',
+      caption: { top: '', bottom: '' },
+      overlay: { enabled: false, id: '', position: 'bottom-right', scale: 0.25, opacity: 1 },
+      rotate: 0,
+      flipH: false,
+      flipV: false,
+      colorFilter: 'none',
+      saturation: 1,
+      gifsicleColorSpace: 'srgb',
+      gifsicleOptDither: 'none',
+      subtitleId: '',
+      borderRadius: 0
+    }
+  };
 }
 
 function waitForHealth() {
