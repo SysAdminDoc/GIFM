@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Dependencies: refreshed the production lock within declared ranges, including `express-rate-limit`, React, and lucide-react; production audit and freshness checks now pass with zero vulnerabilities.
+
 ## v0.5.3 - 2026-06-27
 
 - Release: added `npm run release:verify`, a single local gate that runs production audit/freshness checks, typecheck, build, unit tests, API smoke, UI smoke, portable packaging, package smoke, and writes a SHA-256 release manifest for the portable ZIP and bundled WebView2 bootstrapper.
