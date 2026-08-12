@@ -5,6 +5,7 @@
 - Dependencies: refreshed the production lock within declared ranges, including `express-rate-limit`, React, and lucide-react; production audit and freshness checks now pass with zero vulnerabilities.
 - Reliability: manifest loading now preserves corrupt or unsupported future versions under timestamped recovery names, reports the recovery state through diagnostics, and ignores entries whose media paths are gone. Added coverage for valid, missing-path, corrupt, and unsupported manifests.
 - UX: URL imports now run as cancellable progress jobs with percent, byte, speed, stage, timeout, failure, and partial-download cleanup reporting; private-host rejection remains enforced.
+- Security: API smoke now locks in the security headers/CSP, Express header suppression, cross-site write rejection, private URL rejection, and remote-mode rate limiting.
 
 ## v0.5.3 - 2026-06-27
 

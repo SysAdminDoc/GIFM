@@ -106,6 +106,8 @@ server.stderr.on('data', (chunk) => {
 try {
   await waitForHealth();
   await assertHealthDiagnostics();
+  await assertSecurityHeaders();
+  await assertRemoteRateLimit();
   await assertMalformedMultipart();
   await assertTooLargeUpload();
   await assertUnsupportedContent();
@@ -181,6 +183,73 @@ async function assertHealthDiagnostics() {
   }
   if (health.maxConcurrentJobs !== 1) {
     throw new Error(`Invalid GIFM_MAX_CONCURRENT_JOBS should fall back to 1: ${JSON.stringify(health, null, 2)}`);
+  }
+}
+
+async function assertSecurityHeaders() {
+  const response = await fetch(`${baseUrl}/api/health`);
+  const expected = [
+    ['x-content-type-options', 'nosniff'],
+    ['referrer-policy', 'no-referrer'],
+    ['cross-origin-opener-policy', 'same-origin'],
+    ['cross-origin-resource-policy', 'same-origin']
+  ];
+  for (const [name, value] of expected) {
+    if (response.headers.get(name) !== value) {
+      throw new Error(`Expected ${name}: ${value}, got ${response.headers.get(name)}`);
+    }
+  }
+  if (response.headers.get('x-powered-by')) throw new Error('Express X-Powered-By header was exposed.');
+  const csp = response.headers.get('content-security-policy') || '';
+  for (const directive of ["default-src 'self'", "object-src 'none'", "frame-ancestors 'none'"]) {
+    if (!csp.includes(directive)) throw new Error(`CSP is missing ${directive}: ${csp}`);
+  }
+}
+
+async function assertRemoteRateLimit() {
+  const remotePort = 4185;
+  const remoteOutputDir = path.join(rootDir, 'data', 'smoke-remote-output');
+  await fs.rm(remoteOutputDir, { recursive: true, force: true });
+  const remoteServer = spawn(process.execPath, ['server/index.js'], {
+    cwd: rootDir,
+    env: {
+      ...process.env,
+      GIFM_PORT: String(remotePort),
+      GIFM_ALLOW_REMOTE: '1',
+      GIFM_RATE_LIMIT_MAX: '1',
+      GIFM_OUTPUT_DIR: remoteOutputDir,
+      GIFM_GIFSKI_PATH: ''
+    },
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let remoteLog = '';
+  remoteServer.stdout.on('data', (chunk) => { remoteLog += chunk.toString(); });
+  remoteServer.stderr.on('data', (chunk) => { remoteLog += chunk.toString(); });
+
+  try {
+    const deadline = Date.now() + 90000;
+    let healthy = false;
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${remotePort}/api/health`);
+        if (response.ok) {
+          healthy = true;
+          break;
+        }
+      } catch {
+        // Remote-mode server is still starting.
+      }
+      await delay(300);
+    }
+    if (!healthy) throw new Error(`Remote-mode server did not become healthy.\n${remoteLog}`);
+
+    const limited = await fetch(`http://127.0.0.1:${remotePort}/api/health`);
+    if (limited.status !== 429 || (!limited.headers.get('ratelimit') && !limited.headers.get('ratelimit-policy'))) {
+      throw new Error(`Remote rate limiter did not reject the second request: ${limited.status} ${await limited.text()}`);
+    }
+  } finally {
+    remoteServer.kill();
   }
 }
 
